@@ -164,15 +164,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         if (match == null) status = "No contact found for '${command.first}'. Check the name in Contacts."
                         else {
                             val action = PendingAction(command.second, match, command.third)
-                            if (command.second == "whatsapp" && autoSend) {
-                                onConfirmAction(action)
-                                status = "Opening WhatsApp and attempting auto-send for ${match.name}. Check the result."
-                                onSpeak("Opening WhatsApp for ${match.name}.")
-                            } else {
-                                pending = action
-                                status = "Please review and confirm this action."
-                                onSpeak("I found ${match.name}. Please confirm before I continue.")
-                            }
+                            pending = action
+                            status = "Please review recipient and message, then confirm."
+                            onSpeak("I found ${match.name}. Please review the message and confirm before I send it.")
                         }
                     }
                 } else {
@@ -194,13 +188,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     if (match == null) { val reply = "Contact '${command.first}' nahi mila. Contacts mein naam check karo."; messages.add(ChatMessage(reply, false)); onSpeak(reply) }
                     else {
                         val action = PendingAction(command.second, match, command.third)
-                        if (command.second == "whatsapp" && autoSend) {
-                            onConfirmAction(action)
-                            status = "Opening WhatsApp and attempting auto-send for ${match.name}. Check the result."
-                            onSpeak("Opening WhatsApp for ${match.name}.")
-                        } else {
-                            pending = action; status = "Confirmation required"; onSpeak("${match.name} found. Please confirm.")
-                        }
+                        pending = action
+                        status = "Confirmation required — review recipient and message"
+                        onSpeak("${match.name} found. Please review the message and confirm.")
                     }
                 }
             } else { val reply = localReply(clean); messages.add(ChatMessage(reply, false)); onSpeak(reply) }
@@ -255,7 +245,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                             micPermission.launch(Manifest.permission.RECORD_AUDIO)
                         } else {
                             listening = true; status = "Listening — speak now"
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply { putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-PK"); putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak to Haris AI") }
+                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply { putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM); putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ur-PK"); putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "ur-PK"); putExtra(RecognizerIntent.EXTRA_PROMPT, "Haris AI se baat karein") }
                             try { speechLauncher.launch(intent) } catch (_: Exception) { listening = false; status = "Speech service not available on this phone" }
                         }
                     }) { Icon(Icons.Default.Mic, contentDescription = "Speak", tint = Cyan) }
