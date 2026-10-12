@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_auto_send_description">Optional Haris AI WhatsApp auto-send. When explicitly enabled in Haris AI, it attempts to tap Send in WhatsApp. UI changes can cause failures. Turn it off any time.</string>
+</resources>
