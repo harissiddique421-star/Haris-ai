@@ -75,7 +75,14 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     override fun onInit(status: Int) {
         ttsReady = status == TextToSpeech.SUCCESS
-        if (ttsReady) tts?.language = Locale("en", "PK")
+        if (ttsReady) {
+            val engine = tts
+            val candidates = listOf(Locale("ur", "PK"), Locale("hi", "IN"), Locale("en", "IN"), Locale.US)
+            val chosen = candidates.firstOrNull { engine?.isLanguageAvailable(it) == TextToSpeech.LANG_AVAILABLE || engine?.isLanguageAvailable(it) == TextToSpeech.LANG_COUNTRY_AVAILABLE }
+            if (chosen != null) engine?.language = chosen
+            engine?.setSpeechRate(0.94f)
+            engine?.setPitch(1.02f)
+        }
     }
 
     private fun say(text: String) { if (ttsReady) tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "haris-ai") }
@@ -278,17 +285,25 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 }
 
 private fun parseCommand(text: String): Triple<String, String, String>? {
-    val normalized = text.trim()
+    val normalized = text.trim().replace(Regex("\\s+"), " ")
     val call = Regex("(?i)^(?:please\\s+)?(?:call|phone|dial)\\s+(.+)$").matchEntire(normalized)
     if (call != null) return Triple(call.groupValues[1].trim(), "call", "")
-    val wa = Regex("(?i)^(?:send\\s+)?(?:a\\s+)?whats?app(?:\\s+message)?\\s+(.+?)\\s+(?:message|saying|that\\s+says)\\s+(.+)$").matchEntire(normalized)
+
+    // Roman Urdu/Hinglish: "WhatsApp par Anas ko msg karo hi"
+    val romanUrdu = Regex("(?i)^(?:please\\s+)?(?:whats?app|wa)\\s+(?:par|pe|mein)\\s+(.+?)\\s+ko\\s+(?:message|msg)\\s+(?:karo|kro|karna|bhejo|bhejna|send\\s+karo)\\s+(.+)$").matchEntire(normalized)
+    if (romanUrdu != null) return Triple(romanUrdu.groupValues[1].trim(), "whatsapp", romanUrdu.groupValues[2].trim())
+
+    val romanUrduAlt = Regex("(?i)^(.+?)\\s+ko\\s+(?:whats?app|wa)\\s+(?:par|pe)\\s+(?:message|msg)\\s+(?:karo|kro|karna|bhejo|bhejna)\\s+(.+)$").matchEntire(normalized)
+    if (romanUrduAlt != null) return Triple(romanUrduAlt.groupValues[1].trim(), "whatsapp", romanUrduAlt.groupValues[2].trim())
+
+    val wa = Regex("(?i)^(?:send\\s+)?(?:a\\s+)?whats?app(?:\\s+message)?\\s+(.+?)\\s+(?:message|msg|saying|that\\s+says)\\s+(.+)$").matchEntire(normalized)
     if (wa != null) return Triple(wa.groupValues[1].trim(), "whatsapp", wa.groupValues[2].trim())
     return null
 }
 
 private fun localReply(text: String): String = when {
-    text.contains("hello", true) || text.contains("salam", true) -> "Walaikum assalam! Main sun rahi hoon. Abhi native starter mode mein hoon."
-    text.contains("time", true) -> "Phone ka current time ${java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(java.util.Date())} hai."
-    text.contains("help", true) -> "Commands: 'call Ali' ya 'WhatsApp Ali message Salam'. Contact permission allow karni hogi. WhatsApp auto-send optional hai; Accessibility permission aur in-app toggle dono chahiye."
-    else -> "Tumhari baat samajh aayi: '$text'. Real AI brain aur always-on wake word abhi connected nahi hain."
+    text.contains("hello", true) || text.contains("salam", true) -> "Walaikum assalam, Haris! Kya haal hai? Main yahan hoon."
+    text.contains("time", true) -> "Phone ka current time ${java.text.SimpleDateFormat(\"h:mm a\", Locale.getDefault()).format(java.util.Date())} hai."
+    text.contains("help", true) -> "Tum keh sakte ho: Anas ko WhatsApp par message karo hi, ya call Ali. Contact permission zaroori hai. Ye version abhi local commands tak limited hai."
+    else -> "Main abhi is baat ka jawab khud generate nahi kar sakti, kyun ke real AI service connect nahi hai. Filhaal main calls aur WhatsApp commands samajhne ki koshish kar sakti hoon."
 }
