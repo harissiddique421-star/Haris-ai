@@ -290,10 +290,10 @@ private fun parseCommand(text: String): Triple<String, String, String>? {
     if (call != null) return Triple(call.groupValues[1].trim(), "call", "")
 
     // Roman Urdu/Hinglish: "WhatsApp par Anas ko msg karo hi"
-    val romanUrdu = Regex("(?i)^(?:please\\s+)?(?:whats?app|wa)\\s+(?:par|pe|mein)\\s+(.+?)\\s+ko\\s+(?:message|msg)\\s+(?:karo|kro|karna|bhejo|bhejna|send\\s+karo)\\s+(.+)$").matchEntire(normalized)
+    val romanUrdu = Regex("(?i)^(?:please\\s+)?(?:whats?app|wa)\\s+(?:par|pe|pr|mein)\\s+(.+?)\\s+ko\\s+(?:message|msg)\\s+(?:karo|kro|karna|bhejo|bhejna|send\\s+karo)\\s+(.+)$").matchEntire(normalized)
     if (romanUrdu != null) return Triple(romanUrdu.groupValues[1].trim(), "whatsapp", romanUrdu.groupValues[2].trim())
 
-    val romanUrduAlt = Regex("(?i)^(.+?)\\s+ko\\s+(?:whats?app|wa)\\s+(?:par|pe)\\s+(?:message|msg)\\s+(?:karo|kro|karna|bhejo|bhejna)\\s+(.+)$").matchEntire(normalized)
+    val romanUrduAlt = Regex("(?i)^(.+?)\\s+ko\\s+(?:whats?app|wa)\\s+(?:par|pe|pr)\\s+(?:message|msg)\\s+(?:karo|kro|karna|bhejo|bhejna)\\s+(.+)$").matchEntire(normalized)
     if (romanUrduAlt != null) return Triple(romanUrduAlt.groupValues[1].trim(), "whatsapp", romanUrduAlt.groupValues[2].trim())
 
     val wa = Regex("(?i)^(?:send\\s+)?(?:a\\s+)?whats?app(?:\\s+message)?\\s+(.+?)\\s+(?:message|msg|saying|that\\s+says)\\s+(.+)$").matchEntire(normalized)
