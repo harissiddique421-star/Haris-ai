@@ -303,7 +303,7 @@ private fun parseCommand(text: String): Triple<String, String, String>? {
 
 private fun localReply(text: String): String = when {
     text.contains("hello", true) || text.contains("salam", true) -> "Walaikum assalam, Haris! Kya haal hai? Main yahan hoon."
-    text.contains("time", true) -> "Phone ka current time ${java.text.SimpleDateFormat(\"h:mm a\", Locale.getDefault()).format(java.util.Date())} hai."
+    text.contains("time", true) -> "Phone ka current time " + java.text.SimpleDateFormat("h:mm a", Locale.getDefault()).format(java.util.Date()) + " hai."
     text.contains("help", true) -> "Tum keh sakte ho: Anas ko WhatsApp par message karo hi, ya call Ali. Contact permission zaroori hai. Ye version abhi local commands tak limited hai."
     else -> "Main abhi is baat ka jawab khud generate nahi kar sakti, kyun ke real AI service connect nahi hai. Filhaal main calls aur WhatsApp commands samajhne ki koshish kar sakti hoon."
 }
