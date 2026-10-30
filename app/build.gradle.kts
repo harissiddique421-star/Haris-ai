@@ -14,6 +14,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "API_BASE_URL", "\"https://haris-ai-haris-8b24.vercel.app\"")
     }
 
     buildFeatures {
@@ -21,9 +22,6 @@ android {
         buildConfig = true
     }
 
-    defaultConfig {
-        buildConfigField("String", "API_BASE_URL", "\"https://haris-ai-haris-8b24.vercel.app\"")
-    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
