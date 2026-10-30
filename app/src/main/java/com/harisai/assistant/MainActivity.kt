@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import java.net.URLEncoder
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 private val Night = Color(0xFF080D18)
 private val Panel = Color(0xFF111A2B)
@@ -135,6 +136,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         onSetAutoSend: (Boolean) -> Unit,
         onOpenAccessibilitySettings: () -> Unit
     ) {
+        val scope = rememberCoroutineScope()
         var input by remember { mutableStateOf("") }
         var listening by remember { mutableStateOf(false) }
         var pending by remember { mutableStateOf<PendingAction?>(null) }
@@ -170,8 +172,13 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         }
                     }
                 } else {
-                    val reply = localReply(spoken)
-                    messages.add(ChatMessage(reply, false)); status = "Voice recognized"; onSpeak(reply)
+                    status = "Haris AI is thinking…"
+                    scope.launch {
+                        val reply = GeminiAssistant.reply(spoken)
+                        messages.add(ChatMessage(reply, false))
+                        status = "AI response ready"
+                        onSpeak(reply)
+                    }
                 }
                 input = ""
             } else status = "I didn't catch that. Try again."
@@ -193,7 +200,15 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         onSpeak("${match.name} found. Please review the message and confirm.")
                     }
                 }
-            } else { val reply = localReply(clean); messages.add(ChatMessage(reply, false)); onSpeak(reply) }
+            } else {
+                status = "Haris AI is thinking…"
+                scope.launch {
+                    val reply = GeminiAssistant.reply(clean)
+                    messages.add(ChatMessage(reply, false))
+                    status = "AI response ready"
+                    onSpeak(reply)
+                }
+            }
         }
 
         MaterialTheme(colorScheme = darkColorScheme(primary = Cyan, secondary = Purple, background = Night, surface = Panel, onBackground = SoftWhite, onSurface = SoftWhite)) {
