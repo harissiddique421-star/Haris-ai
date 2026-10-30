@@ -18,6 +18,11 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+
+    defaultConfig {
+        buildConfigField("String", "API_BASE_URL", "\"https://haris-ai-haris-8b24.vercel.app\"")
     }
 
     compileOptions {
