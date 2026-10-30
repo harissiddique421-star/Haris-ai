@@ -1,4 +1,9 @@
-import type { VercelRequest, VercelResponse } from "@vercel/node";
+type VercelRequest = { method?: string; body?: unknown };
+type VercelResponse = {
+  setHeader(name: string, value: string): void;
+  status(code: number): VercelResponse;
+  json(body: unknown): VercelResponse;
+};
 
 const SYSTEM_INSTRUCTION = `You are Haris AI, a warm, respectful female assistant for Haris. Speak naturally in Roman Urdu when the user speaks Roman Urdu, and match the user's language. Do not repeat the user's request as if it were an answer. Answer the actual question, be emotionally aware without pretending to have human feelings, and be concise. For phone actions such as messaging or calling, explain that the Android app must handle the action and require confirmation before sending.`;
 
