@@ -6,6 +6,9 @@ on:
     branches:
       - main
       - feat/haris-ai-gemini-android
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
