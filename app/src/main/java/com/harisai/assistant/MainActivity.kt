@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +65,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
-        setContent { HarisAIApp(
+        setContent {
+            var accessToken by remember { mutableStateOf<String?>(null) }
+            if (accessToken == null) {
+                AuthScreen(
+                    onAuthenticated = { accessToken = it },
+                    onSpeak = { say(it) }
+                )
+            } else HarisAIApp(
+            accessToken = accessToken!!,
+            onSignOut = { accessToken = null },
             onSpeak = { say(it) },
             onConfirmAction = { action -> performPendingAction(action) },
             onRequestContacts = { hasContactsPermission() },
@@ -129,6 +139,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     @Composable
     private fun HarisAIApp(
+        accessToken: String,
+        onSignOut: () -> Unit,
         onSpeak: (String) -> Unit,
         onConfirmAction: (PendingAction) -> Unit,
         onRequestContacts: () -> Boolean,
@@ -175,7 +187,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 } else {
                     status = "Haris AI is thinking…"
                     scope.launch {
-                        val reply = GeminiAssistant.reply(spoken)
+                        val reply = GeminiAssistant.reply(spoken, accessToken)
                         messages.add(ChatMessage(reply, false))
                         status = "AI response ready"
                         onSpeak(reply)
@@ -204,7 +216,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             } else {
                 status = "Haris AI is thinking…"
                 scope.launch {
-                    val reply = GeminiAssistant.reply(clean)
+                    val reply = GeminiAssistant.reply(clean, accessToken)
                     messages.add(ChatMessage(reply, false))
                     status = "AI response ready"
                     onSpeak(reply)
@@ -294,6 +306,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("Assistant preferences", color = Cyan, fontSize = 12.sp)
+                            OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text("WhatsApp Auto-Send", color = SoftWhite, fontSize = 14.sp)
