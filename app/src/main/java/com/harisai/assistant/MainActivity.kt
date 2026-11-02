@@ -38,6 +38,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -64,7 +65,16 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         tts = TextToSpeech(this, this)
-        setContent { HarisAIApp(
+        setContent {
+            var accessToken by remember { mutableStateOf<String?>(null) }
+            if (accessToken == null) {
+                AuthScreen(
+                    onAuthenticated = { accessToken = it },
+                    onSpeak = { say(it) }
+                )
+            } else HarisAIApp(
+            accessToken = accessToken!!,
+            onSignOut = { accessToken = null },
             onSpeak = { say(it) },
             onConfirmAction = { action -> performPendingAction(action) },
             onRequestContacts = { hasContactsPermission() },
@@ -129,6 +139,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
     @Composable
     private fun HarisAIApp(
+        accessToken: String,
+        onSignOut: () -> Unit,
         onSpeak: (String) -> Unit,
         onConfirmAction: (PendingAction) -> Unit,
         onRequestContacts: () -> Boolean,
@@ -142,6 +154,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
         var pending by remember { mutableStateOf<PendingAction?>(null) }
         var status by remember { mutableStateOf("Ready when you are") }
         var autoSend by remember { mutableStateOf(autoSendEnabled()) }
+        var settingsOpen by remember { mutableStateOf(false) }
         val messages = remember { mutableStateListOf(ChatMessage("Assalam-o-alaikum Haris! Main Haris AI hoon. Mic dabao ya message type karo.", false)) }
         val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             status = if (granted) "Contacts permission enabled" else "Contacts permission denied"
@@ -174,7 +187,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                 } else {
                     status = "Haris AI is thinking…"
                     scope.launch {
-                        val reply = GeminiAssistant.reply(spoken)
+                        val reply = GeminiAssistant.reply(spoken, accessToken)
                         messages.add(ChatMessage(reply, false))
                         status = "AI response ready"
                         onSpeak(reply)
@@ -203,7 +216,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             } else {
                 status = "Haris AI is thinking…"
                 scope.launch {
-                    val reply = GeminiAssistant.reply(clean)
+                    val reply = GeminiAssistant.reply(clean, accessToken)
                     messages.add(ChatMessage(reply, false))
                     status = "AI response ready"
                     onSpeak(reply)
@@ -218,11 +231,11 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         Text("HARIS AI", fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = SoftWhite, letterSpacing = 2.sp)
                         Text("PERSONAL VOICE ASSISTANT", fontSize = 10.sp, color = Cyan, letterSpacing = 1.5.sp)
                     }
-                    IconButton(onClick = { status = "Voice recognition uses Android speech services. Wake-word always-on is not enabled." }) { Icon(Icons.Default.Settings, contentDescription = "Status", tint = Muted) }
+                    IconButton(onClick = { settingsOpen = true }) { Icon(Icons.Default.Settings, contentDescription = "Settings", tint = SoftWhite) }
                 }
-                Box(Modifier.fillMaxWidth().weight(0.52f), contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(142.dp).border(1.dp, Brush.sweepGradient(listOf(Cyan, Purple, Color(0xFF344D83), Cyan)), CircleShape).padding(12.dp).border(1.dp, Color(0x6655E7F4), CircleShape).padding(10.dp).background(Brush.radialGradient(listOf(Color(0xFF335A80), Color(0xFF141B3A), Color(0xFF0A1020))), CircleShape), contentAlignment = Alignment.Center) {
-                        Box(Modifier.size(50.dp).background(Brush.radialGradient(listOf(Color.White, Cyan, Color(0xFF3D68BD))), CircleShape))
+                Box(Modifier.fillMaxWidth().weight(0.28f).heightIn(min = 145.dp, max = 205.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(118.dp).border(1.dp, Brush.sweepGradient(listOf(Cyan, Purple, Color(0xFF344D83), Cyan)), CircleShape).padding(12.dp).border(1.dp, Color(0x6655E7F4), CircleShape).padding(10.dp).background(Brush.radialGradient(listOf(Color(0xFF335A80), Color(0xFF141B3A), Color(0xFF0A1020))), CircleShape), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(42.dp).background(Brush.radialGradient(listOf(Color.White, Cyan, Color(0xFF3D68BD))), CircleShape))
                     }
                     Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (listening) "LISTENING..." else "VOICE READY", color = Cyan, fontSize = 11.sp, letterSpacing = 2.sp, fontWeight = FontWeight.Bold)
@@ -284,6 +297,41 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                     OutlinedButton(onClick = { onOpenAccessibilitySettings(); status = "Accessibility settings opened. Enable Haris AI Auto-Send only if you understand the risks." }, modifier = Modifier.weight(1f)) { Icon(Icons.Default.Chat, null, modifier = Modifier.size(15.dp)); Spacer(Modifier.width(5.dp)); Text("Auto-Send setup", fontSize = 11.sp) }
                 }
                 Text("NATIVE STARTER • WAKE WORD NOT ENABLED • AUTO-SEND OPT-IN", Modifier.fillMaxWidth().padding(top = 6.dp), textAlign = TextAlign.Center, color = Color(0xFF71819B), fontSize = 8.sp, letterSpacing = 0.7.sp)
+            }
+            if (settingsOpen) {
+                AlertDialog(
+                    onDismissRequest = { settingsOpen = false },
+                    containerColor = Panel,
+                    title = { Text("Haris AI Settings", color = SoftWhite, fontWeight = FontWeight.Bold) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Assistant preferences", color = Cyan, fontSize = 12.sp)
+                            OutlinedButton(onClick = onSignOut, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text("WhatsApp Auto-Send", color = SoftWhite, fontSize = 14.sp)
+                                    Text("Accessibility permission zaroori hai", color = Muted, fontSize = 10.sp)
+                                }
+                                Switch(checked = autoSend, onCheckedChange = {
+                                    autoSend = it; onSetAutoSend(it)
+                                    status = if (it) "Auto-send enabled — Accessibility setup required" else "Auto-send disabled"
+                                })
+                            }
+                            Divider(color = Color(0x334D6685))
+                            Text("Microphone Android speech recognition se kaam karta hai.", color = Muted, fontSize = 11.sp)
+                            Text("Wake phrase / always-on listening abhi available nahi.", color = Muted, fontSize = 11.sp)
+                            OutlinedButton(onClick = {
+                                settingsOpen = false
+                                onOpenAccessibilitySettings()
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Open Accessibility Settings") }
+                            OutlinedButton(onClick = {
+                                settingsOpen = false
+                                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                            }, modifier = Modifier.fillMaxWidth()) { Text("App Permissions & Settings") }
+                        }
+                    },
+                    confirmButton = { TextButton(onClick = { settingsOpen = false }) { Text("Done", color = Cyan) } }
+                )
             }
         }
     }

@@ -15,6 +15,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "API_BASE_URL", "\"https://haris-ai-haris-8b24.vercel.app\"")
+        buildConfigField("String", "SUPABASE_URL", "\"https://dcvgffmcvqgpbmoabdqd.supabase.co\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_XoTTQYt9dirmVGxNFyyfew_ysGKa984\"")
     }
 
     buildFeatures {
