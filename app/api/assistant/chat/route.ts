@@ -16,6 +16,31 @@ Never ask for passwords, API keys, or OTPs.
 
 export async function POST(request: NextRequest) {
   try {
+    // Require a real Supabase user session. The publishable key is public;
+    // the caller's access token is verified by Supabase Auth on every request.
+    const authorization = request.headers.get("authorization");
+    const accessToken = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+
+    if (!supabaseUrl || !publishableKey) {
+      return NextResponse.json({ error: "Authentication is not configured on the server." }, { status: 503 });
+    }
+    if (!accessToken) {
+      return NextResponse.json({ error: "Sign in required." }, { status: 401 });
+    }
+
+    const authResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      method: "GET",
+      headers: {
+        apikey: publishableKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    });
+    if (!authResponse.ok) {
+      return NextResponse.json({ error: "Your session is invalid or expired. Please sign in again." }, { status: 401 });
+    }
     const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
     const now = Date.now();
     const bucket = requestBuckets.get(clientIp);
