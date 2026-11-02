@@ -7,7 +7,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object GeminiAssistant {
-    suspend fun reply(text: String): String = withContext(Dispatchers.IO) {
+    suspend fun reply(text: String, accessToken: String): String = withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
             connection = (URL("${BuildConfig.API_BASE_URL}/api/assistant/chat").openConnection() as HttpURLConnection).apply {
@@ -17,6 +17,7 @@ object GeminiAssistant {
                 doOutput = true
                 setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 setRequestProperty("Accept", "application/json")
+                setRequestProperty("Authorization", "Bearer $accessToken")
             }
             val payload = JSONObject().put("text", text.take(1500)).toString()
             connection.outputStream.use { it.write(payload.toByteArray(Charsets.UTF_8)) }
