@@ -21,8 +21,10 @@ export type MobileAction =
   | { action: 'set_alarm'; hour: number; minute: number; label?: string }
   | { action: 'set_reminder'; text: string; in_minutes?: number; hour?: number; minute?: number }
   | { action: 'play_music'; query: string }
+  | { action: 'play_youtube'; query?: string; url?: string; kind?: 'video' | 'music' }
+  | { action: 'media'; command: 'pause' | 'resume' | 'stop' | 'next' | 'previous' }
   | { action: 'torch'; on: boolean }
-  | { action: 'volume'; stream?: 'media' | 'ring' | 'alarm'; direction?: 'up' | 'down' | 'mute' | 'max'; percent?: number }
+  | { action: 'volume'; stream?: 'media' | 'ring' | 'alarm'; direction?: 'up' | 'down' | 'mute' | 'unmute' | 'max'; percent?: number }
   | { action: 'ringer_mode'; mode: 'silent' | 'vibrate' | 'normal' }
   | { action: 'brightness'; direction?: 'up' | 'down' | 'max' | 'auto'; percent?: number }
   | { action: 'battery' }
@@ -38,13 +40,16 @@ export type MobileAction =
   | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right' };
 export const MOBILE_TOOL = {
   name: 'mobile_action',
-  description: 'Perform an Android action requested by the user: remember a fact about the user (remember), forget it (forget), say what you remember (list_memories), switch persona (set_persona: friday, gf, professional, venom), turn driving mode on or off (set_driving_mode with on), turn spoken caller names on or off (set_call_announce with on), turn the wake phrase on or off (set_wake_word with on), open an email draft (email with recipient, subject, message; recipient "me" is the user), save, run, list or delete a routine of saved commands (save_routine, run_routine, list_routines, delete_routine), go to sleep and end the Live call when the user says Bye FRIDAY (sleep), set a timer (set_timer), open a calendar event draft (add_event), save a document you wrote as a PDF or text file in Downloads (make_document with title, text, format), open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, start a WhatsApp voice or video call (whatsapp_call, video true for video), open a saved contact, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. Never just open WhatsApp when the user wants to message or call someone: use whatsapp_message or whatsapp_call. WhatsApp messages and calls, SMS, phone calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
+  description: 'Perform an Android action requested by the user: remember a fact about the user (remember), forget it (forget), say what you remember (list_memories), switch persona (set_persona: friday, gf, professional, venom), turn driving mode on or off (set_driving_mode with on), turn spoken caller names on or off (set_call_announce with on), turn the wake phrase on or off (set_wake_word with on), open an email draft (email with recipient, subject, message; recipient "me" is the user), save, run, list or delete a routine of saved commands (save_routine, run_routine, list_routines, delete_routine), go to sleep and end the Live call when the user says Bye FRIDAY (sleep), set a timer (set_timer), open a calendar event draft (add_event), play a song or video on YouTube and check it really plays (play_youtube with query or url), control playback (media: pause, resume, stop, next, previous), save a document you wrote as a PDF or text file in Downloads (make_document with title, text, format), open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, start a WhatsApp voice or video call (whatsapp_call, video true for video), open a saved contact, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. Never just open WhatsApp when the user wants to message or call someone: use whatsapp_message or whatsapp_call. WhatsApp messages and calls, SMS, phone calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
   parameters: { type: 'OBJECT', properties: {
-    action: { type: 'STRING', enum: ['remember', 'forget', 'list_memories', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'email', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'sleep', 'set_timer', 'add_event', 'make_document', 'open_dialer', 'open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
+    action: { type: 'STRING', enum: ['remember', 'forget', 'list_memories', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'email', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'sleep', 'set_timer', 'add_event', 'make_document', 'open_dialer', 'open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'play_youtube', 'media', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
     app: { type: 'STRING', description: 'App name, such as WhatsApp (WP), YouTube or Chrome. Only for open_app.' },
     recipient: { type: 'STRING', description: 'Saved contact name as spoken, or a full international phone number with country code. For whatsapp_message, whatsapp_call, open_contact, send_sms and call. Contacts and their WhatsApp accounts are resolved locally.' },
     message: { type: 'STRING', description: 'Complete WhatsApp, SMS or email message, exactly as the user said it. Ask for it if missing.' },
     subject: { type: 'STRING', description: 'For email: a short subject line.' },
+    url: { type: 'STRING', description: 'For play_youtube: a YouTube link the user gave (watch, youtu.be, shorts or music link).' },
+    kind: { type: 'STRING', enum: ['video', 'music'], description: 'For play_youtube: music for songs (adds a mix so next/previous work), video otherwise.' },
+    command: { type: 'STRING', enum: ['pause', 'resume', 'stop', 'next', 'previous'], description: 'For media: control whatever is playing.' },
     title: { type: 'STRING', description: 'For make_document: the document title.' },
     format: { type: 'STRING', enum: ['pdf', 'txt'], description: 'For make_document. Default pdf.' },
     name: { type: 'STRING', description: 'For save_routine, run_routine and delete_routine: the routine name, like morning.' },
@@ -64,7 +69,7 @@ export const MOBILE_TOOL = {
     video: { type: 'BOOLEAN', description: 'For whatsapp_call: true for a video call, false or omitted for a voice call.' },
     on: { type: 'BOOLEAN', description: 'For torch, set_driving_mode, set_call_announce and set_wake_word: true to turn on, false to turn off.' },
     stream: { type: 'STRING', enum: ['media', 'ring', 'alarm'], description: 'For volume. Default media.' },
-    direction: { type: 'STRING', enum: ['up', 'down', 'mute', 'max', 'auto', 'left', 'right'], description: 'For volume or brightness (auto is brightness only), or scroll (up, down, left, right).' },
+    direction: { type: 'STRING', enum: ['up', 'down', 'mute', 'unmute', 'max', 'auto', 'left', 'right'], description: 'For volume or brightness (auto is brightness only), or scroll (up, down, left, right).' },
     percent: { type: 'INTEGER', description: '0-100 for volume or brightness.' },
     mode: { type: 'STRING', description: 'ringer_mode: silent, vibrate or normal. navigate: driving, walking or bicycling.' },
     place: { type: 'STRING', description: 'For navigate: destination name or address.' },
@@ -77,6 +82,22 @@ export const MOBILE_TOOL = {
 /** Exact local typed commands; Live voice uses structured Gemini function calls. */
 export function parseMobileAction(input: string): MobileAction | null {
   const text = input.trim().replace(/^(?:hey\s+)?(?:friday|फ्राइडे|myraa|myra|मायरा)[,\s:]+/iu, '').replace(/^(?:please|can you|could you)\s+/i, '').trim();
+  const link = /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^\s#]*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)[A-Za-z0-9_-]{11}[^\s]*/i.exec(text);
+  if (link && text.replace(link[0], ' ').trim().split(/\s+/).filter(Boolean).every(word => /^(?:play|open|this|ye|yeh|is|video|song|gaana|link|karo|chalao|lagao|kholo|please|on|youtube)$/i.test(word))) return { action: 'play_youtube', url: link[0] };
+  const bare = text.replace(/[.!?।]+$/u, '');
+  if (/^(?:pause|pause (?:it|the (?:song|video|music))|ruko|ruk jao|pause karo|gaana roko)$/i.test(bare)) return { action: 'media', command: 'pause' };
+  if (/^(?:resume|continue|unpause|resume (?:the )?(?:song|video|music)|play again|dobara chalao|phir se chalao)$/i.test(bare)) return { action: 'media', command: 'resume' };
+  if (/^(?:stop|stop (?:the )?(?:song|video|music|playback)|music band karo|gaana band karo|band karo)$/i.test(bare)) return { action: 'media', command: 'stop' };
+  if (/^(?:next|next (?:song|video|track)|skip|skip (?:this )?(?:song|video)|agla gaana|agla gana|agla song|next song chalao)$/i.test(bare)) return { action: 'media', command: 'next' };
+  if (/^(?:previous|previous (?:song|video|track)|go back a song|pichla gaana|pichla gana|pichla song|last song)$/i.test(bare)) return { action: 'media', command: 'previous' };
+  if (/^(?:mute|mute (?:it|the (?:sound|volume|phone))|awaz band karo)$/i.test(bare)) return { action: 'volume', direction: 'mute' };
+  if (/^(?:unmute|volume unmute|unmute (?:it|the (?:sound|volume|phone))|awaz kholo|awaz wapas lao)$/i.test(bare)) return { action: 'volume', direction: 'unmute' };
+  let yt = /^(?:open\s+youtube\s+and\s+)?play\s+(?:a\s+|the\s+)?(?:youtube\s+)?(.+?)\s+(?:on|in)\s+youtube$/i.exec(bare) || /^(?:open\s+youtube\s+and\s+)play\s+(?:a\s+|the\s+)?(.+)$/i.exec(bare) || /^play\s+(?:a\s+)?youtube\s+(?:song|video)\s+(.+)$/i.exec(bare) || /^(?:youtube|yt)\s+(?:par|pe|per|on)\s+(.+?)\s+(?:chalao|lagao|play karo|bajao)$/i.exec(bare);
+  if (yt && !/\band\b/i.test(yt[1])) {
+    const query = yt[1].replace(/\s+(?:song|gaana|gana|video)$/i, '').replace(/^(?:song|video)\s+/i, '').trim();
+    const music = /\b(?:song|gaana|gana|music|track)\b/i.test(bare);
+    if (query) return music ? { action: 'play_youtube', query, kind: 'music' } : { action: 'play_youtube', query };
+  }
   let match = /^(?:open\s+)?(?:youtube|you tube)(?:\s+and)?\s+search(?:\s+for)?\s+(.+)$/i.exec(text) || /^search(?:\s+for)?\s+(.+?)\s+on\s+youtube$/i.exec(text);
   if (match) return { action: 'search_youtube', query: match[1].trim() };
   match = /^(?:open\s+)?(?:chrome|google chrome|browser)(?:\s+and)?\s+search(?:\s+for)?\s+(.+)$/i.exec(text) || /^search(?:\s+for)?\s+(.+?)\s+(?:on|in)\s+(?:chrome|google|browser)$/i.exec(text);

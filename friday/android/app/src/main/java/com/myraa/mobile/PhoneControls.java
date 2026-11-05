@@ -37,9 +37,14 @@ final class PhoneControls {
     if(percent>=0&&percent<=100)target=Math.round(max*percent/100f);
     else if("up".equals(direction))target=Math.min(max,now+Math.max(1,max/5));
     else if("down".equals(direction))target=Math.max(0,now-Math.max(1,max/5));
-    else if("mute".equals(direction))target=0;
+    else if("mute".equals(direction)){target=0;if(now>0)activity.getSharedPreferences("myraa.mobile.v1",0).edit().putInt("unmute."+type,now).apply();}
+    else if("unmute".equals(direction)){
+      int saved=activity.getSharedPreferences("myraa.mobile.v1",0).getInt("unmute."+type,-1);
+      if(now>0)return result("done",("ring".equals(stream)?"Ring":"alarm".equals(stream)?"Alarm":"Media")+" sound is already on.");
+      target=saved>0?Math.min(max,saved):Math.max(1,Math.round(max*0.4f));
+    }
     else if("max".equals(direction))target=max;
-    else throw new IllegalArgumentException("Say volume up, down, mute, max or a percentage.");
+    else throw new IllegalArgumentException("Say volume up, down, mute, unmute, max or a percentage.");
     try{audio.setStreamVolume(type,target,AudioManager.FLAG_SHOW_UI);}
     catch(SecurityException e){return needsDnd("Changing this volume while Do Not Disturb is on");}
     return result("done",("ring".equals(stream)?"Ring":"alarm".equals(stream)?"Alarm":"Media")+" volume "+Math.round(100f*target/Math.max(1,max))+"%.");
