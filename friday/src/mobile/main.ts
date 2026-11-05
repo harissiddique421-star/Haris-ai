@@ -166,7 +166,7 @@ app.innerHTML = `
       <label>Gemini API key<input id="key" type="password" autocomplete="off" placeholder="Enter your own key"></label><p id="key-state" class="muted"></p>
       <label>Text model<input id="model" autocomplete="off" placeholder="Model identifier"></label>
       <label>Live voice model<input id="live-model" autocomplete="off" placeholder="gemini-3.1-flash-live-preview"></label>
-      <label>Language<select id="language"><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English (India)</option><option value="en-US">English</option></select></label>
+      <label>Language<select id="language"><option value="ur-PK">Urdu / Roman Urdu (Pakistan)</option><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English (India)</option><option value="en-US">English</option></select></label>
       <button id="save" class="primary">Save settings</button><button id="check-connection">Check key &amp; model</button><p id="settings-status" class="muted" role="status" aria-live="polite"></p>
     </div>
     <div class="settings-page" data-page="assistant" hidden>

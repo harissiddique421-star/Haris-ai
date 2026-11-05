@@ -134,7 +134,7 @@ final class AssistantMemory {
     if(in.has("persona")){try{prefs.edit().putString("persona",normalizePersona(in.optString("persona"))).apply();}catch(IllegalArgumentException ignored){}}
     JSONObject voices=in.optJSONObject("voices");
     if(voices!=null)for(String p:PERSONAS){String v=voices.optString(p,"");if(Arrays.asList(VOICES).contains(v))prefs.edit().putString("voice."+p,v).apply();}
-    String lang=in.optString("language","");if(lang.matches("(hi-IN|en-IN|en-US)"))prefs.edit().putString("language",lang).apply();
+    String lang=in.optString("language","");if(lang.matches("(ur-PK|hi-IN|en-IN|en-US)"))prefs.edit().putString("language",lang).apply();
     if(in.has("announceCalls"))Announcer.set(c,"announceCalls",in.optBoolean("announceCalls"));
     if(in.has("drivingMode"))Announcer.set(c,"drivingMode",in.optBoolean("drivingMode"));
     if(in.has("drivingReadText"))Announcer.set(c,"drivingReadText",in.optBoolean("drivingReadText"));

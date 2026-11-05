@@ -170,7 +170,7 @@ public final class MobileActions {
     if(raw==null)return null;String clean=raw.replaceAll("[ ()-]","");if(clean.startsWith("00"))clean="+"+clean.substring(2);
     if(clean.matches("\\+[1-9][0-9]{7,14}"))return clean.substring(1);
     String country="";try{country=activity.getSystemService(TelephonyManager.class).getNetworkCountryIso();}catch(Exception ignored){}
-    if(country==null||country.length()!=2){String language=activity.getSharedPreferences("myraa.mobile.v1",0).getString("language","hi-IN");country=language.endsWith("IN")?"IN":"US";}
+    if(country==null||country.length()!=2){String language=activity.getSharedPreferences("myraa.mobile.v1",0).getString("language","hi-IN");country=language.endsWith("IN")?"IN":language.endsWith("PK")?"PK":"US";}
     String e164=PhoneNumberUtils.formatNumberToE164(raw,country.toUpperCase(Locale.ROOT));return e164==null?null:e164.substring(1);
   }
   public static Intent search(String target,String query){

@@ -53,7 +53,7 @@ final class Announcer {
   }
 
   // ---- speaking
-  private boolean hindi(){return prefs(context).getString("language","hi-IN").startsWith("hi");}
+  private boolean hindi(){String l=prefs(context).getString("language","hi-IN");return l.startsWith("hi")||l.startsWith("ur");}
   private void speak(String text,boolean flush){
     main.post(()->{
       if(tts==null){
@@ -63,7 +63,7 @@ final class Announcer {
           if(ready){
             tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
             Locale l=Locale.forLanguageTag(prefs(context).getString("language","hi-IN"));
-            int r=tts.setLanguage(l);if(r==TextToSpeech.LANG_MISSING_DATA||r==TextToSpeech.LANG_NOT_SUPPORTED)tts.setLanguage(Locale.ENGLISH);
+            int r=tts.setLanguage(l);if((r==TextToSpeech.LANG_MISSING_DATA||r==TextToSpeech.LANG_NOT_SUPPORTED)&&l.getLanguage().equals("ur"))r=tts.setLanguage(Locale.forLanguageTag("hi-IN"));if(r==TextToSpeech.LANG_MISSING_DATA||r==TextToSpeech.LANG_NOT_SUPPORTED)tts.setLanguage(Locale.ENGLISH);
             while(!waiting.isEmpty())tts.speak(waiting.poll(),TextToSpeech.QUEUE_ADD,null,"friday-announce");
           }else{ControlLog.i("announce: speech engine unavailable");waiting.clear();}
         }));

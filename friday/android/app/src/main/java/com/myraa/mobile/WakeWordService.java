@@ -24,10 +24,10 @@ import java.util.regex.Pattern;
  */
 public final class WakeWordService extends Service {
   static final String WAKE="com.myraa.mobile.WAKE",PAUSE="com.myraa.mobile.WAKE_PAUSE",RESUME="com.myraa.mobile.WAKE_RESUME",STOP="com.myraa.mobile.WAKE_STOP",REFRESH="com.myraa.mobile.WAKE_REFRESH";
-  private static final Pattern NAME=Pattern.compile("(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे)");
+  private static final Pattern NAME=Pattern.compile("(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)");
   private static final Pattern WAKE_PHRASE=Pattern.compile(
-    "(wake\\s*up|wakeup|hey|hay|hi|ok|okay|वेक\\s*अप|हे|उठो|uth\\s*jao|utho)\\s*,?\\s*(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे)"
-    +"|(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे)\\s*,?\\s*(wake\\s*up|wakeup|wake|वेक\\s*अप|वेक|उठो|uth\\s*jao|utho)");
+    "(wake\\s*up|wakeup|hey|hay|hi|ok|okay|वेक\\s*अप|हे|उठो|uth\\s*jao|utho|ویک\\s*اپ|ہے|ہیلو|اٹھو|اٹھ\\s*جاؤ)\\s*,?\\s*(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)"
+    +"|(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)\\s*,?\\s*(wake\\s*up|wakeup|wake|वेक\\s*अप|वेक|उठो|uth\\s*jao|utho|ویک\\s*اپ|ویک|اٹھو|اٹھ\\s*جاؤ)");
   public static volatile boolean running;
   private static volatile boolean livePaused;
   private final Handler main=new Handler(Looper.getMainLooper());
