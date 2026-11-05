@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.AlarmClock;
+import android.provider.ContactsContract;
 import android.provider.ContactsContract.CommonDataKinds.Phone;
 import android.provider.MediaStore;
 import android.telephony.*;
@@ -27,7 +28,17 @@ public final class MobileActions {
   static final long CONFIRM_WINDOW_MS=120_000;
   public interface Result { void complete(String id,JSONObject result); }
   public interface Launcher { boolean installed(String pkg); Intent app(String label); boolean open(Intent intent); }
-  public interface Contacts { boolean needsPermission(); List<Recipient> find(String name); }
+  public interface Contacts {
+    boolean needsPermission(); List<Recipient> find(String name);
+    /** WhatsApp accounts synced into Android Contacts for this mimetype (chat, voice call or video call). */
+    default List<WaContact> findWhatsApp(String name,String mimetype){return Collections.emptyList();}
+  }
+  /** One WhatsApp contact row: the Data row id WhatsApp itself registered, so opening it reaches exactly that chat/call. */
+  public static final class WaContact {
+    public final String name,phone,mimetype;public final long dataId;
+    public WaContact(String name,String phone,String mimetype,long dataId){this.name=name;this.phone=phone;this.mimetype=mimetype;this.dataId=dataId;}
+  }
+  static final String WA_CHAT="profile",WA_VOICE="voip.call",WA_VIDEO="video.call";
   public static final class Recipient {
     public final String name,phone;
     public Recipient(String name,String phone){this.name=name;this.phone=phone;}
@@ -75,6 +86,21 @@ public final class MobileActions {
         List<Recipient> exact=new ArrayList<>();for(Recipient r:found)if(normalize(r.name).equals(normalize(name)))exact.add(r);
         return exact.isEmpty()?found:exact;
       }
+      public List<WaContact> findWhatsApp(String name,String mimetype){
+        List<WaContact> found=new ArrayList<>();Set<String> seen=new HashSet<>();
+        boolean number=name.trim().matches("\\+?[0-9 ()-]{8,}");String digits=name.replaceAll("[^0-9]","");
+        String escaped=name.trim().replace("\\","\\\\").replace("%","\\%").replace("_","\\_");
+        String where=ContactsContract.Data.MIMETYPE+"=? AND "+(number?ContactsContract.Data.DATA1+" LIKE ?":ContactsContract.Data.DISPLAY_NAME+" LIKE ? ESCAPE '\\'");
+        try(Cursor c=activity.getContentResolver().query(ContactsContract.Data.CONTENT_URI,new String[]{ContactsContract.Data._ID,ContactsContract.Data.DISPLAY_NAME,ContactsContract.Data.DATA1},where,new String[]{mimetype,number?digits+"@%":"%"+escaped+"%"},ContactsContract.Data.DISPLAY_NAME+" ASC")){
+          if(c!=null)while(c.moveToNext()&&found.size()<20){
+            String jid=c.getString(2);if(jid==null)continue;String phone=jid.contains("@")?jid.substring(0,jid.indexOf('@')):jid.replaceAll("[^0-9]","");
+            if(!phone.matches("[1-9][0-9]{7,14}")||!seen.add(phone))continue;
+            found.add(new WaContact(c.getString(1),phone,mimetype,c.getLong(0)));
+          }
+        }
+        List<WaContact> exact=new ArrayList<>();for(WaContact r:found)if(normalize(r.name).equals(normalize(name)))exact.add(r);
+        return exact.isEmpty()?found:exact;
+      }
     });
   }
   public MobileActions(Activity activity,Result result,Launcher launcher,Contacts contacts){this.activity=activity;this.result=result;this.launcher=launcher;this.contacts=contacts;}
@@ -104,6 +130,7 @@ public final class MobileActions {
     if(!"mobile_action".equals(name)){finish(id,"unsupported","That mobile action is unavailable.");return;}
     try{
       JSONObject args=new JSONObject(raw);String action=args.optString("action");
+      ControlLog.i("command "+action+(args.has("app")?" app="+args.optString("app"):"")+(args.has("recipient")?" contact="+args.optString("recipient"):"")+(args.has("target")?" target="+args.optString("target"):"")+(args.has("control")?" control="+args.optString("control"):"")+(args.has("confirm_token")?" (confirmed)":"")+" control="+(PhoneController.get()!=null?"ready":PhoneController.enabled(activity)?"enabled, not connected":"off"));
       if("open_app".equals(action)){openApp(id,args.optString("app"));return;}
       if("search_youtube".equals(action)||"search_web".equals(action)){
         boolean youtube=action.equals("search_youtube");Intent intent=search(youtube?"youtube":"web",args.optString("query"));String pkg=youtube?"com.google.android.youtube":"com.android.chrome";
@@ -138,12 +165,18 @@ public final class MobileActions {
         sms(id,args.optString("recipient"),args.optString("message"),args.optBoolean("confirm_on_screen"));return;
       }
       if("open_settings".equals(action)){finish(id,phone().settings(args.optString("page")));return;}
-      if("phone_control".equals(action)){PhoneController c=control(id);if(c!=null)finish(id,c.global(args.optString("control")));return;}
-      if("read_screen".equals(action)){PhoneController c=control(id);if(c!=null)finish(id,c.readScreen());return;}
-      if("scroll".equals(action)){PhoneController c=control(id);if(c!=null)finish(id,c.scroll(args.optString("direction")));return;}
-      if("type_text".equals(action)){PhoneController c=control(id);if(c==null)return;if(ownScreen(id,c))return;finish(id,c.type(args.optString("target"),args.optString("text")));return;}
+      if("phone_control".equals(action)){String what=args.optString("control");control(id,c->finish(id,c.global(what)));return;}
+      if("read_screen".equals(action)){control(id,c->finish(id,c.readScreen()));return;}
+      if("scroll".equals(action)){String dir=args.optString("direction");control(id,c->finish(id,c.scroll(dir)));return;}
+      if("type_text".equals(action)){String target=args.optString("target"),text=args.optString("text");control(id,c->{if(!ownScreen(id,c))finish(id,c.type(target,text));});return;}
+      if("whatsapp_call".equals(action)){
+        String token=args.optString("confirm_token");
+        if(!token.isEmpty()){waCallConfirmed(id,token);return;}
+        waCall(id,args.optString("recipient"),args.optBoolean("video"),args.optBoolean("confirm_on_screen"));return;
+      }
+      if("open_contact".equals(action)){openContact(id,args.optString("recipient"));return;}
       if("tap".equals(action)){tap(id,args);return;}
-      finish(id,"unsupported","Supported actions: apps, searches, WhatsApp, calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
+      finish(id,"unsupported","Supported actions: apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){
@@ -201,9 +234,10 @@ public final class MobileActions {
   private void message(String id,String recipient,String text,boolean onScreen){
     if(whatsapp()==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
     if(recipient.trim().isEmpty()||recipient.length()>100||text.trim().isEmpty()||text.length()>4000){finish(id,"invalid","Tell me the recipient and the complete message.");return;}
-    resolve(id,recipient,person->{
-      if(!WhatsAppSender.enabled(activity)){openDraft(id,person,text,"Automatic sending is off, so review it and tap Send in WhatsApp. To let FRIDAY send after you confirm, enable FRIDAY in Android Accessibility settings.");return;}
-      if(onScreen){confirmOnScreen(id,"Send WhatsApp message?","To: "+person.name+" (+"+person.phone+")\n\n"+text,()->autoSend(id,person,text));return;}
+    resolveWhatsApp(id,recipient,WA_CHAT,true,wa->{
+      Recipient person=new Recipient(wa.name,wa.phone);
+      if(!PhoneController.enabled(activity)&&PhoneController.get()==null){ControlLog.i("whatsapp message: accessibility off, opening draft");openDraft(id,person,text,"Automatic sending is off, so review it and tap Send in WhatsApp. To let FRIDAY send after you confirm, turn on FRIDAY in Android Accessibility settings.");return;}
+      if(onScreen){confirmOnScreen(id,"Send WhatsApp message?","To: "+person.name+" (+"+person.phone+")\n\n"+text,()->sendNow(id,person,text));return;}
       askConfirmation(id,"whatsapp",person,text,"Send this WhatsApp message to "+person.name+" (+"+person.phone+"): \""+text+"\"?");
     });
   }
@@ -211,13 +245,21 @@ public final class MobileActions {
     Confirmation c=take("whatsapp",token);
     if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again with the recipient and message.");return;}
     if(whatsapp()==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
-    if(!WhatsAppSender.enabled(activity)){openDraft(id,new Recipient(c.name,c.phone),c.text,"Automatic sending is off, so review it and tap Send in WhatsApp.");return;}
-    autoSend(id,new Recipient(c.name,c.phone),c.text);
+    sendNow(id,new Recipient(c.name,c.phone),c.text);
+  }
+  /** Sends a confirmed message: auto-send when a control service is connected (waiting briefly if it is reconnecting), otherwise an honest draft. */
+  private void sendNow(String id,Recipient person,String text){
+    withControl(ctl->{
+      if(ctl!=null){autoSend(id,person,text);return;}
+      ControlLog.i("whatsapp message: control not connected, opening draft");
+      openDraft(id,person,text,PhoneController.enabled(activity)?"FRIDAY's accessibility switch is on but Android has not connected it right now, so tap Send yourself this time. If this keeps happening, turn the switch off and on once.":"Automatic sending is off, so review it and tap Send in WhatsApp.");
+    });
   }
   private void autoSend(String id,Recipient person,String text){
     String pkg=whatsapp();
     WhatsAppSender.arm(pkg,person.phone,text,(sent,why)->main.post(()->{
-      if(sent)finish(id,"sent","WhatsApp message sent to "+person.name+".");
+      ControlLog.i("whatsapp message to "+person.name+": "+(sent?"sent and verified":"not sent, "+why));
+      if(sent)finish(id,"sent","WhatsApp message sent to "+person.name+". Checked: WhatsApp cleared the message box after Send.");
       else finish(id,"draft_opened","FRIDAY could not press Send ("+why+"). The draft for "+person.name+" is open; tap Send in WhatsApp. It has not been sent.");
     }));
     if(!launcher.open(draft(person.phone,text,pkg))){WhatsAppSender.disarm();finish(id,"unavailable","WhatsApp could not open this recipient. Nothing was sent.");}
@@ -298,19 +340,45 @@ public final class MobileActions {
     boolean opened=launcher.open(youtube);finish(id,opened?"opened":"unavailable",opened?"No music app took the request, so YouTube search for "+q+" is open.":"No app on this phone can play music.");
   }
 
-  /** Phone control needs FRIDAY's phone control accessibility service; opens that setting when it is off. */
-  private PhoneController control(String id){
-    PhoneController c=PhoneController.get();if(c!=null)return c;
-    launcher.open(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
-    finish(id,"permission_required","Phone control is off. I opened Accessibility settings: turn on \"FRIDAY phone control\", then ask again.");return null;
+  interface WithControl { void run(PhoneController c); }
+  private long accessibilityPromptAt;
+  /**
+   * Gives a live, connected control service. Readiness is checked now, not from a saved flag:
+   * if the switch is on but Android is still (re)connecting the service, waits up to 3 seconds.
+   * Only reports permission_required when the switch is really off, and opens Accessibility
+   * settings at most once a minute so the user isn't sent there again and again.
+   */
+  private void control(String id,WithControl then){
+    withControl(c->{
+      if(c!=null){then.run(c);return;}
+      if(PhoneController.enabled(activity)){
+        ControlLog.i("control: switch is on but the service did not connect within 3s");
+        finish(id,"unavailable","FRIDAY's accessibility switch is on, but Android has not connected the service right now. Try again in a moment; if it keeps failing, turn the FRIDAY switch off and on once in Accessibility settings.");return;
+      }
+      long now=System.currentTimeMillis();boolean opened=false;
+      if(now-accessibilityPromptAt>60_000){accessibilityPromptAt=now;opened=launcher.open(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));}
+      ControlLog.i("control: accessibility switch is off");
+      finish(id,"permission_required","Phone control is off: no FRIDAY accessibility switch is on."+(opened?" I opened Accessibility settings: turn on \"FRIDAY phone control\", then ask again.":" Turn on \"FRIDAY phone control\" in Accessibility settings."));
+    });
+  }
+  private void withControl(WithControl then){
+    PhoneController now=PhoneController.get();
+    if(now!=null||!PhoneController.enabled(activity)){then.run(now);return;}
+    ControlLog.i("control: switch on, waiting for the service to connect");
+    long until=System.currentTimeMillis()+3000;
+    main.postDelayed(new Runnable(){public void run(){
+      PhoneController c=PhoneController.get();
+      if(c!=null||System.currentTimeMillis()>until){then.run(c);return;}
+      main.postDelayed(this,250);
+    }},250);
   }
   private boolean ownScreen(String id,PhoneController c){
     if(!activity.getPackageName().equals(c.foreground()))return false;
     finish(id,"refused","FRIDAY's own screen is in front. Open the app you want me to use first, then ask again.");return true;
   }
   /** Taps a labelled button. Risky labels and permission/install screens need a yes first, bound to the same app via the token. */
-  private void tap(String id,JSONObject args){
-    PhoneController c=control(id);if(c==null||ownScreen(id,c))return;
+  private void tap(String id,JSONObject args){control(id,c->{if(!ownScreen(id,c))tap(id,args,c);});}
+  private void tap(String id,JSONObject args,PhoneController c){
     String token=args.optString("confirm_token"),target,expectPkg=null;boolean confirmed=false;
     if(!token.isEmpty()){
       Confirmation k=take("tap",token);
@@ -321,7 +389,7 @@ public final class MobileActions {
     String pkg=c.foreground();
     if(expectPkg!=null&&!expectPkg.equals(pkg)){finish(id,"cancelled","The screen changed since you confirmed, so I did not tap anything.");return;}
     android.view.accessibility.AccessibilityNodeInfo node=c.find(target,false);
-    if(node==null){finish(id,"not_found","I can't see \""+target+"\" on this screen. Use read_screen to see what is there.");return;}
+    if(node==null){ControlLog.i("tap: \""+target+"\" not found in "+pkg);finish(id,"not_found","I can't see \""+target+"\" on this screen. Use read_screen to see what is there.");return;}
     String label=PhoneController.labelOf(node);
     if(!confirmed&&PhoneController.risky(label,pkg)){
       JSONObject value=status("needs_confirmation","Tapping \""+label+"\" in "+c.appLabel(pkg)+" may send, pay, delete, install or change a permission. Ask the user this exact question and wait for a clear yes. Only after they say yes, call mobile_action again with action tap and this confirm_token.");
@@ -329,7 +397,78 @@ public final class MobileActions {
       finish(id,value);return;
     }
     boolean ok=c.tap(node);
+    ControlLog.i("tap \""+label+"\" in "+pkg+": "+(ok?"tapped":"no response"));
     finish(id,ok?"done":"failed",ok?"Tapped \""+label+"\". Check the screen again before the next step.":"That item did not respond to a tap.");
+  }
+
+  interface ThenWa { void with(WaContact contact); }
+  /**
+   * Finds the WhatsApp account for a spoken name using the rows WhatsApp syncs into Contacts, so
+   * it never confuses a phone-only contact with a WhatsApp one. Same name twice: asks which one.
+   * For messages (allowPhoneFallback) a saved phone contact without a synced WhatsApp row still
+   * works through its number; calls need the WhatsApp row.
+   */
+  private void resolveWhatsApp(String id,String recipient,String kind,boolean allowPhoneFallback,ThenWa then){
+    String pkg=whatsapp();if(pkg==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
+    if(recipient==null||recipient.trim().isEmpty()||recipient.length()>100){finish(id,"invalid","Tell me who it is for.");return;}
+    if(contacts.needsPermission()&&activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){
+      if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
+      pendingId=id;pendingPermission=Manifest.permission.READ_CONTACTS;pendingDenied=null;pending=()->resolveWhatsApp(id,recipient,kind,allowPhoneFallback,then);activity.requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},CONTACTS_REQUEST);return;
+    }
+    String mimetype="vnd.android.cursor.item/vnd."+pkg+"."+kind;
+    List<WaContact> matches=contacts.findWhatsApp(recipient.trim(),mimetype);
+    ControlLog.i("whatsapp contact \""+recipient.trim()+"\" ("+kind+"): "+matches.size()+" match"+(matches.size()==1?"":"es"));
+    if(matches.isEmpty()){
+      if(allowPhoneFallback){resolve(id,recipient,person->then.with(new WaContact(person.name,person.phone,mimetype,-1)));return;}
+      boolean phoneOnly=!recipient.trim().matches("\\+?[0-9 ()-]+")&&!contacts.find(recipient.trim()).isEmpty();
+      finish(id,"not_found",phoneOnly?recipient.trim()+" is in your phone contacts, but WhatsApp has no account synced for them, so I can't place a WhatsApp call. Open WhatsApp once so it syncs contacts, or check they use WhatsApp.":"I couldn't find a WhatsApp contact called "+recipient.trim()+". Say the full saved name.");return;
+    }
+    boolean exact=matches.size()==1;
+    if(exact){then.with(matches.get(0));return;}
+    if(chooser!=null){finish(id,"busy","Choose the contact from the current list first.");return;}
+    String[] labels=new String[matches.size()];for(int i=0;i<labels.length;i++)labels[i]=matches.get(i).name+" · +"+matches.get(i).phone;
+    ControlLog.i("whatsapp contact: several matches, asking the user");
+    chooserId=id;chooser=new AlertDialog.Builder(activity).setTitle("Which "+recipient.trim()+"?").setItems(labels,(d,index)->{chooser=null;chooserId=null;then.with(matches.get(index));})
+      .setNegativeButton("Cancel",(d,w)->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was done.");}).setOnCancelListener(d->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was done.");}).show();
+  }
+  private void waCall(String id,String recipient,boolean video,boolean onScreen){
+    resolveWhatsApp(id,recipient,video?WA_VIDEO:WA_VOICE,false,wa->{
+      String what=video?"WhatsApp video call":"WhatsApp voice call";
+      if(onScreen){confirmOnScreen(id,what+"?",wa.name+" (+"+wa.phone+")",()->placeWaCall(id,wa,video));return;}
+      JSONObject value=status("needs_confirmation","Start a "+what+" to "+wa.name+" (+"+wa.phone+")? Ask the user this exact question and wait for a clear yes. Only after they say yes, call mobile_action again with action whatsapp_call and this confirm_token.");
+      try{value.put("confirm_token",token(video?"wavideo":"wavoice",new Recipient(wa.name,wa.phone),wa.mimetype+"#"+wa.dataId)).put("recipient_name",wa.name).put("recipient_phone","+"+wa.phone).put("video",video);}catch(JSONException ignored){}
+      finish(id,value);
+    });
+  }
+  private void waCallConfirmed(String id,String token){
+    Confirmation c=take("wavoice",token);boolean video=false;
+    if(c==null){c=take("wavideo",token);video=true;}
+    if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again who to call on WhatsApp.");return;}
+    int hash=c.text.lastIndexOf('#');
+    placeWaCall(id,new WaContact(c.name,c.phone,c.text.substring(0,hash),Long.parseLong(c.text.substring(hash+1))),video);
+  }
+  /** Opens WhatsApp's own call entry for that contact, then checks the call screen actually appeared. */
+  private void placeWaCall(String id,WaContact wa,boolean video){
+    String pkg=whatsapp();if(pkg==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
+    String what=video?"video call":"voice call";
+    Intent intent=new Intent(Intent.ACTION_VIEW).setDataAndType(ContentUris.withAppendedId(ContactsContract.Data.CONTENT_URI,wa.dataId),wa.mimetype).setPackage(pkg);
+    if(!launcher.open(intent)){ControlLog.i("whatsapp "+what+": WhatsApp refused the call intent");finish(id,"unavailable","WhatsApp did not accept the "+what+" request for "+wa.name+". Nothing was started.");return;}
+    ControlLog.i("whatsapp "+what+" to "+wa.name+": intent sent, verifying");
+    main.postDelayed(()->{
+      PhoneController ctl=PhoneController.get();
+      if(ctl==null){finish(id,"calling","Started a WhatsApp "+what+" to "+wa.name+". I can't check the call screen because FRIDAY's accessibility switch is off.");return;}
+      boolean onCall=ctl.screenShows(pkg,"calling","ringing","connecting","end-to-end","end call","कॉल","reconnecting");
+      ControlLog.i("whatsapp "+what+": verify "+(onCall?"call screen visible":"no call screen, front app "+ctl.foreground()));
+      if(onCall)finish(id,"calling","WhatsApp "+what+" to "+wa.name+" is ringing. Checked: the WhatsApp call screen is open.");
+      else finish(id,"unverified","I asked WhatsApp to start a "+what+" to "+wa.name+", but I can't see the call screen. WhatsApp may be asking for a permission or showing a prompt; check the phone.");
+    },3500);
+  }
+  private void openContact(String id,String recipient){
+    resolve(id,recipient,person->{
+      boolean opened=launcher.open(new Intent(ContactsContract.Intents.SHOW_OR_CREATE_CONTACT,Uri.parse("tel:+"+person.phone)));
+      ControlLog.i("open_contact "+person.name+": "+(opened?"opened":"no contacts app"));
+      finish(id,opened?"opened":"unavailable",opened?"Opened "+person.name+"'s contact.":"No contacts app could open it.");
+    });
   }
 
   public void permissionResult(){

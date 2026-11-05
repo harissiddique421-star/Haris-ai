@@ -48,3 +48,16 @@ test('phone control: settings pages, screenshot and lock parse locally; taps nev
   assert.deepEqual(parseMobileAction('lock the phone'),{action:'phone_control',control:'lock_screen'});
   for(const text of ['tap send','click pay now','type my password']) assert.equal(parseMobileAction(text),null,text);
 });
+test('WhatsApp messages and voice/video calls parse from Hinglish',()=>{
+  assert.deepEqual(parseMobileAction('WhatsApp par Ali ko message karo: kal milte hain'),{action:'whatsapp_message',recipient:'Ali',message:'kal milte hain'});
+  assert.deepEqual(parseMobileAction('Ali ko WhatsApp message bhejo: on my way'),{action:'whatsapp_message',recipient:'Ali',message:'on my way'});
+  assert.deepEqual(parseMobileAction('Ali ko WhatsApp call karo'),{action:'whatsapp_call',recipient:'Ali'});
+  assert.deepEqual(parseMobileAction('Ali ko WhatsApp video call karo'),{action:'whatsapp_call',recipient:'Ali',video:true});
+  assert.deepEqual(parseMobileAction('WhatsApp par Ali Khan ko video call karo'),{action:'whatsapp_call',recipient:'Ali Khan',video:true});
+  assert.deepEqual(parseMobileAction('whatsapp call Ammi'),{action:'whatsapp_call',recipient:'Ammi'});
+  assert.deepEqual(parseMobileAction('Ali ko call karo'),{action:'call',recipient:'Ali'});
+  assert.deepEqual(parseMobileAction('go back'),{action:'phone_control',control:'back'});
+  assert.deepEqual(parseMobileAction('home jao'),{action:'phone_control',control:'home'});
+  assert.deepEqual(parseMobileAction('open contact Ali'),{action:'open_contact',recipient:'Ali'});
+  for(const text of ['Ali ko WhatsApp call karo and delete chats','whatsapp video call']) assert.equal(parseMobileAction(text),null,text);
+});
