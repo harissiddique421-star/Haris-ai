@@ -61,3 +61,29 @@ test('WhatsApp messages and voice/video calls parse from Hinglish',()=>{
   assert.deepEqual(parseMobileAction('open contact Ali'),{action:'open_contact',recipient:'Ali'});
   for(const text of ['Ali ko WhatsApp call karo and delete chats','whatsapp video call']) assert.equal(parseMobileAction(text),null,text);
 });
+test('memory and persona commands parse locally',()=>{
+  assert.deepEqual(parseMobileAction('remember that my sister is Sara'),{action:'remember',fact:'my sister is Sara'});
+  assert.deepEqual(parseMobileAction('yaad rakho ki mujhe chai pasand hai'),{action:'remember',fact:'mujhe chai pasand hai'});
+  assert.deepEqual(parseMobileAction('what do you remember?'),{action:'list_memories'});
+  assert.deepEqual(parseMobileAction('forget Sara'),{action:'forget',query:'Sara'});
+  assert.deepEqual(parseMobileAction('switch to venom mode'),{action:'set_persona',persona:'venom'});
+  assert.deepEqual(parseMobileAction('professional mode on'),{action:'set_persona',persona:'professional'});
+  assert.deepEqual(parseMobileAction('use girlfriend voice'),{action:'set_persona',persona:'gf'});
+});
+test('driving mode and call announcement commands parse locally',()=>{
+  assert.deepEqual(parseMobileAction('driving mode on'),{action:'set_driving_mode',on:true});
+  assert.deepEqual(parseMobileAction('Driving mode band karo'),{action:'set_driving_mode',on:false});
+  assert.deepEqual(parseMobileAction('turn off driving mode'),{action:'set_driving_mode',on:false});
+  assert.deepEqual(parseMobileAction("I'm driving"),{action:'set_driving_mode',on:true});
+  assert.deepEqual(parseMobileAction('call announcement off'),{action:'set_call_announce',on:false});
+  assert.deepEqual(parseMobileAction('caller name on karo'),{action:'set_call_announce',on:true});
+  assert.equal(parseMobileAction('driving mode'),null);
+});
+test('wake word and email commands parse locally',()=>{
+  assert.deepEqual(parseMobileAction('wake word on'),{action:'set_wake_word',on:true});
+  assert.deepEqual(parseMobileAction('turn off the wake word'),{action:'set_wake_word',on:false});
+  assert.deepEqual(parseMobileAction('email me: buy milk'),{action:'email',recipient:'me',message:'buy milk'});
+  assert.deepEqual(parseMobileAction('mujhe email karo: kal meeting hai'),{action:'email',recipient:'mujhe',message:'kal meeting hai'});
+  assert.deepEqual(parseMobileAction('Ali ko email bhejo: report ready hai'),{action:'email',recipient:'Ali',message:'report ready hai'});
+  assert.equal(parseMobileAction('email Ali and delete everything: hi'),null);
+});

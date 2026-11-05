@@ -60,6 +60,66 @@ public final class MobileActions {
   private String chooserId,confirmId;
   private final Map<String,Confirmation> confirmations=new HashMap<>();
   private PhoneControls phone;
+  private AssistantMemory memory;
+  private AssistantMemory memory(){if(memory==null)memory=new AssistantMemory(activity);return memory;}
+  private JSONObject wakeWord(JSONObject args){
+    if(!args.has("on"))throw new IllegalArgumentException("Say whether to turn the wake word on or off.");
+    boolean on=args.optBoolean("on");WakeWordService.setWanted(activity,on);
+    String state=WakeWordService.ensure(activity);
+    if(!on)return PhoneControls.result("done","Wake word is off.");
+    if("needs_microphone".equals(state))return PhoneControls.result("permission_required","Allow the microphone for FRIDAY, then the wake word starts.");
+    if("unavailable".equals(state)){WakeWordService.setWanted(activity,false);return PhoneControls.result("unavailable","This phone has no speech recognizer, so the wake word cannot work.");}
+    if("failed".equals(state))return PhoneControls.result("failed","Android did not let the wake word start. Open FRIDAY and try again.");
+    return PhoneControls.result("done","Wake word is on. Say \"Wake up FRIDAY\" or \"Hey FRIDAY\" while your phone is unlocked. It pauses during a Live call.");
+  }
+  private JSONObject email(JSONObject args){
+    String to=args.optString("recipient","").trim(),subject=args.optString("subject","").trim(),body=args.optString("message","").trim();
+    if(subject.length()>300||body.length()>8000)throw new IllegalArgumentException("That email is too long.");
+    if(to.isEmpty())throw new IllegalArgumentException("Who should the email go to?");
+    String address;
+    if(to.matches("(?i)me|myself|self|mujhe|mujh ?ko|mere ko|apne aap ko|my email|meri email")){
+      address=memory().email();
+      if(address.isEmpty())return PhoneControls.result("needs_setup","Add your email address in Settings > Personal first.");
+    }else if(AssistantMemory.validEmail(to))address=to;
+    else{
+      if(activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED)return PhoneControls.result("permission_required","Allow Contacts in Settings > Permissions so I can find "+to+"'s email.");
+      List<String[]> found=contactEmails(to);
+      if(found.isEmpty())return PhoneControls.result("not_found","I couldn't find an email address for "+to+" in your contacts.");
+      String[] pick=null;
+      for(String[] f:found)if(f[0].equalsIgnoreCase(to)){pick=f;break;}
+      if(pick==null&&found.size()==1)pick=found.get(0);
+      if(pick==null){
+        StringBuilder names=new StringBuilder();for(int i=0;i<found.size()&&i<5;i++)names.append(i==0?"":", ").append(found.get(i)[0]).append(" (").append(found.get(i)[1]).append(")");
+        return PhoneControls.result("ambiguous","Several contacts match "+to+": "+names+". Say the full name or the email address.");
+      }
+      address=pick[1];
+    }
+    Intent intent=new Intent(Intent.ACTION_SENDTO,Uri.parse("mailto:"+address)).putExtra(Intent.EXTRA_EMAIL,new String[]{address});
+    if(!subject.isEmpty())intent.putExtra(Intent.EXTRA_SUBJECT,subject);
+    if(!body.isEmpty())intent.putExtra(Intent.EXTRA_TEXT,body);
+    if(!launcher.open(intent))return PhoneControls.result("unavailable","No email app is installed.");
+    ControlLog.i("email: draft opened");
+    return PhoneControls.result("draft_opened","Email draft to "+address+" is open. Check it and tap Send.");
+  }
+  private List<String[]> contactEmails(String name){
+    List<String[]> out=new ArrayList<>();Set<String> seen=new HashSet<>();
+    String[] cols={ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY,ContactsContract.CommonDataKinds.Email.ADDRESS};
+    try(Cursor c=activity.getContentResolver().query(ContactsContract.CommonDataKinds.Email.CONTENT_URI,cols,ContactsContract.CommonDataKinds.Email.DISPLAY_NAME_PRIMARY+" LIKE ?",new String[]{"%"+name.replace("%","").replace("_","")+"%"},null)){
+      while(c!=null&&c.moveToNext()&&out.size()<10){String n=c.getString(0),a=c.getString(1);if(n!=null&&a!=null&&AssistantMemory.validEmail(a.trim())&&seen.add(a.trim().toLowerCase(Locale.ROOT)))out.add(new String[]{n,a.trim()});}
+    }catch(RuntimeException ignored){}
+    return out;
+  }
+  private JSONObject announceSetting(boolean driving,JSONObject args){
+    if(!args.has("on"))throw new IllegalArgumentException(driving?"Say whether to turn driving mode on or off.":"Say whether to turn call announcements on or off.");
+    boolean on=args.optBoolean("on");Announcer.set(activity,driving?"drivingMode":"announceCalls",on);
+    boolean access=NotificationReader.enabled(activity);
+    String msg=driving?(on?"Driving mode is on. I will read out new messages and say who is calling.":"Driving mode is off.")
+      :(on?"I will say the caller's name when the phone rings.":"Call announcements are off.");
+    if(on&&!access)msg+=" Notification access is off, so turn it on in Settings > Permissions first.";
+    JSONObject v=PhoneControls.result(on&&!access?"permission_required":"done",msg);
+    try{v.put("driving",Announcer.driving(activity)).put("announceCalls",Announcer.announceCalls(activity));}catch(JSONException ignored){}
+    return v;
+  }
   private PhoneControls phone(){if(phone==null)phone=new PhoneControls(activity);return phone;}
   private final Map<String,JSONObject> completed=new LinkedHashMap<>();
   public MobileActions(Activity activity,Result result) {
@@ -175,8 +235,16 @@ public final class MobileActions {
         waCall(id,args.optString("recipient"),args.optBoolean("video"),args.optBoolean("confirm_on_screen"));return;
       }
       if("open_contact".equals(action)){openContact(id,args.optString("recipient"));return;}
+      if("remember".equals(action)){finish(id,memory().remember(args.optString("fact")));return;}
+      if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
+      if("list_memories".equals(action)){finish(id,memory().listMemories());return;}
+      if("set_persona".equals(action)){finish(id,memory().setPersona(args.optString("persona")));return;}
+      if("email".equals(action)){finish(id,email(args));return;}
+      if("set_wake_word".equals(action)){finish(id,wakeWord(args));return;}
+      if("set_driving_mode".equals(action)||"set_call_announce".equals(action)){finish(id,announceSetting("set_driving_mode".equals(action),args));return;}
+      if("open_dialer".equals(action)){boolean opened=launcher.open(new Intent(Intent.ACTION_DIAL));finish(id,opened?"opened":"unavailable",opened?"Dialer opened.":"No dialer app on this phone.");return;}
       if("tap".equals(action)){tap(id,args);return;}
-      finish(id,"unsupported","Supported actions: apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
+      finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){

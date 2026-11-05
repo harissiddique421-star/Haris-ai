@@ -13,12 +13,17 @@ import java.util.*;
  * dialer's call notification carries the caller's display name.
  */
 public final class NotificationReader extends NotificationListenerService {
-  public interface IncomingCall { void ringing(String caller); }
+  public interface IncomingCall { void ringing(String caller); default void message(String app,String from,String text){} }
   private static final ArrayDeque<JSONObject> recent=new ArrayDeque<>();
   private static volatile IncomingCall callListener;
   private static String lastCallKey;
+  private Announcer announcer;
 
   public static void setCallListener(IncomingCall listener){callListener=listener;}
+  @Override public void onListenerConnected(){if(announcer==null)announcer=new Announcer(this);}
+  @Override public void onListenerDisconnected(){if(announcer!=null)announcer.shutdown();announcer=null;}
+  @Override public void onDestroy(){if(announcer!=null)announcer.shutdown();announcer=null;super.onDestroy();}
+  private Announcer announcer(){if(announcer==null)announcer=new Announcer(this);return announcer;}
   public static boolean enabled(Context context){
     String list=Settings.Secure.getString(context.getContentResolver(),"enabled_notification_listeners");
     if(list==null)return false;
@@ -38,7 +43,11 @@ public final class NotificationReader extends NotificationListenerService {
     CharSequence title=n.extras.getCharSequence(Notification.EXTRA_TITLE),text=n.extras.getCharSequence(Notification.EXTRA_TEXT);
     if(Notification.CATEGORY_CALL.equals(n.category)&&title!=null){
       String key=sbn.getKey();IncomingCall listener=callListener;
-      if(listener!=null&&!key.equals(lastCallKey)&&(n.flags&Notification.FLAG_ONGOING_EVENT)!=0&&n.fullScreenIntent!=null){lastCallKey=key;listener.ringing(title.toString());}
+      if(!key.equals(lastCallKey)&&(n.flags&Notification.FLAG_ONGOING_EVENT)!=0&&n.fullScreenIntent!=null){
+        lastCallKey=key;
+        // A Live call says who is calling itself; otherwise the phone's own voice announces it.
+        if(listener!=null)listener.ringing(title.toString());else announcer().ringing(key,title.toString());
+      }else if(key.equals(lastCallKey)&&n.fullScreenIntent==null)announcer().callEnded(key);
       return;
     }
     if((n.flags&Notification.FLAG_ONGOING_EVENT)!=0||(n.flags&Notification.FLAG_GROUP_SUMMARY)!=0||(title==null&&text==null))return;
@@ -46,7 +55,13 @@ public final class NotificationReader extends NotificationListenerService {
     JSONObject item=new JSONObject();
     try{item.put("app",app).put("title",clip(title,100)).put("text",clip(text,300)).put("time",sbn.getPostTime());}catch(JSONException ignored){}
     synchronized(NotificationReader.class){recent.addLast(item);while(recent.size()>30)recent.removeFirst();}
+    if(Announcer.driving(this)&&Announcer.isMessaging(this,sbn.getPackageName(),n)){
+      IncomingCall listener=callListener;
+      // During a Live call FRIDAY reads it out in the conversation; otherwise the phone's voice does.
+      if(listener!=null){if(Announcer.fresh(sbn.getPackageName(),title,text))listener.message(app,clip(title,60),Announcer.readText(this)?clip(text,240):"");}
+      else announcer().message(this,sbn.getPackageName(),n,app,title,text);
+    }
   }
-  @Override public void onNotificationRemoved(StatusBarNotification sbn){if(sbn!=null&&sbn.getKey().equals(lastCallKey))lastCallKey=null;}
+  @Override public void onNotificationRemoved(StatusBarNotification sbn){if(sbn!=null&&sbn.getKey().equals(lastCallKey)){if(announcer!=null)announcer.callEnded(lastCallKey);lastCallKey=null;}}
   private static String clip(CharSequence value,int max){if(value==null)return "";String s=value.toString();return s.length()>max?s.substring(0,max)+"…":s;}
 }
