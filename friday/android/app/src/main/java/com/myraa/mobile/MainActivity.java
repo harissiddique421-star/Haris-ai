@@ -2,6 +2,9 @@ package com.myraa.mobile;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.KeyguardManager;
+import android.app.NotificationManager;
+import android.view.WindowManager;
 import android.content.Intent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -92,15 +95,43 @@ public class MainActivity extends Activity {
     });
     if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP),Context.RECEIVER_NOT_EXPORTED);
     else registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP));
-    pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());
+    pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());wakeWindow(getIntent());
     createWebView();
   }
   @Override protected void onNewIntent(Intent intent){
     super.onNewIntent(intent);setIntent(intent);
-    if(WakeWordService.WAKE.equals(intent.getAction()))pendingWake=true;
+    if(WakeWordService.WAKE.equals(intent.getAction())){pendingWake=true;wakeWindow(intent);}
+  }
+  /** Woken on a locked phone: show over the lock screen and turn the screen on, then ask for the phone's own unlock. */
+  private void wakeWindow(Intent intent){
+    if(intent==null||!WakeWordService.WAKE.equals(intent.getAction())||!keyguardLocked())return;
+    if(Build.VERSION.SDK_INT>=27){setShowWhenLocked(true);setTurnScreenOn(true);}
+    else getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED|WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+  }
+  private void normalWindow(){
+    if(Build.VERSION.SDK_INT>=27){setShowWhenLocked(false);setTurnScreenOn(false);}
+    else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED|WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON);
+  }
+  private boolean keyguardLocked(){KeyguardManager k=getSystemService(KeyguardManager.class);return k!=null&&k.isKeyguardLocked();}
+  private boolean unlocking;
+  /** Starts the woken Live call, but on a locked phone only after the user unlocks with fingerprint, face or PIN. */
+  private void deliverWake(){
+    try{getSystemService(NotificationManager.class).cancel(44);}catch(RuntimeException ignored){}
+    if(!keyguardLocked()){normalWindow();emit(json("type","wake"));return;}
+    if(unlocking)return;unlocking=true;
+    getSystemService(KeyguardManager.class).requestDismissKeyguard(this,new KeyguardManager.KeyguardDismissCallback(){
+      @Override public void onDismissSucceeded(){unlocking=false;normalWindow();if(pendingWake)deliverWake();}
+      @Override public void onDismissCancelled(){unlocking=false;pendingWake=false;normalWindow();WakeWordService.livePaused(MainActivity.this,false);moveTaskToBack(true);}
+      @Override public void onDismissError(){unlocking=false;pendingWake=false;normalWindow();WakeWordService.livePaused(MainActivity.this,false);}
+    });
   }
   private void backupResult(String status,String message){emit(json("type","backup","status",status,"message",message,"assistant",memory.state(),"announce",Announcer.state(this),"wake",wakeState()));}
-  private JSONObject wakeState(){return json("on",WakeWordService.wanted(this),"running",WakeWordService.running,"available",android.speech.SpeechRecognizer.isRecognitionAvailable(this));}
+  private JSONObject wakeState(){
+    boolean fullScreen=Build.VERSION.SDK_INT<34||getSystemService(NotificationManager.class).canUseFullScreenIntent();
+    return json("on",WakeWordService.wanted(this),"running",WakeWordService.running,"available",android.speech.SpeechRecognizer.isRecognitionAvailable(this)||VoiceGuardian.active(this),
+      "locked",WakeWordService.whenLocked(this),"guardian",VoiceGuardian.wanted(this),"enrolled",VoiceGuardian.enrolled(this),"recording",VoiceGuardian.recording,"fullScreen",fullScreen||Settings.canDrawOverlays(this));
+  }
+  private void guardianEvent(String status,int step,String message){emit(json("type","guardian","status",status,"step",step,"message",message,"wake",wakeState()));}
 
   @SuppressWarnings("SetJavaScriptEnabled") private void createWebView() {
     try {
@@ -223,7 +254,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.16", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.17", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -365,12 +396,25 @@ public class MainActivity extends Activity {
             if ("needs_microphone".equals(status)) requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST);
             else if ("unavailable".equals(status)) { WakeWordService.setWanted(MainActivity.this, false); throw new IllegalArgumentException("This phone has no speech recognizer, so the wake word cannot work. Install or update the Google app."); }
           }
+          if (input.has("wakeLocked")) { WakeWordService.setWhenLocked(MainActivity.this, input.optBoolean("wakeLocked")); WakeWordService.refresh(MainActivity.this); }
+          if (input.has("guardian")) {
+            boolean on = input.optBoolean("guardian");
+            if (on && !VoiceGuardian.enrolled(MainActivity.this)) throw new IllegalArgumentException("Record your voice first with Record my voice.");
+            VoiceGuardian.setWanted(MainActivity.this, on); WakeWordService.refresh(MainActivity.this);
+          }
           if (input.has("drivingReadText")) Announcer.set(MainActivity.this, "drivingReadText", input.optBoolean("drivingReadText"));
           emit(json("type", "assistant", "assistant", memory.state(), "announce", Announcer.state(MainActivity.this), "wake", wakeState()));
         } catch (Exception error) { emit(json("type", "assistant", "assistant", memory.state(), "announce", Announcer.state(MainActivity.this), "wake", wakeState(), "message", error instanceof IllegalArgumentException ? error.getMessage() : "That setting could not be saved.")); }
       });
     }
-    @JavascriptInterface public boolean consumeWake() { boolean w = pendingWake; pendingWake = false; return w; }
+    @JavascriptInterface public boolean consumeWake() { if (keyguardLocked()) return false; boolean w = pendingWake; pendingWake = false; return w; }
+    @JavascriptInterface public void guardianRecord() { runOnUiThread(() -> {
+      if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST); guardianEvent("error", 0, "Allow the microphone, then tap Record my voice again."); return; }
+      if (LiveVoiceService.running) { guardianEvent("error", 0, "End the Live call first, then record your voice."); return; }
+      WakeWordService.livePaused(MainActivity.this, true);
+      VoiceGuardian.record(MainActivity.this, (status, step, message) -> runOnUiThread(() -> guardianEvent(status, step, message)), () -> runOnUiThread(() -> { WakeWordService.livePaused(MainActivity.this, false); WakeWordService.refresh(MainActivity.this); guardianEvent("done", 0, ""); }));
+    }); }
+    @JavascriptInterface public void guardianDelete() { runOnUiThread(() -> { VoiceGuardian.delete(MainActivity.this); WakeWordService.refresh(MainActivity.this); guardianEvent("deleted", 0, "Your saved voice is deleted. The wake word now works for any voice."); }); }
     @JavascriptInterface public void exportBackup() { runOnUiThread(() -> {
       try { startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE, "FRIDAY-backup.json"), BACKUP_EXPORT); }
       catch (RuntimeException e) { backupResult("error", "This phone has no file picker for saving the backup."); }

@@ -10,7 +10,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; exportBackup?(): void; importBackup?(): void; }
+interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; guardianRecord?(): void; guardianDelete?(): void; exportBackup?(): void; importBackup?(): void; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -171,8 +171,15 @@ app.innerHTML = `
     </div>
     <div class="settings-page" data-page="assistant" hidden>
       <div class="card"><b>Persona</b><small>How FRIDAY talks. You can also say "Venom mode" or "Professional mode".</small><div class="tabs" id="persona-tabs"></div><button id="use-persona" class="primary">Use this persona</button></div>
-      <div class="card"><b>Wake word</b><small>Say "Wake up FRIDAY", "FRIDAY wake up" or "Hey FRIDAY" to start a Live call. Works only while your phone is unlocked, pauses during a Live call, and uses more battery. Android's speech recognizer hears the audio; FRIDAY keeps nothing.</small>
-        <label class="check"><input id="wake-word" type="checkbox"> Listen for the wake word</label><p id="wake-note" class="muted"></p></div>
+      <div class="card"><b>Wake word</b><small>Say "Wake up FRIDAY", "FRIDAY wake up" or "Hey FRIDAY" to start a Live call. It pauses during a Live call and uses more battery. FRIDAY keeps no audio.</small>
+        <label class="check"><input id="wake-word" type="checkbox"> Listen for the wake word</label>
+        <label class="check"><input id="wake-locked" type="checkbox"> Also listen when the phone is locked or the screen is off</label>
+        <small>Locked phone: FRIDAY turns the screen on, then you unlock with fingerprint, face or PIN before it does anything. Uses noticeably more battery.</small>
+        <p id="wake-note" class="muted"></p></div>
+      <div class="card"><b>Voice Guardian</b><small>FRIDAY wakes only for your voice. Record "Wake up FRIDAY" three times in a quiet place; FRIDAY compares on the phone and keeps only a voice summary, never the audio. It is a basic check: a recording of your voice could pass, so the phone's own lock stays on.</small>
+        <label class="check"><input id="guardian-on" type="checkbox"> Only wake for my voice</label>
+        <div class="row"><button id="guardian-record" type="button">Record my voice</button><button id="guardian-delete" type="button">Delete my voice</button></div>
+        <p id="guardian-note" class="muted"></p></div>
       <div class="card"><b>Calls &amp; driving</b><small>Uses the phone's own voice, so it works without a Live call. Needs Notification access. You can also say "driving mode on".</small>
         <label class="check"><input id="announce-calls" type="checkbox"> Say who is calling when the phone rings</label>
         <label class="check"><input id="driving-mode" type="checkbox"> Driving mode: read out new messages, short replies</label>
@@ -271,10 +278,18 @@ function renderAnnounce() {
   el('driving-pill').hidden = !v.driving;
   el('announce-note').textContent = v.notificationAccess === false ? 'Notification access is off, so FRIDAY cannot hear calls or messages yet. Turn it on in Permissions.' : '';
 }
+let guardianBusy = false;
 function renderWake() {
   const w = state.wake || {};
   el<HTMLInputElement>('wake-word').checked = !!w.on;
-  el('wake-note').textContent = w.available === false ? 'This phone has no speech recognizer. Install or update the Google app to use the wake word.' : w.on && !w.running ? 'Starting… if it does not start, allow the microphone for FRIDAY.' : w.on ? 'Listening while your phone is unlocked.' : '';
+  el<HTMLInputElement>('wake-locked').checked = !!w.locked;
+  el<HTMLInputElement>('guardian-on').checked = !!(w.guardian && w.enrolled);
+  el<HTMLInputElement>('guardian-on').disabled = !w.enrolled;
+  el<HTMLButtonElement>('guardian-record').disabled = !!w.recording;
+  el('guardian-record').textContent = w.enrolled ? 'Record again' : 'Record my voice';
+  el('guardian-delete').hidden = !w.enrolled;
+  if (!guardianBusy) el('guardian-note').textContent = w.enrolled ? (w.guardian ? 'On: FRIDAY wakes only for your voice.' : 'Your voice is saved. Turn it on above.') : 'No voice recorded yet.';
+  el('wake-note').textContent = w.locked && w.fullScreen === false ? 'To turn the screen on when locked, allow "Wake up on the lock screen" in Permissions.' : w.available === false ? 'This phone has no speech recognizer. Install or update the Google app to use the wake word.' : w.on && !w.running ? 'Starting… if it does not start, allow the microphone for FRIDAY.' : w.on ? 'Listening while your phone is unlocked.' : '';
   const email = el<HTMLInputElement>('user-email'); if (document.activeElement !== email) email.value = state.assistant?.email || '';
 }
 function setAnnounce(change: Record<string, boolean>) { bridge?.setAssistant?.(JSON.stringify(change)); }
@@ -384,6 +399,14 @@ window.MyraaEvents = event => {
     const caller = String(event.caller || 'Unknown caller').slice(0, 80);
     notice(`Incoming call: ${caller}`);
     if (liveSession && liveSession.getState() !== 'disconnected') liveSession.sendText(`[Phone] Incoming call from ${caller}. Tell me who is calling and ask whether to pick up or reject.`);
+    return;
+  }
+  if (event.type === 'guardian') {
+    if (event.wake) state.wake = event.wake;
+    guardianBusy = event.status === 'listen' || event.status === 'heard';
+    if (event.message) el('guardian-note').textContent = event.message;
+    if (event.status !== 'done') renderWake(); else { guardianBusy = false; renderWake(); }
+    if (event.status === 'enrolled' || event.status === 'deleted' || event.status === 'error') notice(event.message);
     return;
   }
   if (event.type === 'wake') { if (bridge?.consumeWake?.()) wakeUp(); return; }
@@ -515,6 +538,10 @@ el('routine-save').onclick = () => {
   if (!name || !steps.length) { notice('Give the routine a name and at least one step.'); return; }
   bridge?.setAssistant?.(JSON.stringify({ saveRoutine: { name, steps } })); el<HTMLInputElement>('routine-name').value = ''; el<HTMLTextAreaElement>('routine-steps').value = '';
 };
+el('wake-locked').onchange = () => bridge?.setAssistant?.(JSON.stringify({ wakeLocked: el<HTMLInputElement>('wake-locked').checked }));
+el('guardian-on').onchange = () => bridge?.setAssistant?.(JSON.stringify({ guardian: el<HTMLInputElement>('guardian-on').checked }));
+el('guardian-record').onclick = () => { guardianBusy = true; el('guardian-note').textContent = 'Get ready…'; el<HTMLButtonElement>('guardian-record').disabled = true; bridge?.guardianRecord?.(); };
+el('guardian-delete').onclick = () => { if (confirm('Delete your saved voice?')) bridge?.guardianDelete?.(); };
 el('wake-word').onchange = () => bridge?.setAssistant?.(JSON.stringify({ wakeWord: el<HTMLInputElement>('wake-word').checked }));
 el('user-email').onchange = () => bridge?.setAssistant?.(JSON.stringify({ email: el<HTMLInputElement>('user-email').value.trim() }));
 el('backup-export').onclick = () => bridge?.exportBackup?.();
