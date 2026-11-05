@@ -16,7 +16,7 @@ OUT=android/app/build/ci; rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/dex" "$OU
 javac -encoding UTF-8 -source 8 -target 8 -classpath "$JAR" -d "$OUT/classes" $(find android/app/src/main/java -name '*.java')
 (cd "$OUT/classes" && jar --create --file ../classes.jar .)
 "$BT/d8" --lib "$JAR" --min-api 26 --output "$OUT/dex" "$OUT/classes.jar"
-ICON=build/icon.png; [ -f "$ICON" ] || ICON=android/ci/placeholder-icon.png
+ICON=branding/friday-icon.png; [ -f "$ICON" ] || ICON=build/icon.png
 cp "$ICON" "$OUT/res/drawable/myraa_icon.png"; cp -r android/app/src/main/res/* "$OUT/res/"
 "$BT/aapt2" compile --dir "$OUT/res" -o "$OUT/resources.zip"
 "$BT/aapt2" link --manifest android/app/src/main/AndroidManifest.xml -I "$JAR" -A "$ASSETS" --min-sdk-version 26 --target-sdk-version 35 -o "$OUT/unsigned.apk" "$OUT/resources.zip"

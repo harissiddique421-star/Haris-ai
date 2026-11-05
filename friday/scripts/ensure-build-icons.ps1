@@ -7,6 +7,8 @@ $png = Join-Path $buildRoot 'icon.png'
 $ico = Join-Path $buildRoot 'icon.ico'
 if ((Test-Path -LiteralPath $png) -and (Test-Path -LiteralPath $ico)) { return }
 New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
+$brand = Join-Path (Split-Path $PSScriptRoot) 'branding\friday-icon.png'
+if (-not (Test-Path -LiteralPath $png) -and (Test-Path -LiteralPath $brand)) { Copy-Item -LiteralPath $brand -Destination $png }
 if (-not (Test-Path -LiteralPath $png)) {
   Add-Type -AssemblyName System.Drawing
   $bitmap = [Drawing.Bitmap]::new(256, 256)

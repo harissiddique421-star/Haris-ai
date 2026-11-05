@@ -2,6 +2,7 @@ import './mobile.css';
 import { MyraaAudioSession, type LiveState } from '../lib/audio';
 import { MobileLiveTransport } from './LiveTransport';
 import { parseMobileAction } from './actions';
+import fridayLogo from '../../branding/friday-icon-small.png';
 import { CharacterSystem } from '../character/core/CharacterSystem';
 import { evelynConfig } from '../character/config/characters/evelyn';
 import { qualityProfile, withQuality } from '../character/core/quality';
@@ -55,7 +56,7 @@ function liveTranscription(role: 'user' | 'model', text: string) {
 
 const app = document.querySelector('#app')!;
 app.innerHTML = `
-  <header><div class="brand"><div>FRIDAY<small>Your companion, wherever you are.</small></div></div><button id="settings" aria-label="Open settings">⚙</button></header>
+  <header><div class="brand"><img class="brand-logo" src="${fridayLogo}" alt="" width="36" height="36"><div>FRIDAY<small>Your companion, wherever you are.</small></div></div><button id="settings" aria-label="Open settings">⚙</button></header>
   <main><section class="portrait" aria-label="FRIDAY character"><div class="halo"></div><div id="avatar"></div><div class="avatar-status" id="avatar-status" role="status">Loading your character…</div><span class="presence"><i></i> <span id="presence">Here with you</span></span><div class="gestures"><button id="wave">Wave</button><button id="sit">Sit</button><button id="stand">Stand</button><button id="happy">Smile</button><button id="view">Portrait</button></div></section>
   <section class="conversation"><div class="section-heading"><span>OUR CONVERSATION</span><button id="history-toggle">History</button></div><div id="messages" role="log" aria-live="polite"></div><div id="notice" class="notice" role="status"></div></section></main>
   <footer><div class="composer"><button id="voice" aria-label="Voice conversation" aria-pressed="false" title="Start voice conversation"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>Talk</span></button><textarea id="input" rows="1" maxlength="8000" placeholder="Talk to FRIDAY…" aria-label="Message"></textarea><button id="send" aria-label="Send message">↑</button></div><div class="footer-actions"><span id="connection">Private on this device · Gemini for replies</span><button id="stop">Stop</button><button id="speak" aria-label="Read last reply aloud">Read aloud</button></div></footer>

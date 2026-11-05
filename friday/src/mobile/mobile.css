@@ -30,6 +30,7 @@ gap:12px;
 align-items:center;
 letter-spacing:3px;
 font-weight:600}
+.brand-logo{width:36px;height:36px;border-radius:50%;object-fit:cover;box-shadow:0 0 12px #4fb3ff66}
 .brand-mark{display:grid;
 place-items:center;
 width:36px;
@@ -264,4 +265,4 @@ footer{flex:none;padding:6px 16px max(8px,env(safe-area-inset-bottom))}
 .gestures{bottom:4px;gap:5px}.gestures button{padding:6px 10px}
 .conversation.expanded{position:absolute;inset:8px 8px 0;width:auto;max-height:none;z-index:5;background:#101317f5;border:1px solid #ffffff20;border-radius:16px;padding:12px;display:flex;flex-direction:column}
 .conversation.expanded #messages{flex:1;max-height:none}
-@media(max-height:440px){header{padding:4px 12px}.brand-mark{height:26px;width:26px}.presence{top:4px}.conversation:not(.expanded) #messages{max-height:32px}}
+@media(max-height:440px){header{padding:4px 12px}.brand-mark{height:26px;width:26px}.brand-logo{height:26px;width:26px}.presence{top:4px}.conversation:not(.expanded) #messages{max-height:32px}}

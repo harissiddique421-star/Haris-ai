@@ -36,7 +36,8 @@ if ($LASTEXITCODE -ne 0) { throw 'DEX compilation failed.' }
 $unsigned = Join-Path $buildRoot 'unsigned.apk'
 $resRoot = Join-Path $buildRoot 'res'
 New-Item -ItemType Directory -Path (Join-Path $resRoot 'drawable') -Force | Out-Null
-Copy-Item -LiteralPath 'build\icon.png' -Destination (Join-Path $resRoot 'drawable\myraa_icon.png')
+$iconSource = if (Test-Path -LiteralPath 'branding\friday-icon.png') { 'branding\friday-icon.png' } else { 'build\icon.png' }
+Copy-Item -LiteralPath $iconSource -Destination (Join-Path $resRoot 'drawable\myraa_icon.png')
 Copy-Item -Path (Join-Path $projectRoot 'android\app\src\main\res\*') -Destination $resRoot -Recurse -Force
 $compiledResources = Join-Path $buildRoot 'resources.zip'
 & (Join-Path $toolsRoot 'aapt2.exe') compile --dir $resRoot -o $compiledResources
