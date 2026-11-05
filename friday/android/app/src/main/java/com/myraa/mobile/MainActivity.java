@@ -422,9 +422,9 @@ public class MainActivity extends Activity {
         JSONArray parts = candidates.getJSONObject(0).getJSONObject("content").getJSONArray("parts");
         StringBuilder answer = new StringBuilder();
         for (int i = 0; i < parts.length(); i++) if (!parts.getJSONObject(i).optBoolean("thought", false)) answer.append(parts.getJSONObject(i).optString("text", ""));
-        String reply = answer.toString().trim();
-        if (reply.isEmpty()) throw new Exception("The provider returned no text reply.");
-        reply += sources(candidates.getJSONObject(0).optJSONObject("groundingMetadata"));
+        String text0 = answer.toString().trim();
+        if (text0.isEmpty()) throw new Exception("The provider returned no text reply.");
+        String reply = text0 + sources(candidates.getJSONObject(0).optJSONObject("groundingMetadata"));
         synchronized (chatLock) {
           if (generation.get() != token) return;
           JSONArray next = new JSONArray();
