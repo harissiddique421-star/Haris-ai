@@ -1,0 +1,21 @@
+# MYRAA V2 release gates
+
+- [x] Recoverable source baseline and isolated candidates.
+- [x] Existing model inventory and tested loading of all 12 humanoids.
+- [x] Core consent, history, cancellation and renderer-recovery regression checks.
+- [x] Standalone Android development APK and emulator execution evidence.
+- [x] Google AQ-key error diagnosis and secret-redaction repair implemented/tested.
+- [x] All-model upper-body runtime/control regressions: 36 cases, 684 phases.
+- [x] Source desktop worker authentication and owned-process lifecycle checks.
+- [x] Rebuilt frozen worker, bundled backend and actual packaged-runtime validation.
+- [ ] Exact RC3 installer/upgrade validation after authenticated transport update.
+- [ ] Complete Windows overlay interaction and transition matrix.
+- [ ] Demonstrate restrained upper-body secondary motion on compatible rigs.
+- [ ] Per-model safe physics controls, visual review and preset validation.
+- [ ] Complete Windows UI/accessibility and resource-use review.
+- [ ] Valid-key text/voice and authorized task execution in real service conditions.
+- [ ] Extended stability, upgrade/migration and broader PC hardware/DPI tests.
+- [ ] Complete Android functional/device/permission/performance follow-up.
+- [ ] Resolve remaining development-tool advisories and perform final security review.
+- [ ] Production signing and model/artwork redistribution clearance.
+- [ ] Explicit owner approval before any public publication or distribution.

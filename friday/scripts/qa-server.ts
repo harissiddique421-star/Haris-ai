@@ -1,0 +1,12 @@
+import express from 'express';
+import { createServer } from 'vite';
+import { loadAllProfiles } from '../character_import/importer';
+import { defaultCharactersRoot } from '../character_import/paths';
+const app = express();
+const root = defaultCharactersRoot();
+app.get('/qa/catalogue', async (_req, res) => res.json(await loadAllProfiles(root)));
+app.use('/user-characters', express.static(root));
+app.use('/assets', express.static('assets'));
+const vite = await createServer({ server: { middlewareMode: true, hmr: false, watch: null }, appType: 'mpa' });
+app.use(vite.middlewares);
+app.listen(5189, '127.0.0.1', () => console.log('QA server http://127.0.0.1:5189/tests/renderer.html'));
