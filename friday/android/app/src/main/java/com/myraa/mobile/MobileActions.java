@@ -60,6 +60,8 @@ public final class MobileActions {
   private String chooserId,confirmId;
   private final Map<String,Confirmation> confirmations=new HashMap<>();
   private PhoneControls phone;
+  private AssistantMemory memory;
+  private AssistantMemory memory(){if(memory==null)memory=new AssistantMemory(activity);return memory;}
   private PhoneControls phone(){if(phone==null)phone=new PhoneControls(activity);return phone;}
   private final Map<String,JSONObject> completed=new LinkedHashMap<>();
   public MobileActions(Activity activity,Result result) {
@@ -175,8 +177,13 @@ public final class MobileActions {
         waCall(id,args.optString("recipient"),args.optBoolean("video"),args.optBoolean("confirm_on_screen"));return;
       }
       if("open_contact".equals(action)){openContact(id,args.optString("recipient"));return;}
+      if("remember".equals(action)){finish(id,memory().remember(args.optString("fact")));return;}
+      if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
+      if("list_memories".equals(action)){finish(id,memory().listMemories());return;}
+      if("set_persona".equals(action)){finish(id,memory().setPersona(args.optString("persona")));return;}
+      if("open_dialer".equals(action)){boolean opened=launcher.open(new Intent(Intent.ACTION_DIAL));finish(id,opened?"opened":"unavailable",opened?"Dialer opened.":"No dialer app on this phone.");return;}
       if("tap".equals(action)){tap(id,args);return;}
-      finish(id,"unsupported","Supported actions: apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
+      finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){

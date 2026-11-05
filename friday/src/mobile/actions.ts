@@ -4,6 +4,11 @@ export type MobileAction =
   | { action: 'whatsapp_message'; recipient: string; message: string }
   | { action: 'whatsapp_call'; recipient: string; video?: boolean }
   | { action: 'open_contact'; recipient: string }
+  | { action: 'remember'; fact: string }
+  | { action: 'forget'; query: string }
+  | { action: 'list_memories' }
+  | { action: 'set_persona'; persona: 'friday' | 'gf' | 'professional' | 'venom' }
+  | { action: 'open_dialer' }
   | { action: 'call'; recipient: string }
   | { action: 'set_alarm'; hour: number; minute: number; label?: string }
   | { action: 'set_reminder'; text: string; in_minutes?: number; hour?: number; minute?: number }
@@ -25,11 +30,10 @@ export type MobileAction =
   | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right' };
 export const MOBILE_TOOL = {
   name: 'mobile_action',
-  description: 'Perform an Android action requested by the user: open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, start a WhatsApp voice or video call (whatsapp_call, video true for video), open a saved contact, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. Never just open WhatsApp when the user wants to message or call someone: use whatsapp_message or whatsapp_call. WhatsApp messages and calls, SMS, phone calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
+  description: 'Perform an Android action requested by the user: remember a fact about the user (remember), forget it (forget), say what you remember (list_memories), switch persona (set_persona: friday, gf, professional, venom), open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, start a WhatsApp voice or video call (whatsapp_call, video true for video), open a saved contact, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. Never just open WhatsApp when the user wants to message or call someone: use whatsapp_message or whatsapp_call. WhatsApp messages and calls, SMS, phone calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
   parameters: { type: 'OBJECT', properties: {
-    action: { type: 'STRING', enum: ['open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
+    action: { type: 'STRING', enum: ['remember', 'forget', 'list_memories', 'set_persona', 'open_dialer', 'open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
     app: { type: 'STRING', description: 'App name, such as WhatsApp (WP), YouTube or Chrome. Only for open_app.' },
-    query: { type: 'STRING', description: 'Exact search, or song/artist/playlist for play_music.' },
     recipient: { type: 'STRING', description: 'Saved contact name as spoken, or a full international phone number with country code. For whatsapp_message, whatsapp_call, open_contact, send_sms and call. Contacts and their WhatsApp accounts are resolved locally.' },
     message: { type: 'STRING', description: 'Complete WhatsApp or SMS message, exactly as the user said it. Ask for it if missing.' },
     confirm_token: { type: 'STRING', description: 'Token from a needs_confirmation result. Send it only after the user clearly said yes.' },
@@ -38,6 +42,9 @@ export const MOBILE_TOOL = {
     label: { type: 'STRING', description: 'Optional alarm label.' },
     text: { type: 'STRING', description: 'For set_reminder: what to remind the user about. For type_text: the exact text to type.' },
     in_minutes: { type: 'INTEGER', description: 'For set_reminder: minutes from now (1-1440). Use instead of hour/minute.' },
+    fact: { type: 'STRING', description: 'For remember: one short fact about the user, in their words. Never passwords, PINs, OTPs or card numbers.' },
+    query: { type: 'STRING', description: 'Exact search, or song/artist/playlist for play_music, or for forget: words from the memory to delete (or "everything").' },
+    persona: { type: 'STRING', enum: ['friday', 'gf', 'professional', 'venom'], description: 'For set_persona.' },
     video: { type: 'BOOLEAN', description: 'For whatsapp_call: true for a video call, false or omitted for a voice call.' },
     on: { type: 'BOOLEAN', description: 'For torch: true to turn on, false to turn off.' },
     stream: { type: 'STRING', enum: ['media', 'ring', 'alarm'], description: 'For volume. Default media.' },
@@ -62,7 +69,14 @@ export function parseMobileAction(input: string): MobileAction | null {
   if (match) return { action: 'whatsapp_message', recipient: match[1].trim(), message: match[2].trim() };
   match = /^(?:whatsapp|wp|wa)\s+(?:par|pe|per)\s+(.+?)\s+ko\s+(?:message|msg)\s+(?:karo|kar do|bhejo|bhej do)\s*:\s*(.+)$/is.exec(text) || /^(.+?)\s+ko\s+(?:whatsapp|wp|wa)(?:\s+(?:par|pe))?\s+(?:message|msg)\s+(?:karo|kar do|bhejo|bhej do)\s*:\s*(.+)$/is.exec(text);
   if (match) return { action: 'whatsapp_message', recipient: match[1].trim(), message: match[2].trim() };
+  match = /^(?:remember(?: that)?|yaad rakho(?: ki)?|yaad rakhna(?: ki)?)\s*:?\s+(.{2,300})$/is.exec(text);
+  if (match) return { action: 'remember', fact: match[1].trim() };
   const plain = text.replace(/[.!?।]+$/u, '');
+  if (/^(?:what do you remember(?: about me)?|tumhe kya yaad hai|kya yaad hai)$/i.test(plain)) return { action: 'list_memories' };
+  match = /^(?:forget|bhool jao|bhul jao)\s+(.{2,100})$/i.exec(plain);
+  if (match) return { action: 'forget', query: match[1].trim() };
+  match = /^(?:switch to|use|change to)\s+(friday|gf|girlfriend|professional|venom)(?:\s+(?:mode|persona|voice))?$/i.exec(plain) || /^(friday|gf|girlfriend|professional|venom)\s+mode(?:\s+(?:on|karo|kar do|lagao))?$/i.exec(plain);
+  if (match) { const p = match[1].toLowerCase(); return { action: 'set_persona', persona: p === 'girlfriend' ? 'gf' : p as 'gf' }; }
   match = /^(.+?)\s+ko\s+(?:whatsapp|wp|wa)(?:\s+(?:par|pe))?\s+(video\s+)?call\s+(?:karo|kar do|lagao|milao)$/i.exec(plain) || /^(?:whatsapp|wp|wa)\s+(?:par|pe)\s+(.+?)\s+ko\s+(video\s+)?call\s+(?:karo|kar do|lagao|milao)$/i.exec(plain);
   if (match && !/\band\b/i.test(match[1])) return match[2] ? { action: 'whatsapp_call', recipient: match[1].trim(), video: true } : { action: 'whatsapp_call', recipient: match[1].trim() };
   match = /^(?:whatsapp|wp|wa)\s+(video\s+)?call\s+(?:to\s+)?(.+)$/i.exec(plain);

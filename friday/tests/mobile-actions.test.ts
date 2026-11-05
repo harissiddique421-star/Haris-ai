@@ -61,3 +61,12 @@ test('WhatsApp messages and voice/video calls parse from Hinglish',()=>{
   assert.deepEqual(parseMobileAction('open contact Ali'),{action:'open_contact',recipient:'Ali'});
   for(const text of ['Ali ko WhatsApp call karo and delete chats','whatsapp video call']) assert.equal(parseMobileAction(text),null,text);
 });
+test('memory and persona commands parse locally',()=>{
+  assert.deepEqual(parseMobileAction('remember that my sister is Sara'),{action:'remember',fact:'my sister is Sara'});
+  assert.deepEqual(parseMobileAction('yaad rakho ki mujhe chai pasand hai'),{action:'remember',fact:'mujhe chai pasand hai'});
+  assert.deepEqual(parseMobileAction('what do you remember?'),{action:'list_memories'});
+  assert.deepEqual(parseMobileAction('forget Sara'),{action:'forget',query:'Sara'});
+  assert.deepEqual(parseMobileAction('switch to venom mode'),{action:'set_persona',persona:'venom'});
+  assert.deepEqual(parseMobileAction('professional mode on'),{action:'set_persona',persona:'professional'});
+  assert.deepEqual(parseMobileAction('use girlfriend voice'),{action:'set_persona',persona:'gf'});
+});

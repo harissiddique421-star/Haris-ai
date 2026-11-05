@@ -10,7 +10,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; }
+interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -86,7 +86,12 @@ function liveState(value: LiveState) {
   const active = value !== 'disconnected';
   if (value === 'listening') notice('Live voice connected. Speak naturally.');
   el('voice').setAttribute('aria-pressed', String(active));
-  el('voice').querySelector('span')!.textContent = active ? 'End' : 'Talk';
+  el('voice').querySelector('span')!.textContent = active ? 'Live' : 'AI';
+  el('listen-state').textContent = value === 'connecting' ? 'CONNECTING…' : value === 'speaking' ? 'SPEAKING…' : value === 'listening' ? 'LISTENING…' : '';
+  el('listen-hint').textContent = value === 'speaking' ? 'Tap the red button to end the call' : 'Say your command';
+  el('connection-pill').textContent = active ? 'Live' : state.keyConfigured ? 'Ready' : 'Setup';
+  el('connection-pill').classList.toggle('live', active);
+  if (active && !listeningMinimized) showListening(true); if (!active) { showListening(false); listeningMinimized = false; }
   el('presence').textContent = value === 'connecting' ? 'Connecting live…' : value === 'speaking' ? 'Speaking with you' : value === 'listening' ? 'Live · listening to you' : 'Here with you';
   system?.setFrameInput({ activity: value === 'speaking' ? 'talking' : value === 'listening' ? 'listening' : 'idle',
     outputAnalyser: liveSession?.outputAnalyser ?? null, inputAnalyser: liveSession?.inputAnalyser ?? null });
@@ -101,14 +106,170 @@ function liveTranscription(role: 'user' | 'model', text: string) {
 }
 
 const app = document.querySelector('#app')!;
+const icon = {
+  wave: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg>',
+  chat: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  more: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.5"/><rect x="14" y="4" width="6" height="6" rx="1.5"/><rect x="4" y="14" width="6" height="6" rx="1.5"/><rect x="14" y="14" width="6" height="6" rx="1.5"/></svg>',
+  whatsapp: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l1.3-4A8 8 0 1 1 8 18.7z"/><path d="M9 9c0 3 3 6 6 6l1-1.5-2-1-1 1c-1-.5-2-1.5-2.5-2.5l1-1-1-2z"/></svg>',
+  youtube: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="4"/><path d="M10 9.5v5l4.5-2.5z" class="fill"/></svg>',
+  calls: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h3l2 5-2.5 1.5a11 11 0 0 0 6 6L16 13l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2z"/></svg>',
+  torch: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3h8l-1 5H9zM9 8h6l-1 13h-4z"/><path d="M12 12v3"/></svg>',
+  volume: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/></svg>',
+  gear: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>',
+};
+const bars = Array.from({ length: 23 }, (_, i) => `<i style="--h:${(0.3 + ((i * 7) % 10) / 13).toFixed(2)}"></i>`).join('');
 app.innerHTML = `
-  <header><div class="brand"><img class="brand-logo" src="${fridayLogo}" alt="" width="36" height="36"><div>FRIDAY<small>Your companion, wherever you are.</small></div></div><button id="settings" aria-label="Open settings">⚙</button></header>
-  <main><section class="portrait" aria-label="FRIDAY character"><video id="camera-preview" class="camera-preview" playsinline muted hidden title="Tap to switch camera"></video><div class="halo"></div><div id="avatar"></div><div class="avatar-status" id="avatar-status" role="status">Loading your character…</div><span class="presence"><i></i> <span id="presence">Here with you</span></span><div class="gestures"><button id="wave">Wave</button><button id="sit">Sit</button><button id="stand">Stand</button><button id="happy">Smile</button><button id="view">Portrait</button></div></section>
-  <section class="conversation"><div class="section-heading"><span>OUR CONVERSATION</span><button id="history-toggle">History</button></div><div id="messages" role="log" aria-live="polite"></div><div id="notice" class="notice" role="status"></div></section></main>
-  <footer><div class="composer"><button id="voice" aria-label="Voice conversation" aria-pressed="false" title="Start voice conversation"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg><span>Talk</span></button><textarea id="input" rows="1" maxlength="8000" placeholder="Talk to FRIDAY…" aria-label="Message"></textarea><button id="send" aria-label="Send message">↑</button></div><div class="footer-actions"><span id="connection">Private on this device · Gemini for replies</span><button id="camera" aria-pressed="false" hidden>Camera</button><button id="screen" aria-pressed="false" hidden>Share screen</button><button id="stop">Stop</button><button id="speak" aria-label="Read last reply aloud">Read aloud</button></div></footer>
-  <dialog id="settings-panel"><form method="dialog"><div class="dialog-heading"><h2>Make yourself at home</h2><button aria-label="Close settings">×</button></div></form><p class="muted">Your key and conversations stay on this device. Messages and recent context are sent directly to Google when you ask for a reply.</p><label>Gemini API key<input id="key" type="password" autocomplete="off" placeholder="Enter your own key"></label><p id="key-state" class="muted"></p><label>Text model<input id="model" autocomplete="off" placeholder="Model identifier"></label><label>Live voice model<input id="live-model" autocomplete="off" placeholder="gemini-3.1-flash-live-preview"></label><label>Language<select id="language"><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English (India)</option><option value="en-US">English</option></select></label><label>Graphics<select id="quality"><option value="low">Low · save battery</option><option value="balanced">Medium · balanced</option><option value="high">High · sharper</option></select></label><label class="check"><input id="spoken" type="checkbox"> Read text replies with Android voice</label><button id="save" class="primary">Save settings</button><button id="check-connection">Check key &amp; model</button><p id="settings-status" class="muted" role="status" aria-live="polite"></p><div class="privacy-actions"><button id="remove-key">Remove API key</button><button id="clear-history">Clear conversation history</button><button id="android-settings">Android app settings</button><button id="floating-settings">Enable floating voice controls</button><button id="autosend-settings">Let FRIDAY send WhatsApp messages</button><button id="notification-settings">Let FRIDAY read notifications and announce calls</button><button id="phone-control-settings">Let FRIDAY control the phone</button></div><p class="muted">Talk opens an in-app Gemini Live audio call. Your microphone streams directly to Gemini, which generates FRIDAY’s voice. Android microphone permission is required. Read aloud is a separate text-reading option. During an active call, the microphone can stay on while you use other apps; stop it from FRIDAY or its notification. Floating voice controls allow app switching while FRIDAY is behind another app. During a Live call, Camera and Share screen send about one picture per second to Gemini until you turn them off or end the call. Contacts stay on this device and are read only to resolve a message or call recipient. Calls and WhatsApp messages always ask you to confirm first. WhatsApp sends only if you enable FRIDAY in Android Accessibility settings; otherwise it opens a draft and you tap Send. With Notification access on, FRIDAY keeps your last 30 notifications in memory only and sends them to Gemini only when you ask it to read them; during a Live call it announces incoming callers. Phone control works only if you turn on “FRIDAY phone control” in Android Accessibility settings: FRIDAY can then press Back and Home, read the screen, tap, type and scroll in the app in front when you ask. It never reads or fills password fields, and taps that could send, pay, delete, install or allow something wait for your yes.</p><output id="diagnostics" class="muted"></output></dialog>`;
+  <div id="boot" class="boot" aria-hidden="true"><div class="boot-ring"><img src="${fridayLogo}" alt=""></div><h1>FRIDAY <em>AI</em></h1><p class="boot-sub">PERSONAL AI ASSISTANT</p><p class="boot-tag">Smarter · Faster · Always with you</p><div class="boot-bar"><i></i></div><p class="boot-status">INITIALIZING SYSTEMS…</p><p class="boot-version" id="boot-version"></p></div>
+  <header class="topbar"><div class="brand"><img class="brand-logo" src="${fridayLogo}" alt="" width="38" height="38"><div>FRIDAY<small><i class="dot"></i><span id="status-line">Online</span></small></div></div><span id="connection-pill" class="pill">Ready</span><button id="settings" class="icon-button" aria-label="Open settings">${icon.gear}</button></header>
+  <main>
+    <section id="home-view" class="view active" aria-label="Home">
+      <div class="greeting"><h1>Hello, <b id="hello-name">there</b>!</h1><p>I'm <b>Friday</b>, your personal AI assistant.</p></div>
+      <section class="portrait" aria-label="FRIDAY"><video id="camera-preview" class="camera-preview" playsinline muted hidden title="Tap to switch camera"></video><div class="halo"><i></i><i></i><i></i></div><div id="avatar"></div><div class="avatar-status" id="avatar-status" role="status">Loading…</div><span class="presence"><i></i> <span id="presence">Here with you</span></span><div class="gestures"><button id="wave">Wave</button><button id="sit">Sit</button><button id="stand">Stand</button><button id="happy">Smile</button><button id="view">Portrait</button></div></section>
+      <div class="quick-head"><span>«</span> Quick Actions <span>»</span></div>
+      <div class="quick-grid">
+        <button data-quick="whatsapp" class="q-whatsapp">${icon.whatsapp}<span>WhatsApp</span></button>
+        <button data-quick="youtube" class="q-youtube">${icon.youtube}<span>YouTube</span></button>
+        <button data-quick="calls" class="q-calls">${icon.calls}<span>Calls</span></button>
+        <button data-quick="torch" class="q-torch" aria-pressed="false">${icon.torch}<span>Torch</span></button>
+        <button data-quick="volume" class="q-volume">${icon.volume}<span>Volume</span></button>
+        <button data-quick="settings" class="q-settings">${icon.gear}<span>Settings</span></button>
+      </div>
+    </section>
+    <section id="chat-view" class="view conversation" aria-label="Chat">
+      <div class="section-heading"><span>CONVERSATION</span><button id="history-toggle">History</button></div>
+      <div id="messages" role="log" aria-live="polite"></div>
+      <div class="composer"><textarea id="input" rows="1" maxlength="8000" placeholder="Type a message…" aria-label="Message"></textarea><button id="send" class="send" aria-label="Send message">↑</button></div>
+      <div class="footer-actions"><span id="connection">Private on this device · Gemini for replies</span><button id="stop">Stop</button><button id="speak" aria-label="Read last reply aloud">Read aloud</button></div>
+    </section>
+  </main>
+  <div id="notice" class="notice" role="status"></div>
+  <section id="listening" class="listening" hidden aria-label="Live call">
+    <button id="listen-min" class="listen-min" aria-label="Show chat">Chat</button>
+    <div class="orb"><i></i><i></i><i></i><div class="orb-core">${icon.mic}</div><div class="orb-bars" id="orb-bars">${bars}</div></div>
+    <h2 id="listen-state">CONNECTING…</h2><p id="listen-hint">Say your command</p>
+    <div class="wave-bars" id="wave-bars">${bars}${bars}</div>
+    <div class="listen-tools"><button id="camera" aria-pressed="false" hidden>Camera</button><button id="screen" aria-pressed="false" hidden>Share screen</button></div>
+    <button id="listen-stop" class="listen-stop" aria-label="End call"><i></i></button>
+  </section>
+  <nav class="bottom-nav" aria-label="Main"><button id="nav-chat" class="nav-item">${icon.chat}<span>Chat</span></button><button id="voice" class="ai-button" aria-label="Talk to FRIDAY" aria-pressed="false">${icon.wave}<span>AI</span></button><button id="nav-more" class="nav-item">${icon.more}<span>More</span></button></nav>
+  <dialog id="settings-panel" class="settings"><div class="settings-top"><button id="settings-back" class="icon-button" aria-label="Back">←</button><h2 id="settings-title">Settings</h2><form method="dialog"><button class="icon-button" aria-label="Close settings">×</button></form></div>
+    <div class="settings-page" data-page="menu">
+      <p class="group">ACCOUNT</p><div class="menu"><button data-go="personal"><b>Personal</b><small>Your name, Gemini key, models, language</small></button></div>
+      <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button></div>
+      <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button></div>
+      <p class="group">SYSTEM</p><div class="menu"><button data-go="advanced"><b>Advanced</b><small>Graphics, read aloud, history, diagnostics</small></button></div>
+    </div>
+    <div class="settings-page" data-page="personal" hidden>
+      <label>Your name<input id="user-name" autocomplete="off" maxlength="40" placeholder="What should FRIDAY call you?"></label>
+      <label>Gemini API key<input id="key" type="password" autocomplete="off" placeholder="Enter your own key"></label><p id="key-state" class="muted"></p>
+      <label>Text model<input id="model" autocomplete="off" placeholder="Model identifier"></label>
+      <label>Live voice model<input id="live-model" autocomplete="off" placeholder="gemini-3.1-flash-live-preview"></label>
+      <label>Language<select id="language"><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English (India)</option><option value="en-US">English</option></select></label>
+      <button id="save" class="primary">Save settings</button><button id="check-connection">Check key &amp; model</button><p id="settings-status" class="muted" role="status" aria-live="polite"></p>
+    </div>
+    <div class="settings-page" data-page="assistant" hidden>
+      <div class="card"><b>Persona</b><small>How FRIDAY talks. You can also say "Venom mode" or "Professional mode".</small><div class="tabs" id="persona-tabs"></div><button id="use-persona" class="primary">Use this persona</button></div>
+      <div class="card"><b>Voice</b><small id="voice-for">Pick a voice. Applies the next time a Live call starts.</small><div id="voice-list" class="voice-list"></div></div>
+    </div>
+    <div class="settings-page" data-page="memory" hidden>
+      <div class="card"><b>Memory</b><small>Stays on this phone. Say "remember that…" or add one here. FRIDAY never saves passwords, PINs or OTPs.</small><div class="row"><input id="memory-new" maxlength="300" placeholder="e.g. My sister's name is Sara"><button id="memory-add">Add</button></div><ul id="memory-list" class="memory-list"></ul></div>
+    </div>
+    <div class="settings-page" data-page="permissions" hidden><p class="muted">FRIDAY needs these to do things for you. Allow only what you want.</p><div id="permission-list" class="permission-list"></div></div>
+    <div class="settings-page" data-page="advanced" hidden>
+      <label>Graphics<select id="quality"><option value="low">Low · save battery</option><option value="balanced">Medium · balanced</option><option value="high">High · sharper</option></select></label>
+      <label class="check"><input id="spoken" type="checkbox"> Read text replies with Android voice</label>
+      <button id="save-advanced" class="primary">Save</button>
+      <div class="privacy-actions"><button id="remove-key">Remove API key</button><button id="clear-history">Clear conversation history</button><button id="android-settings">Android app settings</button></div>
+      <p class="muted">Your key and conversations stay on this device. Messages and recent context go directly to Google when you ask for a reply. A Live call streams your microphone to Gemini; Camera and Share screen send about one picture per second until you turn them off. Contacts are read on the phone only to find who you mean. Calls, SMS, WhatsApp messages and risky taps always ask you first. Phone control works only with FRIDAY's Accessibility switch on, and never reads or fills password fields.</p>
+      <p class="group">DIAGNOSTICS</p><output id="diagnostics" class="muted"></output>
+    </div>
+  </dialog>`;
 const el = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-const notice = (message: string) => { el('notice').textContent = message; };
+let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+const notice = (message: string) => {
+  const box = el('notice'); box.textContent = message; box.classList.toggle('show', !!message);
+  if (noticeTimer) clearTimeout(noticeTimer); if (message) noticeTimer = setTimeout(() => box.classList.remove('show'), 5000);
+};
+let listeningMinimized = false;
+let torchOn = false;
+let meterFrame = 0;
+const meterData = new Uint8Array(64);
+function showListening(show: boolean) {
+  el('listening').hidden = !show;
+  cancelAnimationFrame(meterFrame);
+  if (show) meter();
+}
+/** Drives the listening bars from the real microphone and voice levels. */
+function meter() {
+  const analyser = liveSession?.getState() === 'speaking' ? liveSession?.outputAnalyser : liveSession?.inputAnalyser;
+  let level = 0;
+  if (analyser) { analyser.getByteFrequencyData(meterData); for (let i = 0; i < meterData.length; i++) level += meterData[i]; level /= meterData.length * 255; }
+  el('listening').style.setProperty('--level', String(Math.min(1, level * 2.4)));
+  meterFrame = requestAnimationFrame(meter);
+}
+function showView(view: 'home' | 'chat') {
+  el('home-view').classList.toggle('active', view === 'home'); el('chat-view').classList.toggle('active', view === 'chat');
+  el('nav-chat').querySelector('span')!.textContent = view === 'chat' ? 'Home' : 'Chat';
+  if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
+}
+const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened']);
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', answer_call: 'Call', reject_call: 'Call' };
+/** A small result card in the chat for each phone action, marked done only when Android said so. */
+function appendAction(action: string, result: any) {
+  const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
+  card.className = `action-card ${ok ? 'ok' : result?.status === 'needs_confirmation' ? 'ask' : 'warn'}`;
+  const title = document.createElement('b'); title.textContent = actionNames[action] || 'Phone';
+  const body = document.createElement('p'); body.textContent = String(result?.message || 'Finished.').slice(0, 400);
+  const mark = document.createElement('i'); mark.textContent = ok ? '✓' : result?.status === 'needs_confirmation' ? '?' : '!';
+  card.append(mark, title, body); el('messages').appendChild(card); el('messages').scrollTop = el('messages').scrollHeight;
+}
+function refreshState() { if (bridge) { try { const next = JSON.parse(bridge.getState()); state.assistant = next.assistant; state.permissions = next.permissions; state.controlStatus = next.controlStatus; state.controlLog = next.controlLog; } catch { /* keep old */ } } renderAssistant(); renderPermissions(); }
+const personaLabels: Record<string, string> = { friday: 'FRIDAY', gf: 'GF', professional: 'Professional', venom: 'Venom' };
+let personaTab = '';
+function renderAssistant() {
+  const a = state.assistant || {}; el('hello-name').textContent = a.name || 'there';
+  if (!personaTab) personaTab = a.persona || 'friday';
+  const tabs = el('persona-tabs'); tabs.replaceChildren();
+  for (const id of Object.keys(personaLabels)) {
+    const b = document.createElement('button'); b.textContent = personaLabels[id] + (a.persona === id ? ' ✓' : ''); b.className = id === personaTab ? 'active' : '';
+    b.onclick = () => { personaTab = id; renderAssistant(); }; tabs.append(b);
+  }
+  el('use-persona').textContent = a.persona === personaTab ? `${personaLabels[personaTab]} is active` : `Use ${personaLabels[personaTab]}`;
+  (el('use-persona') as HTMLButtonElement).disabled = a.persona === personaTab;
+  el('voice-for').textContent = `Voice for ${personaLabels[personaTab]}. Applies the next time a Live call starts.`;
+  const list = el('voice-list'); list.replaceChildren();
+  for (const voice of (a.voiceOptions || []) as string[]) {
+    const b = document.createElement('button'); const chosen = a.voices?.[personaTab] === voice;
+    b.className = chosen ? 'chosen' : ''; b.textContent = voice + (chosen ? '  ✓' : '');
+    b.onclick = () => bridge?.setAssistant?.(JSON.stringify({ voice, voicePersona: personaTab })); list.append(b);
+  }
+  const memories = el('memory-list'); memories.replaceChildren();
+  ((a.memories || []) as string[]).forEach((text, index) => {
+    const li = document.createElement('li'); const span = document.createElement('span'); span.textContent = text;
+    const del = document.createElement('button'); del.textContent = '×'; del.setAttribute('aria-label', 'Forget this');
+    del.onclick = () => bridge?.setAssistant?.(JSON.stringify({ forgetIndex: index })); li.append(span, del); memories.append(li);
+  });
+  if (!(a.memories || []).length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Nothing saved yet.'; memories.append(li); }
+}
+function renderPermissions() {
+  const list = el('permission-list'); list.replaceChildren();
+  for (const p of (state.permissions || []) as any[]) {
+    const card = document.createElement('div'); card.className = 'perm';
+    const text = document.createElement('div'); const t = document.createElement('b'); t.textContent = p.title; const w = document.createElement('small'); w.textContent = p.why;
+    if (p.id === 'accessibility' && p.granted && !p.connected) w.textContent += ' Switch is on; Android is connecting it.';
+    text.append(t, w);
+    const action = p.granted ? Object.assign(document.createElement('span'), { className: 'granted', textContent: 'Granted' }) : Object.assign(document.createElement('button'), { className: 'grant', textContent: 'Grant' });
+    if (!p.granted) (action as HTMLButtonElement).onclick = () => bridge?.requestPermission?.(p.id);
+    card.append(text, action); list.append(card);
+  }
+}
+const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', advanced: 'Advanced' };
+function settingsPage(page: string) {
+  for (const section of document.querySelectorAll<HTMLElement>('.settings-page')) section.hidden = section.dataset.page !== page;
+  el('settings-title').textContent = pageTitles[page] || 'Settings'; el('settings-back').toggleAttribute('hidden', page === 'menu');
+  if (page === 'permissions') refreshState();
+}
 function append(role: string, text: string) {
   const item = document.createElement('article'); item.className = `message ${role}`;
   const label = document.createElement('small'); label.textContent = role === 'user' ? 'YOU' : 'FRIDAY';
@@ -122,7 +283,8 @@ function refreshSettings() {
   el<HTMLSelectElement>('quality').value = state.quality;
   el<HTMLSelectElement>('language').value = state.language;
   el<HTMLInputElement>('spoken').checked = state.spokenReplies === true;
-  refreshKeyStatus();
+  el<HTMLInputElement>('user-name').value = state.assistant?.name || '';
+  refreshKeyStatus(); renderAssistant(); renderPermissions();
 }
 function refreshKeyStatus() {
   el('key-state').textContent = state.keyConfigured ? `A key is saved in Android Keystore protected storage. ${state.keyVerified ? 'Google accepted it for this model.' : 'Use Check key & model to verify access.'}` : 'No API key configured. Add yours to chat.';
@@ -176,13 +338,15 @@ window.MyraaEvents = event => {
       if (event.status === 'checked') refreshKeyStatus();
       else refreshSettings();
       if (event.status === 'saved') {
-        el<HTMLDialogElement>('settings-panel').close();
+        el<HTMLDialogElement>('settings-panel').close(); renderAssistant();
         notice(event.message || 'Settings saved.');
         if (changedQuality) void loadAvatar();
       }
     }
   }
-  if (event.type === 'state') { state = event.state; refreshSettings(); renderHistory(); }
+  if (event.type === 'state') { state = event.state; refreshSettings(); renderHistory(); renderAssistant(); }
+  if (event.type === 'assistant') { state.assistant = event.assistant; renderAssistant(); if (event.message) notice(event.message); }
+  if (event.type === 'permissions') { state.permissions = event.permissions; renderPermissions(); if (event.message) notice(event.message); }
   if (event.type === 'reply' && event.id === requestId) {
     busy = false; lastReply = event.text; append('model', event.text); notice('');
     pendingText = '';
@@ -203,7 +367,8 @@ window.MyraaEvents = event => {
 function send() {
   const input = el<HTMLTextAreaElement>('input'); const text = input.value.trim(); if (!text || busy) return;
   const mobile = parseMobileAction(text);
-  if (mobile) { input.value = ''; append('user', text); void runMobileAction('mobile_action', mobile.action === 'whatsapp_message' || mobile.action === 'whatsapp_call' || mobile.action === 'call' || mobile.action === 'send_sms' ? { ...mobile, confirm_on_screen: true } : mobile).then(result => { append('model', result.message); notice(result.message); }); return; }
+  if (mobile) { input.value = ''; append('user', text); void runMobileAction('mobile_action', mobile.action === 'whatsapp_message' || mobile.action === 'whatsapp_call' || mobile.action === 'call' || mobile.action === 'send_sms' ? { ...mobile, confirm_on_screen: true } : mobile).then(result => { appendAction(mobile.action, result); notice(result.message); if (mobile.action === 'remember' || mobile.action === 'forget' || mobile.action === 'set_persona') refreshState(); }); showView('chat'); return; }
+  showView('chat');
   if (liveSession && liveSession.getState() !== 'disconnected') { liveSession.sendText(text); input.value = ''; append('user', text); return; }
   const command = parseCharacterCommand(text);
   if (command) {
@@ -226,7 +391,7 @@ el('send').onclick = send;
 el('input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } });
 el('stop').onclick = () => { cancelMobileActions(); stopVoice(); bridge?.cancel(); bridge?.stopSpeech(); busy = false; requestId = ''; notice('Stopped.'); system?.stopBehaviour(); system?.setFrameInput({ activity: 'idle', emotion: 'idle' }); };
 el('voice').onclick = () => {
-  if (liveSession && liveSession.getState() !== 'disconnected') { stopVoice(); notice('Live voice ended.'); return; }
+  if (liveSession && liveSession.getState() !== 'disconnected') { if (el('listening').hidden) { listeningMinimized = false; showListening(true); } else { stopVoice(); notice('Live voice ended.'); } return; }
   if (!bridge) { notice('Gemini Live voice runs inside the Android app.'); return; }
   if (!state.keyConfigured) { notice('Add a working Gemini key in Settings to start Live voice.'); return; }
   if (busy) { notice('Stop the current text reply before starting Live voice.'); return; }
@@ -234,7 +399,7 @@ el('voice').onclick = () => {
   liveSession = new MyraaAudioSession({
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
     onStateChange: liveState, onTranscription: liveTranscription,
-    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } void runMobileAction(name, args).then(result => { notice(result.message); callback(result); }); },
+    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } void runMobileAction(name, args).then(result => { notice(result.message); appendAction(String((args as any)?.action || ''), result); callback(result); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
     onError: message => { notice(message); stopVoice(); },
   });
   notice('Connecting to FRIDAY Live…'); void liveSession.connect(true);
@@ -246,7 +411,7 @@ el('stand').onclick = () => { system?.stand(); if (!fullBody) { system?.stage.cl
 el('view').onclick = () => { fullBody = !fullBody; if (fullBody) system?.frameFullBody(); else { system?.stage.clearPan(); system?.setCameraFocus(null); } el('view').textContent = fullBody ? 'Portrait' : 'Full body'; };
 el('happy').onclick = () => { system?.setFrameInput({ emotion: 'happy' }); setTimeout(() => system?.setFrameInput({ emotion: 'idle' }), 3000); };
 el('settings').onclick = () => {
-  stopVoice(); refreshSettings(); el<HTMLDialogElement>('settings-panel').showModal();
+  stopVoice(); refreshState(); refreshSettings(); settingsPage('menu'); el<HTMLDialogElement>('settings-panel').showModal();
   let control = '';
   try { const state = JSON.parse(bridge?.getState() || '{}'); const status = state.controlStatus || {}; control = `\n\nPhone control: ${status.ready ? 'READY (connected)' : status.enabled ? 'switch on, not connected yet' : 'off'}\n${(state.controlLog || []).slice(-25).join('\n')}`; } catch { /* diagnostics only */ }
   el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}) + control;
@@ -254,6 +419,7 @@ el('settings').onclick = () => {
 el('save').onclick = () => {
   if (!bridge) return notice('Save settings in the installed Android app.');
   settingsProgress(true, 'Checking and saving settings…');
+  bridge.setAssistant?.(JSON.stringify({ name: el<HTMLInputElement>('user-name').value.trim() }));
   bridge.configure(JSON.stringify({ key: el<HTMLInputElement>('key').value.trim(), liveModel: el<HTMLInputElement>('live-model').value.trim(), model: el<HTMLInputElement>('model').value.trim(), quality: el<HTMLSelectElement>('quality').value, language: el<HTMLSelectElement>('language').value, spokenReplies: el<HTMLInputElement>('spoken').checked }));
 };
 el('check-connection').onclick = () => {
@@ -265,13 +431,27 @@ let allHistory = false; el('history-toggle').onclick = () => { allHistory = !all
 el('clear-history').onclick = () => { if (confirm('Clear conversation history on this device?')) { bridge?.clearHistory(); state = bridge ? JSON.parse(bridge.getState()) : state; renderHistory(); } };
 el('remove-key').onclick = () => { if (confirm('Remove your saved Gemini API key?')) { bridge?.clearKey(); state = bridge ? JSON.parse(bridge.getState()) : state; refreshSettings(); } };
 el('android-settings').onclick = () => bridge?.openSettings();
-el('floating-settings').onclick = () => bridge?.openFloatingSettings();
-el('autosend-settings').onclick = () => bridge?.openAccessibilitySettings?.();
 el('camera').onclick = () => { if (cameraStream) { stopCamera(); notice('Camera off.'); } else if (bridge?.requestCamera) bridge.requestCamera(); else void startCamera(); };
 el('screen').onclick = () => { if (screenSharing) bridge?.stopScreenShare?.(); else if (!liveActive()) notice('Start a Live call first, then share your screen.'); else bridge?.startScreenShare?.(); };
 el('camera-preview').onclick = () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; stopCamera(); bridge?.requestCamera ? bridge.requestCamera() : void startCamera(); };
-el('notification-settings').onclick = () => bridge?.openNotificationSettings?.();
-el('phone-control-settings').onclick = () => bridge?.openAccessibilitySettings?.();
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = () => settingsPage(button.dataset.go!);
+el('settings-back').onclick = () => settingsPage('menu');
+el('save-advanced').onclick = () => el('save').click();
+el('use-persona').onclick = () => { bridge?.setAssistant?.(JSON.stringify({ persona: personaTab })); };
+el('memory-add').onclick = () => { const input = el<HTMLInputElement>('memory-new'); const text = input.value.trim(); if (!text) return; bridge?.setAssistant?.(JSON.stringify({ remember: text })); input.value = ''; };
+el('nav-chat').onclick = () => showView(el('chat-view').classList.contains('active') ? 'home' : 'chat');
+el('nav-more').onclick = () => el('settings').click();
+el('listen-stop').onclick = () => { stopVoice(); notice('Live voice ended.'); };
+el('listen-min').onclick = () => { listeningMinimized = true; showListening(false); showView('chat'); };
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-quick]')) button.onclick = () => {
+  const quick = button.dataset.quick!;
+  if (quick === 'settings') { el('settings').click(); return; }
+  const args = quick === 'whatsapp' ? { action: 'open_app', app: 'WhatsApp' } : quick === 'youtube' ? { action: 'open_app', app: 'YouTube' } : quick === 'calls' ? { action: 'open_dialer' } : quick === 'torch' ? { action: 'torch', on: !torchOn } : { action: 'open_settings', page: 'volume' };
+  void runMobileAction('mobile_action', args).then(result => {
+    if (quick === 'torch' && result?.status === 'done') { torchOn = !torchOn; button.setAttribute('aria-pressed', String(torchOn)); }
+    notice(result?.message || 'Done.');
+  });
+};
 const resize = new ResizeObserver(() => { const box = el('avatar').getBoundingClientRect(); system?.resize(box.width, box.height); if (fullBody) system?.frameFullBody(); }); resize.observe(el('avatar'));
 el('avatar').onpointermove = event => { const box = el('avatar').getBoundingClientRect(); system?.setPointer((event.clientX - box.left) / box.width * 2 - 1, 1 - (event.clientY - box.top) / box.height * 2); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) { if (!backgroundLive && !permissionPrompt) stopVoice(); system?.stop(); bridge?.stopSpeech(); } else system?.start(); });
@@ -280,4 +460,7 @@ window.addEventListener('myraa:stop-live', () => { stopVoice(); notice('Live cal
 window.addEventListener('pagehide', () => { stopVoice(); generation++; system?.dispose(); bridge?.cancel(); });
 window.__mobileDiagnostics = () => system?.diagnostics;
 renderHistory(); refreshSettings(); void loadAvatar();
+el('boot-version').textContent = 'v' + (state.version || '1.0');
+el('connection-pill').textContent = state.keyConfigured ? 'Ready' : 'Setup';
+setTimeout(() => el('boot').classList.add('done'), 1400); setTimeout(() => el('boot').remove(), 2100);
 if (!bridge) notice('Browser preview — native chat and voice run in the Android app.');
