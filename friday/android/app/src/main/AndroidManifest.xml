@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.myraa.mobile" android:versionCode="7" android:versionName="1.0.0-rc.7">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.myraa.mobile" android:versionCode="8" android:versionName="1.0.0-rc.8">
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -13,6 +13,9 @@
   <uses-permission android:name="android.permission.CALL_PHONE" />
   <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
   <uses-permission android:name="android.permission.SEND_SMS" />
+  <uses-permission android:name="android.permission.CAMERA" />
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+  <uses-feature android:name="android.hardware.camera" android:required="false" />
   <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
   <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
   <uses-permission android:name="android.permission.WRITE_SETTINGS" />
@@ -28,7 +31,7 @@
     <service android:name=".NotificationReader" android:label="FRIDAY" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
       <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
     </service>
-    <service android:name=".LiveVoiceService" android:exported="false" android:foregroundServiceType="microphone|mediaPlayback" />
+    <service android:name=".LiveVoiceService" android:exported="false" android:foregroundServiceType="microphone|mediaPlayback|mediaProjection" />
     <activity android:name=".MainActivity" android:launchMode="singleTask" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
     </activity>

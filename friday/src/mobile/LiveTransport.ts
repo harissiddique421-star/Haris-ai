@@ -82,11 +82,12 @@ export class MobileLiveTransport implements AudioSocket {
     const data = JSON.parse(raw);
     if (data.audio) this.socket.send(JSON.stringify({ realtimeInput: { audio: { data: data.audio, mimeType: 'audio/pcm;rate=16000' } } }));
     else if (data.type === 'text' && data.text) this.socket.send(JSON.stringify({ realtimeInput: { text: data.text } }));
+    else if (data.type === 'video' && typeof data.video === 'string' && data.video.length > 0 && data.video.length < 600000) this.socket.send(JSON.stringify({ realtimeInput: { video: { data: data.video, mimeType: 'image/jpeg' } } }));
     else if (data.type === 'toolResponse') {
       const call = this.toolCalls.get(data.id);
       if (call && call.name === data.name) this.socket.send(JSON.stringify({ toolResponse: { functionResponses: [{ ...(call.id ? { id: call.id } : {}), name: call.name, response: data.output }] } }));
     }
-    // No desktop tools or unrestricted phone UI authority.
+    // Only audio, text, camera/screen JPEG frames and mobile_action results; no desktop tools.
   }
   close() {
     if (this.readyState === 3) return;
