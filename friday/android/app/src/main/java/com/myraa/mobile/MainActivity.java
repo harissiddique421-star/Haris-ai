@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.15", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.16", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -305,7 +305,9 @@ public class MainActivity extends Activity {
     @JavascriptInterface public void mobileAction(String id,String name,String args) {
       if(args==null||args.length()>10000)return;
       runOnUiThread(()->{
-        if(!foreground&&!LiveVoiceService.overlayVisible){emit(json("type","mobile-action-result","id",id,"result",json("status","permission_required","message","Return to FRIDAY or enable Floating voice controls in Settings to switch apps by voice while FRIDAY is behind another app.")));return;}
+        // Playback controls, volume and similar never open a screen, so they work while YouTube is in front.
+        boolean backgroundSafe=false;try{backgroundSafe=java.util.Arrays.asList("media","volume","torch","battery","ringer_mode","sleep").contains(new JSONObject(args).optString("action"));}catch(JSONException ignored){}
+        if(!foreground&&!LiveVoiceService.overlayVisible&&!backgroundSafe){emit(json("type","mobile-action-result","id",id,"result",json("status","permission_required","message","Return to FRIDAY or enable Floating voice controls in Settings to switch apps by voice while FRIDAY is behind another app.")));return;}
         try {
           String kind=new JSONObject(args).optString("action");
           if(!foreground&&("whatsapp_message".equals(kind)||"call".equals(kind))){

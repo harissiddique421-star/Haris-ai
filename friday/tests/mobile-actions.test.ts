@@ -100,3 +100,24 @@ test('routines, sleep and timers parse locally',()=>{
   assert.deepEqual(parseMobileAction('30 sec ka timer lagao'),{action:'set_timer',seconds:30});
   assert.equal(parseMobileAction('run my morning and delete everything routine'),null);
 });
+test('YouTube playback, links and media controls parse locally',()=>{
+  assert.deepEqual(parseMobileAction('play Tum Hi Ho on YouTube'),{action:'play_youtube',query:'Tum Hi Ho'});
+  assert.deepEqual(parseMobileAction('play Tum Hi Ho song on youtube'),{action:'play_youtube',query:'Tum Hi Ho',kind:'music'});
+  assert.deepEqual(parseMobileAction('open YouTube and play lofi beats'),{action:'play_youtube',query:'lofi beats'});
+  assert.deepEqual(parseMobileAction('play a youtube song Kesariya'),{action:'play_youtube',query:'Kesariya',kind:'music'});
+  assert.deepEqual(parseMobileAction('YouTube par Pasoori chalao'),{action:'play_youtube',query:'Pasoori'});
+  assert.deepEqual(parseMobileAction('https://youtu.be/dQw4w9WgXcQ'),{action:'play_youtube',url:'https://youtu.be/dQw4w9WgXcQ'});
+  assert.deepEqual(parseMobileAction('play https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10'),{action:'play_youtube',url:'https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=10'});
+  assert.deepEqual(parseMobileAction('play Arijit Singh'),{action:'play_music',query:'Arijit Singh'});
+  assert.deepEqual(parseMobileAction('pause'),{action:'media',command:'pause'});
+  assert.deepEqual(parseMobileAction('Resume'),{action:'media',command:'resume'});
+  assert.deepEqual(parseMobileAction('stop'),{action:'media',command:'stop'});
+  assert.deepEqual(parseMobileAction('next song'),{action:'media',command:'next'});
+  assert.deepEqual(parseMobileAction('previous song'),{action:'media',command:'previous'});
+  assert.deepEqual(parseMobileAction('agla gaana'),{action:'media',command:'next'});
+  assert.deepEqual(parseMobileAction('volume up'),{action:'volume',direction:'up'});
+  assert.deepEqual(parseMobileAction('volume down'),{action:'volume',direction:'down'});
+  assert.deepEqual(parseMobileAction('mute'),{action:'volume',direction:'mute'});
+  assert.deepEqual(parseMobileAction('unmute'),{action:'volume',direction:'unmute'});
+  assert.equal(parseMobileAction('play songs on youtube and delete my chats'),null);
+});

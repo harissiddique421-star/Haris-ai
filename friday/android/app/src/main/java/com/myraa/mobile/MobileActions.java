@@ -14,6 +14,7 @@ import android.provider.ContactsContract.CommonDataKinds.Phone;
 import android.provider.MediaStore;
 import android.telephony.*;
 import org.json.*;
+import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.*;
 
@@ -210,7 +211,14 @@ public final class MobileActions {
       }
       if("set_alarm".equals(action)){alarm(id,args,null);return;}
       if("set_reminder".equals(action)){reminder(id,args);return;}
-      if("play_music".equals(action)){music(id,args.optString("query"));return;}
+      if("play_music".equals(action)){
+        String app=normalize(args.optString("app",""));
+        if(app.contains("spotify")||(!launcher.installed(MediaPlayback.YOUTUBE)&&!launcher.installed(MediaPlayback.YT_MUSIC)))music(id,args.optString("query"));
+        else playYouTube(id,args.optString("query"),true);
+        return;
+      }
+      if("play_youtube".equals(action)){String q=args.optString("url","").trim();if(q.isEmpty())q=args.optString("query","");playYouTube(id,q,"music".equals(args.optString("kind")));return;}
+      if("media".equals(action)){media(id,args.optString("command"));return;}
       if("torch".equals(action)){finish(id,phone().torch(args.optBoolean("on",true)));return;}
       if("volume".equals(action)){finish(id,phone().volume(args.optString("stream","media"),args.optString("direction"),args.optInt("percent",-1)));return;}
       if("ringer_mode".equals(action)){finish(id,phone().ringer(args.optString("mode")));return;}
@@ -443,6 +451,125 @@ public final class MobileActions {
     String at=new java.text.SimpleDateFormat("EEE d MMM, HH:mm",Locale.ENGLISH).format(new Date(begin));
     finish(id,opened?"draft_opened":"unavailable",opened?"Calendar event \""+title+"\" for "+at+" is open. Check it and tap Save.":"No calendar app on this phone.");
   }
+  // ---- YouTube playback: open the exact video, then check it really plays, with bounded fallbacks
+  private final Set<String> cancelled=new HashSet<>();
+  private boolean gone(String id){synchronized(cancelled){return cancelled.contains(id)||completed.containsKey(id);}}
+  private void playYouTube(String id,String raw,boolean music){
+    String text=raw==null?"":raw.trim();
+    if(text.isEmpty()||text.length()>500)throw new IllegalArgumentException("Say which song or video to play.");
+    String direct=MediaPlayback.videoId(text);
+    if(direct!=null){ControlLog.i("youtube: link detected");openVideo(id,direct,"",music,text);return;}
+    ControlLog.i("youtube: searching");
+    MediaPlayback.background(()->{
+      List<MediaPlayback.Video> found;String error=null;
+      try{found=MediaPlayback.search(text);}catch(IOException e){found=Collections.emptyList();error=e.getClass().getSimpleName();}
+      final List<MediaPlayback.Video> results=found;final String why=error;
+      main.post(()->{
+        if(gone(id))return;
+        if(results.isEmpty()){
+          // Could not pick a video (offline or YouTube changed its page): fall back to YouTube's own search.
+          ControlLog.i("youtube: no direct result ("+(why==null?"empty":why)+"), opening search");
+          Intent s=search("youtube",text);if(launcher.installed(MediaPlayback.YOUTUBE))s.setPackage(MediaPlayback.YOUTUBE);
+          boolean opened=launcher.open(s)||launcher.open(search("youtube",text));
+          finish(id,opened?"opened":"failed",opened?"I couldn't pick the video myself"+(why!=null?" (network problem)":"")+", so YouTube search for \""+text+"\" is open. Tap the one you want.":"I couldn't reach YouTube. Check the internet and try again.");
+          return;
+        }
+        MediaPlayback.Video v=results.get(0);
+        openVideo(id,v.id,v.title,music,text);
+      });
+    });
+  }
+  private void openVideo(String id,String videoId,String title,boolean music,String asked){
+    String pkg=launcher.installed(MediaPlayback.YOUTUBE)?MediaPlayback.YOUTUBE:music&&launcher.installed(MediaPlayback.YT_MUSIC)?MediaPlayback.YT_MUSIC:null;
+    boolean opened=pkg!=null&&launcher.open(MediaPlayback.openIntent(activity,videoId,music,pkg));
+    if(!opened){
+      // No YouTube app, or it refused the link: open the same video in the browser.
+      ControlLog.i("youtube: app did not open the link, trying the browser");
+      opened=launcher.open(MediaPlayback.openIntent(activity,videoId,music,null));
+      if(!opened){finish(id,"failed","I couldn't open YouTube on this phone.");return;}
+      String name=title.isEmpty()?"the video":"\""+title+"\"";
+      finish(id,"opened","Opened "+name+" in the browser. Browsers can block autoplay, so tap play if it hasn't started.");return;
+    }
+    ControlLog.i("youtube: opened video in "+(MediaPlayback.YOUTUBE.equals(pkg)?"YouTube":"YouTube Music"));
+    verifyPlayback(id,pkg,title,music,0,false,false);
+  }
+  /**
+   * Polls the real media-session state once a second for up to 15 seconds. Each fallback runs
+   * at most once: at 6 s a play command to the media session, at 9 s one accessibility tap
+   * on YouTube's play button. Never taps again once it is playing, and never loops forever.
+   */
+  private void verifyPlayback(String id,String pkg,String title,boolean music,int second,boolean pressedPlay,boolean tapped){
+    if(gone(id))return;
+    String state=MediaPlayback.state(activity,pkg);
+    String name=title.isEmpty()?(music?"the song":"the video"):"\""+title+"\"";
+    if("playing".equals(state)){
+      String now=MediaPlayback.nowPlaying(activity,pkg);if(name.startsWith("the ")&&!now.isEmpty())name="\""+now+"\"";
+      ControlLog.i("youtube: playing after "+second+"s"+(pressedPlay?" (play command)":"")+(tapped?" (accessibility tap)":""));
+      JSONObject v=status("playing",(music?"Playing ":"Playing ")+name+" now.");try{v.put("playback","playing");}catch(JSONException ignored){}
+      finish(id,v);return;
+    }
+    if("unknown".equals(state)){
+      // Without Notification access Android does not tell apps what is playing; say so instead of guessing.
+      if(second<4){main.postDelayed(()->verifyPlayback(id,pkg,title,music,second+1,pressedPlay,tapped),1000);return;}
+      JSONObject v=status("opened","Opened "+name+" in YouTube. It normally starts by itself. To let me check that it is really playing, turn on Notification access in Settings > Permissions.");
+      try{v.put("playback","unknown");}catch(JSONException ignored){}
+      finish(id,v);return;
+    }
+    if("error".equals(state)&&second>=3&&!pressedPlay){
+      ControlLog.i("youtube: player reported an error, sending play once");
+      MediaPlayback.command(activity,"resume",pkg,true);
+      main.postDelayed(()->verifyPlayback(id,pkg,title,music,second+2,true,tapped),2000);return;
+    }
+    if(second>=6&&!pressedPlay&&!"buffering".equals(state)){
+      ControlLog.i("youtube: not playing after 6s ("+state+"), sending play to the media session");
+      MediaPlayback.command(activity,"resume",pkg,true);
+      main.postDelayed(()->verifyPlayback(id,pkg,title,music,second+1,true,tapped),1000);return;
+    }
+    if(second>=9&&!tapped&&!"buffering".equals(state)){
+      boolean did=MediaPlayback.accessibilityTap("Play video","Play","Resume","चलाएं");
+      if(!did)ControlLog.i("youtube: accessibility fallback "+(PhoneController.get()==null?"unavailable (switch off)":"found no play button"));
+      main.postDelayed(()->verifyPlayback(id,pkg,title,music,second+1,pressedPlay,true),1000);return;
+    }
+    if(second>=15){
+      ControlLog.i("youtube: gave up after 15s, last state "+state);
+      boolean slow="buffering".equals(state);
+      JSONObject v=status(slow?"buffering":"failed",slow?name.substring(0,1).toUpperCase(Locale.ROOT)+name.substring(1)+" is open but still loading. The connection looks slow; it should start on its own."
+        :"I couldn't start "+name+". It is open in YouTube, so tap play once, or tell me to try again.");
+      try{v.put("playback",state);}catch(JSONException ignored){}
+      finish(id,v);return;
+    }
+    main.postDelayed(()->verifyPlayback(id,pkg,title,music,second+1,pressedPlay,tapped),1000);
+  }
+  /** pause, resume, stop, next, previous for whatever is playing, YouTube preferred. */
+  private void media(String id,String raw){
+    String cmd=raw==null?"":raw.trim().toLowerCase(Locale.ROOT);
+    if(cmd.equals("play"))cmd="resume";
+    if(!Arrays.asList("pause","resume","stop","next","previous").contains(cmd))throw new IllegalArgumentException("Say pause, resume, stop, next or previous.");
+    String before=MediaPlayback.state(activity,null);
+    if("pause".equals(cmd)&&("paused".equals(before)||"stopped".equals(before))){finish(id,"done","It's already paused.");return;}
+    if("resume".equals(cmd)&&"playing".equals(before)){finish(id,"done","It's already playing.");return;}
+    final String c=cmd;String route=MediaPlayback.command(activity,cmd,MediaPlayback.YOUTUBE);
+    ControlLog.i("media "+cmd+" via "+route);
+    main.postDelayed(()->{
+      if(gone(id))return;
+      String after=MediaPlayback.state(activity,null);
+      boolean ok;String msg;
+      switch(c){
+        case "pause":ok=!"playing".equals(after);msg="Paused.";break;
+        case "resume":ok="playing".equals(after)||"buffering".equals(after);msg="Resumed.";break;
+        case "stop":ok=!"playing".equals(after);msg="Stopped.";break;
+        default:ok=!"error".equals(after);String t=MediaPlayback.nowPlaying(activity,null);msg=("next".equals(c)?"Next":"Previous")+(t.isEmpty()?".":": "+t+".");
+      }
+      if("unknown".equals(after)){finish(id,"done",msg.replace(".","")+" sent. Turn on Notification access so I can check what's playing.");return;}
+      if(!ok&&("pause".equals(c)||"resume".equals(c))&&MediaPlayback.accessibilityTap("pause".equals(c)?"Pause video":"Play video","pause".equals(c)?"Pause":"Play")){
+        main.postDelayed(()->{String last=MediaPlayback.state(activity,null);boolean fixed="pause".equals(c)?!"playing".equals(last):"playing".equals(last);
+          finish(id,fixed?"done":"failed",fixed?msg:"The player didn't respond. Try it on the screen.");},1200);
+        return;
+      }
+      if(!ok&&"none".equals(after)&&!"next".equals(c)&&!"previous".equals(c)){finish(id,"done","Nothing is playing right now.");return;}
+      finish(id,ok?"done":"failed",ok?msg:"The player didn't respond to "+c+".");
+    },900);
+  }
   private void music(String id,String query){
     String q=query==null?"":query.trim();if(q.isEmpty()||q.length()>200)throw new IllegalArgumentException("Say which song, artist or playlist to play.");
     Intent intent=new Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).putExtra(MediaStore.EXTRA_MEDIA_FOCUS,"vnd.android.cursor.item/*").putExtra(SearchManager.QUERY,q);
@@ -590,6 +717,7 @@ public final class MobileActions {
   }
   public void cancel(String id){
     if(id==null||!id.matches("[A-Za-z0-9-]{1,80}"))return;if(completed.containsKey(id))return;
+    synchronized(cancelled){cancelled.add(id);}
     if(id.equals(pendingId)){pending=null;pendingDenied=null;pendingId=null;pendingPermission=null;}
     if(id.equals(chooserId)&&chooser!=null){chooser.dismiss();chooser=null;chooserId=null;}
     if(id.equals(confirmId)&&confirmDialog!=null){confirmDialog.dismiss();confirmDialog=null;confirmId=null;}
