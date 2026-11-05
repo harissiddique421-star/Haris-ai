@@ -203,7 +203,7 @@ window.MyraaEvents = event => {
 function send() {
   const input = el<HTMLTextAreaElement>('input'); const text = input.value.trim(); if (!text || busy) return;
   const mobile = parseMobileAction(text);
-  if (mobile) { input.value = ''; append('user', text); void runMobileAction('mobile_action', mobile.action === 'whatsapp_message' || mobile.action === 'call' || mobile.action === 'send_sms' ? { ...mobile, confirm_on_screen: true } : mobile).then(result => { append('model', result.message); notice(result.message); }); return; }
+  if (mobile) { input.value = ''; append('user', text); void runMobileAction('mobile_action', mobile.action === 'whatsapp_message' || mobile.action === 'whatsapp_call' || mobile.action === 'call' || mobile.action === 'send_sms' ? { ...mobile, confirm_on_screen: true } : mobile).then(result => { append('model', result.message); notice(result.message); }); return; }
   if (liveSession && liveSession.getState() !== 'disconnected') { liveSession.sendText(text); input.value = ''; append('user', text); return; }
   const command = parseCharacterCommand(text);
   if (command) {
@@ -245,7 +245,12 @@ el('sit').onclick = () => { system?.frameFullBody(); system?.sit({ seat: 'chair'
 el('stand').onclick = () => { system?.stand(); if (!fullBody) { system?.stage.clearPan(); system?.setCameraFocus(null); } };
 el('view').onclick = () => { fullBody = !fullBody; if (fullBody) system?.frameFullBody(); else { system?.stage.clearPan(); system?.setCameraFocus(null); } el('view').textContent = fullBody ? 'Portrait' : 'Full body'; };
 el('happy').onclick = () => { system?.setFrameInput({ emotion: 'happy' }); setTimeout(() => system?.setFrameInput({ emotion: 'idle' }), 3000); };
-el('settings').onclick = () => { stopVoice(); refreshSettings(); el<HTMLDialogElement>('settings-panel').showModal(); el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}); };
+el('settings').onclick = () => {
+  stopVoice(); refreshSettings(); el<HTMLDialogElement>('settings-panel').showModal();
+  let control = '';
+  try { const state = JSON.parse(bridge?.getState() || '{}'); const status = state.controlStatus || {}; control = `\n\nPhone control: ${status.ready ? 'READY (connected)' : status.enabled ? 'switch on, not connected yet' : 'off'}\n${(state.controlLog || []).slice(-25).join('\n')}`; } catch { /* diagnostics only */ }
+  el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}) + control;
+};
 el('save').onclick = () => {
   if (!bridge) return notice('Save settings in the installed Android app.');
   settingsProgress(true, 'Checking and saving settings…');
