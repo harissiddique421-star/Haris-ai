@@ -266,3 +266,10 @@ footer{flex:none;padding:6px 16px max(8px,env(safe-area-inset-bottom))}
 .conversation.expanded{position:absolute;inset:8px 8px 0;width:auto;max-height:none;z-index:5;background:#101317f5;border:1px solid #ffffff20;border-radius:16px;padding:12px;display:flex;flex-direction:column}
 .conversation.expanded #messages{flex:1;max-height:none}
 @media(max-height:440px){header{padding:4px 12px}.brand-mark{height:26px;width:26px}.brand-logo{height:26px;width:26px}.presence{top:4px}.conversation:not(.expanded) #messages{max-height:32px}}
+
+.camera-preview{position:absolute;right:10px;bottom:10px;width:30%;max-width:160px;aspect-ratio:3/4;object-fit:cover;border-radius:12px;border:1px solid #4fb3ff88;box-shadow:0 0 16px #4fb3ff44;z-index:5;background:#000}
+#camera[aria-pressed=true],#screen[aria-pressed=true]{background:#4fb3ff33;border-color:#4fb3ff}
+.friday-core{position:absolute;left:50%;top:50%;width:min(62vw,300px);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;object-fit:cover;box-shadow:0 0 60px #4fb3ff55;animation:friday-pulse 3.2s ease-in-out infinite}
+@keyframes friday-pulse{50%{box-shadow:0 0 90px #4fb3ff88;transform:translate(-50%,-50%) scale(1.03)}}
+@media (prefers-reduced-motion:reduce){.friday-core{animation:none}}
+[hidden]{display:none!important}
