@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="whatsapp_sender_label">FRIDAY WhatsApp send</string>
+  <string name="whatsapp_sender_description">Lets FRIDAY press Send in WhatsApp, only for a message you just confirmed out loud or on screen. It reads WhatsApp\'s message box to check the text matches, and does nothing in any other app.</string>
+</resources>

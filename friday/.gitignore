@@ -1,0 +1,32 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.myraa-data/
+cognition/*.json
+.env*
+!.env.example
+
+# Private runtime data and generated releases (never include in source exports).
+secrets.json
+secrets.v2.json
+settings.json
+memories.json
+release/
+release-public/
+agent_build*/
+agent_dist*/
+.codex-backup-*/
+.serena/
+**/__pycache__/
+*.pyc
+android/.gradle/
+android/local.properties
+android/app/build/
+android/app/src/main/assets/
+android/*.keystore
+artifacts/
+# Owner-provided model/video assets have independent redistribution restrictions.
+/assets/

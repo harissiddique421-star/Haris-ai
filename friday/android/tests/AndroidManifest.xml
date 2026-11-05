@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.myraa.mobile.tests">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35"/>
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <application android:label="MYRAA verification"><activity android:name="com.myraa.mobile.tests.ExternalTestActivity" android:exported="true"/></application>
+  <instrumentation android:name="com.myraa.mobile.tests.SmokeInstrumentation" android:targetPackage="com.myraa.mobile" android:label="MYRAA native smoke tests"/>
+  <instrumentation android:name="com.myraa.mobile.tests.AuthInstrumentation" android:targetPackage="com.myraa.mobile" android:label="MYRAA isolated authentication tests"/>
+  <instrumentation android:name="com.myraa.mobile.tests.ActionsInstrumentation" android:targetPackage="com.myraa.mobile" android:label="MYRAA mobile action tests"/>
+</manifest>
