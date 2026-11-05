@@ -6,6 +6,9 @@ on:
     paths:
       - "friday/**"
       - ".github/workflows/friday-apk.yml"
+  schedule:
+    # Weekly run keeps the cached signing key from expiring (GitHub drops caches unused for 7 days).
+    - cron: "17 3 * * 1"
   push:
     branches: [main]
     paths:
@@ -44,6 +47,13 @@ jobs:
         run: |
           npx tsc --noEmit
           npm run test:mobile-actions
+      - name: Reuse the CI signing key
+        # Without a FRIDAY_KEYSTORE_BASE64 secret, the first main build generates a key and every
+        # later build reuses it, so phones can update FRIDAY without uninstalling it.
+        uses: actions/cache@v4
+        with:
+          path: friday/android/local-debug.keystore
+          key: friday-ci-signing-key-v1
       - name: Build APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.FRIDAY_KEYSTORE_BASE64 }}
