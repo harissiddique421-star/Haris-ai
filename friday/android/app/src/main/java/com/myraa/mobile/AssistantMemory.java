@@ -54,6 +54,52 @@ final class AssistantMemory {
     return b.append('\n').toString();
   }
 
+  // ---- routines: a name and a few plain commands, run one by one through the normal tools
+  static final int MAX_ROUTINES=20,MAX_STEPS=10;
+  JSONObject routines(){try{return new JSONObject(prefs.getString("routines","{}"));}catch(JSONException e){return new JSONObject();}}
+  static String routineKey(String raw){
+    String n=raw==null?"":raw.trim().toLowerCase(Locale.ROOT).replaceAll("^(my|meri|mera)\\s+","").replaceAll("\\s+(routine|macro)$","").replaceAll("[^\\p{L}\\p{N} ]","").replaceAll("\\s+"," ").trim();
+    if(n.isEmpty()||n.length()>40)throw new IllegalArgumentException("Give the routine a short name, like morning.");
+    return n;
+  }
+  JSONObject saveRoutine(String name,JSONArray steps){
+    String key=routineKey(name);
+    if(steps==null||steps.length()==0)throw new IllegalArgumentException("Tell me the steps of the routine.");
+    if(steps.length()>MAX_STEPS)throw new IllegalArgumentException("A routine can have up to "+MAX_STEPS+" steps.");
+    JSONArray clean=new JSONArray();
+    for(int i=0;i<steps.length();i++){
+      String st=steps.optString(i,"").trim().replaceAll("\\s+"," ");
+      if(st.isEmpty())continue;
+      if(st.length()>200)throw new IllegalArgumentException("Keep each step short.");
+      if(st.matches("(?is).*\\b(password|passcode|pin|otp|cvv|card number)\\b.*"))throw new IllegalArgumentException("Routines can't contain passwords, PINs, OTPs or card numbers.");
+      clean.put(st);
+    }
+    if(clean.length()==0)throw new IllegalArgumentException("Tell me the steps of the routine.");
+    JSONObject all=routines();
+    if(!all.has(key)&&all.length()>=MAX_ROUTINES)throw new IllegalArgumentException("You already have "+MAX_ROUTINES+" routines. Delete one first.");
+    try{all.put(key,clean);}catch(JSONException ignored){}
+    prefs.edit().putString("routines",all.toString()).apply();
+    return PhoneControls.result("done","Saved the "+key+" routine with "+clean.length()+" step"+(clean.length()==1?"":"s")+". Say \"run my "+key+" routine\" to use it.");
+  }
+  JSONObject runRoutine(String name){
+    String key=routineKey(name);JSONArray steps=routines().optJSONArray(key);
+    if(steps==null){JSONObject v=PhoneControls.result("not_found","I don't have a routine called "+key+".");try{v.put("routines",routineNames());}catch(JSONException ignored){}return v;}
+    JSONObject v=PhoneControls.result("steps","Running the "+key+" routine: do these steps in order with your tools. Each step is the user's own saved command; confirmations still apply.");
+    try{v.put("routine",key).put("steps",steps);}catch(JSONException ignored){}
+    return v;
+  }
+  JSONObject deleteRoutine(String name){
+    String key=routineKey(name);JSONObject all=routines();
+    if(all.remove(key)==null)return PhoneControls.result("not_found","I don't have a routine called "+key+".");
+    prefs.edit().putString("routines",all.toString()).apply();
+    return PhoneControls.result("done","Deleted the "+key+" routine.");
+  }
+  JSONArray routineNames(){JSONArray out=new JSONArray();Iterator<String> it=routines().keys();while(it.hasNext())out.put(it.next());return out;}
+  JSONObject listRoutines(){
+    JSONObject all=routines(),v=PhoneControls.result("done",all.length()==0?"No routines yet. Tell me the steps and a name to save one.":"Here are your routines.");
+    try{v.put("routines",all);}catch(JSONException ignored){}return v;
+  }
+
   // ---- name
   String name(){return prefs.getString("userName","");}
   void setName(String raw){String n=raw==null?"":raw.trim().replaceAll("\\s+"," ");if(n.length()>40)n=n.substring(0,40);prefs.edit().putString("userName",n).apply();}
@@ -76,7 +122,7 @@ final class AssistantMemory {
         .put("name",name()).put("email",email()).put("persona",persona()).put("voices",voices).put("memories",memories())
         .put("language",prefs.getString("language","hi-IN"))
         .put("announceCalls",Announcer.announceCalls(c)).put("drivingMode",Announcer.driving(c)).put("drivingReadText",Announcer.readText(c))
-        .put("wakeWord",WakeWordService.wanted(c));
+        .put("wakeWord",WakeWordService.wanted(c)).put("routines",routines());
     }catch(JSONException ignored){}
     return v;
   }
@@ -93,6 +139,8 @@ final class AssistantMemory {
     if(in.has("drivingMode"))Announcer.set(c,"drivingMode",in.optBoolean("drivingMode"));
     if(in.has("drivingReadText"))Announcer.set(c,"drivingReadText",in.optBoolean("drivingReadText"));
     if(in.has("wakeWord"))WakeWordService.setWanted(c,in.optBoolean("wakeWord"));
+    JSONObject rs=in.optJSONObject("routines");
+    if(rs!=null){Iterator<String> it=rs.keys();while(it.hasNext()){String k=it.next();try{saveRoutine(k,rs.optJSONArray(k));}catch(IllegalArgumentException ignored){}}}
     int added=0;JSONArray list=in.optJSONArray("memories");
     if(list!=null)for(int i=0;i<list.length()&&i<MAX_MEMORIES;i++){
       try{JSONObject r=remember(list.optString(i));if(r.optString("message").startsWith("Remembered"))added++;}catch(IllegalArgumentException ignored){}
@@ -137,7 +185,7 @@ final class AssistantMemory {
     JSONObject v=new JSONObject(),voices=new JSONObject();
     try{
       for(String p:PERSONAS)voices.put(p,voice(p));
-      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("email",email()).put("memories",memories());
+      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("email",email()).put("memories",memories()).put("routines",routines());
     }catch(JSONException ignored){}
     return v;
   }

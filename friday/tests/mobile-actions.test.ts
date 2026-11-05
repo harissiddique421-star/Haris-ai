@@ -87,3 +87,16 @@ test('wake word and email commands parse locally',()=>{
   assert.deepEqual(parseMobileAction('Ali ko email bhejo: report ready hai'),{action:'email',recipient:'Ali',message:'report ready hai'});
   assert.equal(parseMobileAction('email Ali and delete everything: hi'),null);
 });
+test('routines, sleep and timers parse locally',()=>{
+  assert.deepEqual(parseMobileAction('run my morning routine'),{action:'run_routine',name:'morning'});
+  assert.deepEqual(parseMobileAction('morning routine chalao'),{action:'run_routine',name:'morning'});
+  assert.deepEqual(parseMobileAction('save routine morning: battery; torch on; read my notifications'),{action:'save_routine',name:'morning',steps:['battery','torch on','read my notifications']});
+  assert.deepEqual(parseMobileAction('delete morning routine'),{action:'delete_routine',name:'morning'});
+  assert.deepEqual(parseMobileAction('my routines'),{action:'list_routines'});
+  assert.deepEqual(parseMobileAction('Bye FRIDAY'),{action:'sleep'});
+  assert.deepEqual(parseMobileAction('so jao'),{action:'sleep'});
+  assert.deepEqual(parseMobileAction('good night friday'),{action:'sleep'});
+  assert.deepEqual(parseMobileAction('set a timer for 5 minutes'),{action:'set_timer',in_minutes:5});
+  assert.deepEqual(parseMobileAction('30 sec ka timer lagao'),{action:'set_timer',seconds:30});
+  assert.equal(parseMobileAction('run my morning and delete everything routine'),null);
+});
