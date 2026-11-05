@@ -16,3 +16,13 @@ test('WhatsApp recipient and message remain separate and exact',()=>{
 test('negation, explanation, arbitrary URLs and compound requests are not executed locally',()=>{
   for(const text of ['do not open chrome','how do I open WhatsApp?','open javascript:alert(1)','open chrome and delete files','message Rahul on WhatsApp:','I like youtube search videos']) assert.equal(parseMobileAction(text),null,text);
 });
+test('calls, alarms, reminders and music parse locally',()=>{
+  assert.deepEqual(parseMobileAction('Friday, call Rahul Sharma'),{action:'call',recipient:'Rahul Sharma'});
+  assert.deepEqual(parseMobileAction('Ammi ko call karo'),{action:'call',recipient:'Ammi'});
+  assert.deepEqual(parseMobileAction('set an alarm for 6:30 am'),{action:'set_alarm',hour:6,minute:30});
+  assert.deepEqual(parseMobileAction('alarm at 7 pm'),{action:'set_alarm',hour:19,minute:0});
+  assert.deepEqual(parseMobileAction('remind me in 10 minutes to drink water'),{action:'set_reminder',in_minutes:10,text:'drink water'});
+  assert.deepEqual(parseMobileAction('play Arijit Singh songs'),{action:'play_music',query:'Arijit Singh'});
+  assert.deepEqual(parseMobileAction('Kesariya gaana chalao'),{action:'play_music',query:'Kesariya'});
+  for(const text of ['call Rahul and delete contacts','alarm at 25:00','do not call mom']) assert.equal(parseMobileAction(text),null,text);
+});

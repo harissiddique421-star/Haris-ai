@@ -59,7 +59,7 @@ export class DownloadManager {
 
   async start(url: string, options: { filename?: string; taskId?: string | null; signal?: AbortSignal; onProgress?: (record: DownloadRecord) => void; force?: boolean } = {}): Promise<DownloadRecord> {
     const directory = await this.downloadsDir();
-    const response = await safeFetch(url, { signal: options.signal, headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MYRAA/2.0" } });
+    const response = await safeFetch(url, { signal: options.signal, headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) FRIDAY/2.0" } });
     if (!response.ok || !response.body) throw new Error(`Download failed: HTTP ${response.status}.`);
     const finalUrl = (response as Response & { finalUrl?: string }).finalUrl || url;
     const mime = response.headers.get("content-type");

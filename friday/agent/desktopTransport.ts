@@ -150,13 +150,13 @@ export class ManagedDesktopAgent {
   }
 
   async request(route: '/execute' | '/observe' | '/tools', init: RequestInit = {}): Promise<Response> {
-    if (!await this.ensure(init.signal)) throw new Error('Desktop control is unavailable. Restart MYRAA.');
+    if (!await this.ensure(init.signal)) throw new Error('Desktop control is unavailable. Restart FRIDAY.');
     if (this.disposed) throw new Error('Desktop control session has closed.');
     if (init.signal?.aborted) throw new DOMException('Desktop action cancelled.', 'AbortError');
     const headers = new Headers(init.headers); headers.set('Authorization', `Bearer ${this.token}`);
     try {
       const response = await fetch(`${this.endpointValue}${route}`, { ...init, headers, redirect: 'error', signal: init.signal || AbortSignal.timeout(25_000) });
-      if (response.status === 401 || response.status === 403) { this.ready = null; throw new Error('The desktop session could not be authenticated. Restart MYRAA.'); }
+      if (response.status === 401 || response.status === 403) { this.ready = null; throw new Error('The desktop session could not be authenticated. Restart FRIDAY.'); }
       return response;
     } catch (error) { this.ready = null; throw error; }
   }

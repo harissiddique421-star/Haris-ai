@@ -56,7 +56,7 @@ export default function App() {
   const [isScreenSharingPaused, setIsScreenSharingPaused] = useState<boolean>(false);
   const [screenVisionMode, setScreenVisionMode] = useState<boolean>(true);
   // On-demand screen-vision lifecycle (e.g. "what is on my screen?"). Distinct
-  // from the manual SHARE SCREEN flow — this is MYRAA briefly peeking.
+  // from the manual SHARE SCREEN flow — this is FRIDAY briefly peeking.
   const [screenVisionLiveState, setScreenVisionLiveState] = useState<"idle" | "capturing" | "ready" | "error">("idle");
 
   // References to preserve state across intervals
@@ -256,7 +256,7 @@ export default function App() {
         return; // user cancelled
       }
       if (/not supported/i.test(message)) {
-        setErrorText("Continuous screen sharing isn't supported in this build, but you can still ask MYRAA to look at your screen by saying 'what is on my screen?' or clicking SHARE SCREEN again.");
+        setErrorText("Continuous screen sharing isn't supported in this build, but you can still ask FRIDAY to look at your screen by saying 'what is on my screen?' or clicking SHARE SCREEN again.");
       } else {
         setErrorText(`Could not capture screen: ${message}`);
       }
@@ -318,7 +318,7 @@ export default function App() {
   const [themeColor, setThemeColor] = useState<string>("charcoal");
   const [userCaption, setUserCaption] = useState<string>("");
   const [characterState, setCharacterState] = useState<"idle" | "thinking" | "talking">("idle");
-  // Which character MYRAA appears as (built-in or locally imported), and the studio.
+  // Which character FRIDAY appears as (built-in or locally imported), and the studio.
   const [activeCharacterId, setActiveCharacterId] = useState<string | undefined>(undefined);
   const [showStudio, setShowStudio] = useState(false);
 
@@ -391,7 +391,7 @@ export default function App() {
   const [showGuide, setShowGuide] = useState<boolean>(false);
   const [errorText, setErrorText] = useState<string | null>(null);
 
-  // Myraa recollections database core state
+  // Friday recollections database core state
   const [memories, setMemories] = useState<Memory[]>([]);
   const [showMemoryDashboard, setShowMemoryDashboard] = useState<boolean>(false);
 
@@ -432,7 +432,7 @@ export default function App() {
         phrase: settings.wakePhrase,
         sensitivity: settings.sensitivity,
         onTriggered: () => {
-          // When wake word fires, stop detector and connect MYRAA.
+          // When wake word fires, stop detector and connect FRIDAY.
           det.stop();
           connectHandlerRef.current();
         },
@@ -559,7 +559,7 @@ export default function App() {
       onScreenVisionState: (visionState, info) => {
         setScreenVisionLiveState(visionState);
         if (info?.error) {
-          setErrorText(`MYRAA couldn't see your screen: ${info.error}`);
+          setErrorText(`FRIDAY couldn't see your screen: ${info.error}`);
         } else if (visionState === "ready" && info?.activeWindow) {
           console.log(`[ScreenVision] Looking at: ${info.activeWindow}`);
         }
@@ -724,7 +724,7 @@ export default function App() {
       {/* Decorative grid pattern background */}
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.012)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.012)_1px,transparent_1px)] bg-[size:32px_32px] pointer-events-none opacity-40" />
 
-      {/* FULL VIEWPORT HOLOGRAPHIC STAGE: Myraa materializes across the entire screen */}
+      {/* FULL VIEWPORT HOLOGRAPHIC STAGE: Friday materializes across the entire screen */}
       <div className="absolute inset-0 z-0 pointer-events-auto select-none">
         <MyraaCoreVisualizer
           session={audioSession}
@@ -781,7 +781,7 @@ export default function App() {
             <span className="hidden sm:inline">CHARACTER</span>
           </button>
 
-          {/* Real-time screen sharing toggler button inside Myraa glass style header */}
+          {/* Real-time screen sharing toggler button inside Friday glass style header */}
           <button
             onClick={isScreenSharing ? stopScreenSharing : startScreenSharing}
             className={`flex items-center gap-1.5 transition text-xs font-mono tracking-widest cursor-pointer ${
@@ -789,20 +789,20 @@ export default function App() {
                 ? "text-cyan-400 opacity-100 font-semibold"
                 : "text-slate-300 hover:text-white"
             }`}
-            title="Share Screen with Myraa" aria-label={isScreenSharing ? 'Stop screen sharing' : 'Share screen'}
+            title="Share Screen with Friday" aria-label={isScreenSharing ? 'Stop screen sharing' : 'Share screen'}
           >
             <Monitor size={14} className={isScreenSharing && !isScreenSharingPaused ? "animate-pulse text-cyan-400" : ""} />
             <span>{isScreenSharing ? "SHARING" : "SHARE SCREEN"}</span>
             {screenVisionLiveState === "capturing" && (
               <span
                 className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"
-                title="MYRAA is looking at your screen"
+                title="FRIDAY is looking at your screen"
               />
             )}
             {screenVisionLiveState === "ready" && (
               <span
                 className="ml-1 inline-block w-1.5 h-1.5 rounded-full bg-cyan-400"
-                title="MYRAA just saw your screen"
+                title="FRIDAY just saw your screen"
               />
             )}
             {screenVisionLiveState === "error" && (
@@ -823,7 +823,7 @@ export default function App() {
                 ? "text-cyan-400 opacity-100 font-semibold"
                 : "text-slate-300 hover:text-white"
             }`}
-            title="Myraa Configuration" aria-label="Settings" aria-expanded={showSettings} aria-haspopup="dialog"
+            title="Friday Configuration" aria-label="Settings" aria-expanded={showSettings} aria-haspopup="dialog"
           >
             <SettingsIcon size={14} className={showSettings ? "animate-spin [animation-duration:6s]" : ""} />
             <span>SETTINGS</span>
@@ -912,7 +912,7 @@ export default function App() {
                 </button>
               </div>
               <p className="text-xs text-slate-400 mb-4 font-mono leading-relaxed">
-                Myraa controls your real Windows apps and default PC browser. Here are useful triggers to try speaking aloud:
+                Friday controls your real Windows apps and default PC browser. Here are useful triggers to try speaking aloud:
               </p>
               <div className="space-y-2 text-xs font-serif italic text-indigo-300">
                 <div className="p-2.5 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 transition cursor-pointer font-sans normal-case text-slate-200">
@@ -940,7 +940,7 @@ export default function App() {
             >
               <CircleAlert className="text-rose-400 shrink-0 mt-0.5" size={18} />
               <div>
-                <h4 className="text-xs font-semibold text-rose-300">MYRAA needs attention</h4>
+                <h4 className="text-xs font-semibold text-rose-300">FRIDAY needs attention</h4>
                 <p className="text-xs text-rose-200 mt-1 leading-relaxed">{errorText}</p>
                 <button
                   onClick={() => setErrorText(null)}
@@ -981,8 +981,8 @@ export default function App() {
           <input
             value={textMessage}
             onChange={(event) => setTextMessage(event.target.value)}
-            aria-label="Message MYRAA"
-            placeholder="Type a message to MYRAA..."
+            aria-label="Message FRIDAY"
+            placeholder="Type a message to FRIDAY..."
             className="min-w-0 flex-1 bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-slate-400"
           />
           <button
@@ -1161,7 +1161,7 @@ export default function App() {
         themeColor={themeColor}
       />
 
-      {/* What MYRAA is doing on the PC, plus approval requests (always shown). */}
+      {/* What FRIDAY is doing on the PC, plus approval requests (always shown). */}
       <TaskHud
         events={events}
         showHud={appSettings?.autonomy.showTaskHud ?? true}

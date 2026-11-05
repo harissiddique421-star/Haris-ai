@@ -1,5 +1,5 @@
 /**
- * Model selector — which AI model MYRAA uses for each job.
+ * Model selector — which AI model FRIDAY uses for each job.
  *
  * Brain: conversation, planning and screen understanding ("Auto" lets the
  * router pick by task and quota). Voice: the realtime Gemini Live session.
@@ -241,7 +241,7 @@ export function ModelChip({ selection, onOpenKeys }: { selection: ModelSelection
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open} aria-haspopup="dialog"
         className={`flex items-center gap-1.5 text-xs font-mono tracking-widest transition cursor-pointer ${open ? "text-cyan-300" : "text-slate-300 hover:text-white"}`}
         aria-label="Choose AI model"
-        title="Choose which AI model MYRAA uses">
+        title="Choose which AI model FRIDAY uses">
         <Brain size={14} />
         <span className="hidden max-w-[9rem] truncate sm:inline uppercase">{brainName}</span>
         <ChevronDown size={11} />

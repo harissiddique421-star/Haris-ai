@@ -13,7 +13,7 @@
  *
  * The original archive or folder is never modified. Staged characters live
  * in the user's data folder, never in the application bundle, so models whose
- * licence forbids redistribution are not shipped with MYRAA.
+ * licence forbids redistribution are not shipped with FRIDAY.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
@@ -301,7 +301,7 @@ export async function importCharacter(options: ImportOptions): Promise<ImportRes
     await fs.writeFile(path.join(stage, "REPORT.md"), renderReport(profile), "utf8");
     await fs.writeFile(
       path.join(stage, "LOCAL-ONLY.txt"),
-      "This character was imported from your own files. It is stored only in your MYRAA data folder and is never bundled with or uploaded by MYRAA.\n" +
+      "This character was imported from your own files. It is stored only in your FRIDAY data folder and is never bundled with or uploaded by FRIDAY.\n" +
         (profile.source.restrictions.length ? `Author restrictions: ${profile.source.restrictions.join("; ")}.\n` : ""),
       "utf8"
     );
@@ -368,7 +368,7 @@ export function renderReport(profile: CharacterProfile): string {
     "| Test | Result | Detail |",
     "|---|---|---|",
     ...Object.entries(profile.report.tests).map(([name, t]) => `| ${name} | ${TEST_ICON[t.status]} | ${t.detail.replace(/\|/g, "/")} |`),
-    Object.keys(profile.report.tests).length === 0 ? "| (none yet) | — not run | Open the character in MYRAA → Character → Run compatibility tests |" : "",
+    Object.keys(profile.report.tests).length === 0 ? "| (none yet) | — not run | Open the character in FRIDAY → Character → Run compatibility tests |" : "",
     "",
     "## Skeleton mapping",
     "",

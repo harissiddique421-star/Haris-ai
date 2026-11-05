@@ -33,7 +33,7 @@ export async function saveMemories(memories: Memory[]): Promise<void> {
 export function formatSystemInstructionsWithMemories(baseInstruction: string, memories: Memory[]): string {
   if (memories.length === 0) {
     return baseInstruction +
-      "\n\n=== MYRAA PERSISTENT CONTEXT ===\n" +
+      "\n\n=== FRIDAY PERSISTENT CONTEXT ===\n" +
       "No durable user context is stored yet. Do not ask for a biography, preferences, routines, or personal details just to populate memory. Use facts only when the user shares them naturally and they matter to future continuity.\n" +
       "================================\n";
   }
@@ -47,7 +47,7 @@ export function formatSystemInstructionsWithMemories(baseInstruction: string, me
 
   let memoryBlock = 
     "\n\n" +
-    "=== MYRAA PERSISTENT CONTEXT ===\n" +
+    "=== FRIDAY PERSISTENT CONTEXT ===\n" +
     "These are user-provided facts retained for continuity. Use a fact only when it is directly relevant to the current exchange. Never mention databases, memory files, or retrieval. Never force a reference, claim friendship or emotional attachment, or ask for more personal details merely to seem connected.\n\n" +
     "RELEVANT KNOWLEDGE CARD:\n";
 
@@ -143,9 +143,9 @@ export async function processConversationSlice(
     
     // Format memory map to help Gemini understand what to edit
     const memoryContext = currentMemories.map(m => `ID: ${m.id} | Category: ${m.category} | Fact: ${m.text}`).join("\n");
-    const dialogueContext = dialogueHistory.map(line => `${line.role === "user" ? "User" : "Myraa"}: ${line.text}`).join("\n");
+    const dialogueContext = dialogueHistory.map(line => `${line.role === "user" ? "User" : "Friday"}: ${line.text}`).join("\n");
 
-    const prompt = `You are Myraa's deep cognitive recollection engine. Your task is to analyze the recent conversation piece against previous persistent memories, and output precise update transactions.
+    const prompt = `You are Friday's deep cognitive recollection engine. Your task is to analyze the recent conversation piece against previous persistent memories, and output precise update transactions.
 
 ### OBJECTIVE
 Decide if any statements contain durable, important personal facts, enduring preferences, aspirations, ongoing projects, critical relationships, key historical emotional events, or behavioral trends.
@@ -161,8 +161,8 @@ ${dialogueContext}
 - ACTIONS:
   - "ADD": If new material information is introduced (e.g. user says 'My favorite food is lasagna' and it's not present).
   - "UPDATE": If previous information has evolved or is corrected (e.g. user says 'I changed my major to computer science' when memory says they study history). Provide the exact ID of the memory to replace.
-  - "REMOVE": If a memory was explicitly disproven or the user directly asked Myraa to forget it.
-- TEXT STYLE: Express the memories as clean, concise, third-person declarative summaries (e.g., 'The user is building a startup named Myraa.', 'The user loves playing GTA 6.', 'The user enjoys technical and fast-paced styling explanations.'). Do not include conversational filler, quotes, or timestamps.
+  - "REMOVE": If a memory was explicitly disproven or the user directly asked Friday to forget it.
+- TEXT STYLE: Express the memories as clean, concise, third-person declarative summaries (e.g., 'The user is building a startup named Friday.', 'The user loves playing GTA 6.', 'The user enjoys technical and fast-paced styling explanations.'). Do not include conversational filler, quotes, or timestamps.
 - ID: For ADD, leave blank. For UPDATE or REMOVE, provide the exact 'id' from the "Current user memories" list.`;
 
     let resultObj: { transactions?: MemoryTransaction[] };

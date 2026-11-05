@@ -38,19 +38,19 @@ public final class GeminiAccess {
     } catch (JSONException ignored) {}
     Map<String,String> known = new LinkedHashMap<>();
     known.put("ACCOUNT_STATE_INVALID", "Google says the service account linked to this key is disabled or deleted. Create a key linked to an active service account in Google AI Studio, or have your project administrator restore it.");
-    known.put("CONSUMER_SUSPENDED", "Google says this key's project or consumer is suspended. Resolve its status in Google AI Studio or Google Cloud, then check the key again. Changing MYRAA's model cannot repair a suspended project.");
+    known.put("CONSUMER_SUSPENDED", "Google says this key's project or consumer is suspended. Resolve its status in Google AI Studio or Google Cloud, then check the key again. Changing FRIDAY's model cannot repair a suspended project.");
     known.put("API_KEY_INVALID", "Google says this API key is invalid. Create a replacement in Google AI Studio and enter it only in the key field.");
     known.put("API_KEY_EXPIRED", "Google says this API key has expired. Create a replacement in Google AI Studio.");
     known.put("API_KEY_SERVICE_BLOCKED", "This key is not allowed to use the Gemini API. Check its API restrictions and linked project in Google Cloud.");
     known.put("SERVICE_DISABLED", "The Gemini API is disabled for this key's project. Enable the Generative Language API in Google Cloud.");
     known.put("API_KEY_HTTP_REFERRER_BLOCKED", "This key's website restrictions do not permit this Android app. Review its application restrictions in Google Cloud.");
     known.put("API_KEY_IP_ADDRESS_BLOCKED", "Google blocked this key because of its allowed IP addresses. Review its application restrictions in Google Cloud.");
-    known.put("API_KEY_ANDROID_APP_BLOCKED", "This key's Android application restrictions do not match MYRAA's package and signing certificate. Review them in Google Cloud.");
+    known.put("API_KEY_ANDROID_APP_BLOCKED", "This key's Android application restrictions do not match FRIDAY's package and signing certificate. Review them in Google Cloud.");
     for (Map.Entry<String,String> entry : known.entrySet()) {
       if (entry.getKey().equals(reason) || message.contains(entry.getKey())) return new Failure(entry.getKey(), status, entry.getValue());
     }
     String lower = message.toLowerCase(Locale.ROOT);
-    if (lower.contains("leaked") || lower.contains("exposed")) return new Failure("API_KEY_LEAKED", status, "Google blocked this key as exposed. Replace it in Google AI Studio and paste the new key only into MYRAA's key field, never into chat.");
+    if (lower.contains("leaked") || lower.contains("exposed")) return new Failure("API_KEY_LEAKED", status, "Google blocked this key as exposed. Replace it in Google AI Studio and paste the new key only into FRIDAY's key field, never into chat.");
     if (lower.contains("api key not valid")) return new Failure("API_KEY_INVALID", status, known.get("API_KEY_INVALID"));
     if (status == 404) return new Failure("MODEL_UNAVAILABLE", status, "Google could not find this model for your key. Check the model identifier in Settings or choose a model available to your project.");
     if (status == 401 || status == 403) return new Failure("GOOGLE_ACCESS_DENIED", status, "Google denied this key or project access. Check its project, linked service account and API restrictions in Google AI Studio or Google Cloud.");

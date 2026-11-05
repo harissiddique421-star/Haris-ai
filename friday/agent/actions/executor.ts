@@ -41,7 +41,7 @@ export interface ActionContext {
   recipient?: { name: string; contactId: string | null } | null;
   onStatus?: (text: string) => void;
   onPermission?: (record: { capability: Capability; decision: "allow" | "ask" | "deny"; outcome?: "approved" | "rejected" | "expired" | "auto"; scope?: string }) => void;
-  /** Called when the user keeps using the mouse/keyboard while MYRAA needs it. */
+  /** Called when the user keeps using the mouse/keyboard while FRIDAY needs it. */
   onUserConflict?: (strength: "light" | "strong") => void;
 }
 
@@ -234,10 +234,10 @@ export class ActionExecutor {
         // mouse that is merely moving; real typing by the user still wins.
         const conflict = await this.waitForUserToFinish(context, !resources.includes("mouse"));
         if (conflict) {
-          return fail("USER_INTERRUPTED", "The user is actively using the mouse/keyboard; MYRAA yielded instead of fighting for control.", "Waiting for you");
+          return fail("USER_INTERRUPTED", "The user is actively using the mouse/keyboard; FRIDAY yielded instead of fighting for control.", "Waiting for you");
         }
         // Keystrokes go to the foreground window. If the observed target is
-        // behind MYRAA or an overlay, bring it forward first and verify.
+        // behind FRIDAY or an overlay, bring it forward first and verify.
         const target = context.state?.activeWindow;
         if (target?.hwnd && target.foreground === false && !target.minimized) {
           const focus = await this.deps.call("windowControl", { hwnd: target.hwnd, action: "focus" }, context.scope.signal);
@@ -336,7 +336,7 @@ export class ActionExecutor {
     return result.approved && this.deps.permissions.check(capability, permissionContext).decision !== 'deny';
   }
 
-  /** Returns true when MYRAA should yield because the user keeps working. */
+  /** Returns true when FRIDAY should yield because the user keeps working. */
   private async waitForUserToFinish(context: ActionContext, keyboardOnly = false): Promise<boolean> {
     const deadline = Date.now() + (this.deps.conflictWaitMs ?? 6_000);
     let announced = false;
@@ -751,8 +751,8 @@ export class ActionExecutor {
             category: "AMBIGUOUS_TARGET", durationMs: Date.now() - started, changesUi: false,
           };
         }
-        // Not in MYRAA's own list is normal: the app has the user's real contacts.
-        return ok(`"${short(args.name, 20)}" is not in MYRAA's saved contacts — searching the app instead`, {
+        // Not in FRIDAY's own list is normal: the app has the user's real contacts.
+        return ok(`"${short(args.name, 20)}" is not in FRIDAY's saved contacts — searching the app instead`, {
           saved: false,
           search_name: String(args.name),
           next: "Not a failure. Call chat.open with this name to search the messaging app itself. Never tell the user the contact doesn't exist before chat.open has searched the app.",

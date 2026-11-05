@@ -3,7 +3,7 @@ import { redactText } from '../shared/redact';
 /**
  * Provider-independent model contracts.
  *
- * MYRAA's brain talks only in these types. A provider adapter (Gemini,
+ * FRIDAY's brain talks only in these types. A provider adapter (Gemini,
  * OpenAI-compatible, Anthropic-compatible, …) translates them to its wire
  * format, and the registry describes models purely through configuration.
  */

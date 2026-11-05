@@ -1,5 +1,5 @@
 /**
- * MYRAA — path & secret resolution.
+ * FRIDAY — path & secret resolution.
  *
  * Separates read-only *code/asset* locations (shipped with the app) from the
  * writable *data* location (per-user, survives reinstalls). In development both

@@ -61,7 +61,7 @@ const events: AppEventsState = {
     taskId: waiting.id,
     capability: "SEND_MESSAGE",
     title: "Send a WhatsApp message to Riya Sharma?",
-    description: "MYRAA wants to send the file below. Messages can't be unsent.",
+    description: "FRIDAY wants to send the file below. Messages can't be unsent.",
     details: { recipient: "Riya Sharma", app: "WhatsApp", attachment: "report-september.pdf" },
     createdAt: iso(3),
     expiresAt: new Date(now + 55_000).toISOString(),

@@ -3,7 +3,7 @@
  *
  * Planners used to click whatever element carried the name, which in a
  * group conversation is the SENDER label of a message — so "message Priya"
- * opened the family group. And when the person was not in MYRAA's own
+ * opened the family group. And when the person was not in FRIDAY's own
  * contact list, the task gave up without ever searching the app.
  *
  * This action does it the way a person would:

@@ -1,7 +1,7 @@
 /**
  * ApiKeyGate — first-run onboarding.
  *
- * MYRAA ships without any API key. On launch we ask the backend whether a key
+ * FRIDAY ships without any API key. On launch we ask the backend whether a key
  * is configured (GET /api/config). If not, this full-screen overlay blocks the
  * app until the user pastes their own Google Gemini key, which the backend
  * validates with a live test call and stores in their per-user data folder.
@@ -25,13 +25,13 @@ async function readJsonResponse(res: Response): Promise<ApiResponse> {
   const body = await res.text();
   if (!contentType.includes("application/json") || !body.trim()) {
     throw new Error(
-      "MYRAA backend is not running. Start the main app with npm run dev and open http://localhost:3000.",
+      "FRIDAY backend is not running. Start the main app with npm run dev and open http://localhost:3000.",
     );
   }
   try {
     return JSON.parse(body) as ApiResponse;
   } catch {
-    throw new Error("MYRAA backend returned an invalid response. Restart the main app and try again.");
+    throw new Error("FRIDAY backend returned an invalid response. Restart the main app and try again.");
   }
 }
 
@@ -95,7 +95,7 @@ export function ApiKeyGate({ children }: { children: ReactNode }) {
       {phase === "checking" ? (
         <div className="flex flex-col items-center gap-4 text-white/60">
           <Loader2 className="h-7 w-7 animate-spin" />
-          <span className="text-sm tracking-wide">Starting MYRAA…</span>
+          <span className="text-sm tracking-wide">Starting FRIDAY…</span>
         </div>
       ) : (
         <form
@@ -107,9 +107,9 @@ export function ApiKeyGate({ children }: { children: ReactNode }) {
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/30 to-cyan-500/20 ring-1 ring-white/10">
               <KeyRound className="h-6 w-6 text-indigo-200" />
             </div>
-            <h1 className="text-xl font-semibold tracking-tight">Welcome to MYRAA</h1>
+            <h1 className="text-xl font-semibold tracking-tight">Welcome to FRIDAY</h1>
             <p className="mt-2 text-sm leading-relaxed text-white/55">
-              MYRAA runs on your own Google Gemini API key. Paste it below to get
+              FRIDAY runs on your own Google Gemini API key. Paste it below to get
               started. It is stored encrypted on this PC and used to contact Google.
             </p>
           </div>

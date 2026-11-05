@@ -1,7 +1,7 @@
 /**
  * Render stage: WebGL renderer, scene, camera and framing.
  *
- * The canvas is intentionally TRANSPARENT. MYRAA already renders an ambient
+ * The canvas is intentionally TRANSPARENT. FRIDAY already renders an ambient
  * holographic backdrop (CSS gradients plus a particle overlay canvas), and the
  * character has to composite into it. That rules out an EffectComposer bloom
  * chain, whose passes do not preserve alpha - so "glow" is delivered instead

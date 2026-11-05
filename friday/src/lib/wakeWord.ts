@@ -1,9 +1,9 @@
 /**
- * MYRAA Wake Word Detector (V2).
+ * FRIDAY Wake Word Detector (V2).
  *
  * Uses the browser-native Web Speech API (webkitSpeechRecognition) for
  * continuous, always-listening keyword detection. Zero dependencies, runs
- * entirely in the MYRAA browser tab.
+ * entirely in the FRIDAY browser tab.
  *
  * Design goals (per V2 spec):
  *   - Very low CPU: relies on the browser's native speech engine (no FFT loop).
@@ -15,7 +15,7 @@
  * Public API:
  *   const det = new MyraaWakeWordDetector();
  *   det.start({ phrase, sensitivity, onTriggered, onState });
- *   det.setPhrase("hey myraa");
+ *   det.setPhrase("hey friday");
  *   det.setSensitivity(60);
  *   det.stop();
  */
@@ -62,7 +62,7 @@ export interface WakeWordOptions {
 export class MyraaWakeWordDetector {
   private recognition: SpeechRecognitionLike | null = null;
   private ctor: SpeechRecognitionCtor | null;
-  private phrase = "hey myraa";
+  private phrase = "hey friday";
   private sensitivity = 60;
   private onTriggered: (() => void) | null = null;
   private onState: ((s: WakeWordState) => void) | null = null;
@@ -94,7 +94,7 @@ export class MyraaWakeWordDetector {
       this.setState("error");
       return false;
     }
-    this.phrase = (opts.phrase || "hey myraa").toLowerCase().trim();
+    this.phrase = (opts.phrase || "hey friday").toLowerCase().trim();
     this.sensitivity = opts.sensitivity ?? this.sensitivity;
     this.onTriggered = opts.onTriggered ?? null;
     this.onState = opts.onState ?? null;
@@ -119,7 +119,7 @@ export class MyraaWakeWordDetector {
 
   /** Change the wake phrase live without a full restart. */
   setPhrase(phrase: string): void {
-    this.phrase = (phrase || "hey myraa").toLowerCase().trim();
+    this.phrase = (phrase || "hey friday").toLowerCase().trim();
   }
 
   /** Change sensitivity live. */

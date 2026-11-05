@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
     getWindow().setStatusBarColor(Color.rgb(16,19,23));
     getWindow().setNavigationBarColor(Color.rgb(16,19,23));
     try { personality = new String(readLimited(getAssets().open("personality.txt"), 16000), StandardCharsets.UTF_8); }
-    catch (Exception ignored) { personality = "You are MYRAA. Match Hindi, Hinglish or English. Be honest about your capabilities."; }
+    catch (Exception ignored) { personality = "You are FRIDAY. Match Hindi, Hinglish or English. Be honest about your capabilities."; }
     tts = new TextToSpeech(this, status -> {
       ttsReady = status == TextToSpeech.SUCCESS;
       if (ttsReady) tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
@@ -141,7 +141,7 @@ public class MainActivity extends Activity {
         if (++rendererFailures <= 2) createWebView();
         else {
           TextView message = new TextView(MainActivity.this);
-          message.setText("MYRAA's graphics engine stopped. Your settings and history are safe. Tap to retry, or restart the app.");
+          message.setText("FRIDAY's graphics engine stopped. Your settings and history are safe. Tap to retry, or restart the app.");
           message.setPadding(30,60,30,30); message.setOnClickListener(v -> { rendererFailures = 0; createWebView(); }); setContentView(message);
         }
         return true;
@@ -154,7 +154,7 @@ public class MainActivity extends Activity {
         return true;
       }
       @Override public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
-        new AlertDialog.Builder(MainActivity.this).setTitle("MYRAA").setMessage(message)
+        new AlertDialog.Builder(MainActivity.this).setTitle("FRIDAY").setMessage(message)
           .setPositiveButton("Confirm", (d,w) -> result.confirm()).setNegativeButton("Cancel", (d,w) -> result.cancel())
           .setOnCancelListener(d -> result.cancel()).show(); return true;
       }
@@ -184,7 +184,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.5", "floatingControlsAllowed", Settings.canDrawOverlays(this), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.6", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -256,7 +256,7 @@ public class MainActivity extends Activity {
       if (id == null || !id.matches("[A-Za-z0-9-]{1,80}")) return;
       runOnUiThread(() -> {
         cancelLive();
-        if (!foreground) { emit(json("type", "live-error", "id", id, "message", "Open MYRAA to start live voice.")); return; }
+        if (!foreground) { emit(json("type", "live-error", "id", id, "message", "Open FRIDAY to start live voice.")); return; }
         ArrayList<String> needed=new ArrayList<>();
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)needed.add(Manifest.permission.RECORD_AUDIO);
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)needed.add(Manifest.permission.POST_NOTIFICATIONS);
@@ -266,9 +266,10 @@ public class MainActivity extends Activity {
     @JavascriptInterface public void mobileAction(String id,String name,String args) {
       if(args==null||args.length()>10000)return;
       runOnUiThread(()->{
-        if(!foreground&&!LiveVoiceService.overlayVisible){emit(json("type","mobile-action-result","id",id,"result",json("status","permission_required","message","Return to MYRAA or enable Floating voice controls in Settings to switch apps by voice while MYRAA is behind another app.")));return;}
+        if(!foreground&&!LiveVoiceService.overlayVisible){emit(json("type","mobile-action-result","id",id,"result",json("status","permission_required","message","Return to FRIDAY or enable Floating voice controls in Settings to switch apps by voice while FRIDAY is behind another app.")));return;}
         try {
-          if(!foreground&&"whatsapp_message".equals(new JSONObject(args).optString("action"))){
+          String kind=new JSONObject(args).optString("action");
+          if(!foreground&&("whatsapp_message".equals(kind)||"call".equals(kind))){
             if(pendingUiAction!=null){emit(json("type","mobile-action-result","id",id,"result",json("status","busy","message","Finish the current recipient selection first.")));return;}
             pendingUiAction=()->mobileActions.execute(id,name,args);startActivity(new Intent(MainActivity.this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));return;
           }
@@ -277,6 +278,7 @@ public class MainActivity extends Activity {
       });
     }
     @JavascriptInterface public void cancelMobileAction(String id){if(id!=null)runOnUiThread(()->mobileActions.cancel(id));}
+    @JavascriptInterface public void openAccessibilitySettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));}
     @JavascriptInterface public void openFloatingSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+getPackageName()))));}
     @JavascriptInterface public void endLive() { runOnUiThread(() -> cancelLive()); }
     @JavascriptInterface public void speak(String text) { speakText(text); }
@@ -430,7 +432,7 @@ public class MainActivity extends Activity {
           if (!model.matches("[A-Za-z0-9._-]{1,100}")) model = "gemini-3.1-flash-live-preview";
           emit(json("type", "live-token", "id", id, "token", token, "model", model, "voice", "Aoede",
             "backgroundLive", allowBackgroundLive,
-            "instruction", personality + "\nYou are MYRAA on Android. Match Hindi, Hinglish or English naturally. Use the mobile_action tool for opening installed apps, YouTube searches, Chrome/web searches and preparing WhatsApp drafts. Call the tool before saying you opened anything. Never invent success: report its actual result. Ask for missing search text, message or recipient. Use the recipient name the user said; the phone resolves contacts locally. Never invent a phone number. WhatsApp messages are drafts only: the user must review and tap Send in WhatsApp. If permission_required, explain how to enable the permission or return to MYRAA. These tools do not provide arbitrary phone UI, desktop, file or screen control."));
+            "instruction", personality + "\nYou are FRIDAY on Android. Your name is FRIDAY. Match Hindi, Hinglish or English naturally. Use the mobile_action tool for opening installed apps, YouTube searches, Chrome/web searches, WhatsApp messages, phone calls, alarms, reminders and playing music. Call the tool before saying you did anything. Never invent success: report its actual result. Ask for missing search text, message, recipient or time. Use the recipient name the user said; the phone resolves contacts locally. Never invent a phone number. When a result has status needs_confirmation, read back the recipient and exact message (or who will be called) and ask the user to confirm; only after a clear yes in this conversation call mobile_action again with the same action and the confirm_token, and nothing else. If they hesitate, say no or change anything, do not use the token. If status is draft_opened, tell the user the draft is open and they need to tap Send. If permission_required, explain how to enable the permission or return to FRIDAY. These tools do not provide arbitrary phone UI, desktop, file or screen control."));
         });
       } catch (Exception error) {
         if (liveGeneration.get() == mine) emit(json("type", "live-error", "id", id, "message",

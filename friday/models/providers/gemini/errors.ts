@@ -2,7 +2,7 @@ import { ModelError } from "../../types";
 import { describeGoogleAuthError } from '../../../shared/googleAuth';
 import { redactText } from '../../../shared/redact';
 
-/** Map any Gemini SDK / transport failure onto MYRAA's provider-neutral error codes. */
+/** Map any Gemini SDK / transport failure onto FRIDAY's provider-neutral error codes. */
 export function classifyGeminiError(error: unknown, modelId: string, cancelled: boolean, timedOut: boolean): ModelError {
   if (error instanceof ModelError) return error;
   if (cancelled) return new ModelError("CANCELLED", "Model request was cancelled.", { modelId, retryable: false });

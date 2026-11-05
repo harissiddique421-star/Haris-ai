@@ -23,7 +23,7 @@ export type ExpressionName =
   | 'playful'
   | 'listening';
 
-/** Mouth channels yield smoothly to visemes while MYRAA is speaking. */
+/** Mouth channels yield smoothly to visemes while FRIDAY is speaking. */
 export const MOUTH_SLOTS: ReadonlySet<keyof MorphMap> = new Set([
   'visemeA', 'visemeI', 'visemeU', 'visemeE', 'visemeO', 'visemeTalk',
   'mouthSmile', 'mouthCornerUpL', 'mouthCornerUpR',

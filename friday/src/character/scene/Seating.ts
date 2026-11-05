@@ -543,7 +543,7 @@ export function buildSeatProp(plan: SeatPlan, m: SeatMeasures): THREE.Group | nu
     group.add(pad);
   }
   // Shadow-catcher floor: invisible except for the shadows of the seat and of
-  // her legs and feet, so both read as standing on something over MYRAA's
+  // her legs and feet, so both read as standing on something over FRIDAY's
   // transparent stage.
   const floorSize = Math.max(width * 3, m.height * 1.4);
   const catcher = new THREE.Mesh(
@@ -554,7 +554,7 @@ export function buildSeatProp(plan: SeatPlan, m: SeatMeasures): THREE.Group | nu
   catcher.position.set(cx, floor + u * 0.004, midZ);
   catcher.receiveShadow = true;
   catcher.renderOrder = -1;
-  // A faint, soft-edged pool of light on the floor: on MYRAA's near-black
+  // A faint, soft-edged pool of light on the floor: on FRIDAY's near-black
   // stage a shadow alone is invisible, so the floor needs something to darken.
   const glow = new THREE.Mesh(
     new THREE.CircleGeometry(floorSize * 0.36, 48),

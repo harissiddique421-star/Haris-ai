@@ -1,7 +1,7 @@
 /**
  * Alarms, reminders and timers.
  *
- * Persisted and re-armed on startup. Anything that came due while MYRAA was
+ * Persisted and re-armed on startup. Anything that came due while FRIDAY was
  * not running is reported once as "missed" rather than ringing late. Firing
  * publishes an event that the presence gate voices (alarms are critical and
  * pass Do-Not-Disturb) and that the character reacts to physically.

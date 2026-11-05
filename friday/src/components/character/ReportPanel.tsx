@@ -147,7 +147,7 @@ export const ReportPanel: React.FC<{
                 onChange={(e) => update({ persona: { ...profile.persona, personalityId: e.target.value || undefined } })}
                 className="flex-1 rounded border border-white/10 bg-slate-900 px-1 py-1 text-xs"
               >
-                <option value="">MYRAA (default)</option>
+                <option value="">FRIDAY (default)</option>
                 <option value="calm">Calm & gentle</option>
                 <option value="playful">Playful</option>
                 <option value="focused">Focused & brief</option>
@@ -157,7 +157,7 @@ export const ReportPanel: React.FC<{
 
           <Section title="Licence & files">
             {profile.source.restrictions.length > 0 && (
-              <p className="mb-1 text-[11px] text-amber-200/90">Author restrictions: {profile.source.restrictions.join(' · ')}. Kept local; never bundled or shared by MYRAA.</p>
+              <p className="mb-1 text-[11px] text-amber-200/90">Author restrictions: {profile.source.restrictions.join(' · ')}. Kept local; never bundled or shared by FRIDAY.</p>
             )}
             {profile.source.licenseText && (
               <details className="text-[10px] text-slate-400">
@@ -169,7 +169,7 @@ export const ReportPanel: React.FC<{
             <div className="mt-2">
               {!confirmDelete ? (
                 <Btn tone="danger" onClick={() => setConfirmDelete(true)}>
-                  Remove from MYRAA…
+                  Remove from FRIDAY…
                 </Btn>
               ) : (
                 <div className="flex items-center gap-2 text-[11px]">

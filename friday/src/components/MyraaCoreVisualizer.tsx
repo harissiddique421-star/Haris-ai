@@ -1,5 +1,5 @@
 /**
- * MYRAA's holographic stage.
+ * FRIDAY's holographic stage.
  *
  * Composites three layers:
  *   0  ambient backdrop glow (CSS)

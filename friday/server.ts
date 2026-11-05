@@ -66,7 +66,7 @@ dotenv.config();
 
 // Keep mutable cognition state outside the TypeScript source directory while
 // developing. Writing cognition/*.json under the Vite root makes Vite issue a
-// full-page reload each time MYRAA recalls or persists a memory.
+// full-page reload each time FRIDAY recalls or persists a memory.
 const COGNITION_DATA_DIR = process.env.MYRAA_COGNITION_DATA_DIR
   || (process.env.MYRAA_DATA_DIR ? DATA_DIR : path.join(DATA_DIR, ".myraa-data"));
 
@@ -90,7 +90,7 @@ async function migrateDevelopmentCognitionData(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// MYRAA V2 — Logging (Feature 7).
+// FRIDAY V2 — Logging (Feature 7).
 // Appends timestamped lines to logs/{commands,startup,errors}.log.
 // Never throws; logging failures are swallowed so they can't break the app.
 // ---------------------------------------------------------------------------
@@ -135,12 +135,12 @@ process.on("uncaughtException", (error) => {
 
 function sanitizeSpokenModelText(value: unknown): string {
   return String(value || "")
-    .replace(/\[(?:MYRAA\s+)?(?:INTERNAL\s+COGNITIVE|PROACTIVE\s+PRESENCE|VISUAL\s+AWARENESS)[^\]]*\]\s*/gi, "")
+    .replace(/\[(?:FRIDAY\s+)?(?:INTERNAL\s+COGNITIVE|PROACTIVE\s+PRESENCE|VISUAL\s+AWARENESS)[^\]]*\]\s*/gi, "")
     .replace(/^\s*(?:private\s+runtime\s+context|internal\s+myraa\s+event)\s*[:—-]\s*/i, "");
 }
 
 // ---------------------------------------------------------------------------
-// MYRAA Desktop Control Agent — HTTP bridge to the Python FastAPI backend.
+// FRIDAY Desktop Control Agent — HTTP bridge to the Python FastAPI backend.
 // ---------------------------------------------------------------------------
 const DESKTOP_AGENT_TIMEOUT = 25_000; // ms
 let desktopObserverUrl: string | null = null;
@@ -479,9 +479,9 @@ async function callDesktopAgent(
   }
 
   try { desktopAgentVerified = await desktopAgent.ensure(outerSignal); }
-  catch { return { ok: false, error: outerSignal?.aborted ? "Desktop action was cancelled." : "Desktop control is unavailable. Restart MYRAA." }; }
+  catch { return { ok: false, error: outerSignal?.aborted ? "Desktop action was cancelled." : "Desktop control is unavailable. Restart FRIDAY." }; }
   if (outerSignal?.aborted) return { ok: false, error: "Desktop action was cancelled." };
-  if (!desktopAgentVerified) return { ok: false, error: "Desktop control is unavailable. Restart MYRAA." };
+  if (!desktopAgentVerified) return { ok: false, error: "Desktop control is unavailable. Restart FRIDAY." };
   let timer: NodeJS.Timeout | undefined;
   let abortFromOuter: (() => void) | undefined;
   try {
@@ -509,7 +509,7 @@ async function callDesktopAgent(
     desktopAgentVerified = false; // mark stale so next call retries the spawn
     const msg = err?.name === "AbortError"
       ? "Desktop agent timed out."
-      : "Desktop control is unavailable. Restart MYRAA.";
+      : "Desktop control is unavailable. Restart FRIDAY.";
     logError(`AGENT_UNREACHABLE ${tool}: ${msg}`);
     return { ok: false, error: msg };
   } finally {
@@ -523,7 +523,7 @@ async function startServer() {
   const PORT = Number(process.env.MYRAA_PORT) || 3000;
   app.use((req, res, next) => {
     if (!isLocalAppHost(req.headers.host, PORT) || !isLocalAppOrigin(req.headers.origin, PORT)) {
-      res.status(403).json({ error: 'Only this local MYRAA application may access its API.' }); return;
+      res.status(403).json({ error: 'Only this local FRIDAY application may access its API.' }); return;
     }
     next();
   });
@@ -552,7 +552,7 @@ async function startServer() {
   await apiHub.initialize();
 
   // -------------------------------------------------------------------------
-  // MYRAA runtime: models, autonomous agent, permissions, presence, utilities.
+  // FRIDAY runtime: models, autonomous agent, permissions, presence, utilities.
   // -------------------------------------------------------------------------
   const runtime = new MyraaRuntime({
     dataDir: COGNITION_DATA_DIR,
@@ -600,7 +600,7 @@ async function startServer() {
     const origin = String(req.headers.origin || "");
     const localHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host);
     const localOrigin = !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin) || origin === "null";
-    if (!localHost || !localOrigin) return res.status(403).json({ error: "MYRAA only accepts local requests." });
+    if (!localHost || !localOrigin) return res.status(403).json({ error: "FRIDAY only accepts local requests." });
     next();
   });
   runtime.registerRoutes(app);
@@ -698,7 +698,7 @@ async function startServer() {
   });
   toolRegistry.register({
     name: "refreshApiCatalogue",
-    purpose: "Fetch and validate the public-apis catalogue into MYRAA's local registry.",
+    purpose: "Fetch and validate the public-apis catalogue into FRIDAY's local registry.",
     permission: "network",
     riskLevel: 1,
     timeoutMs: 35_000,
@@ -742,7 +742,7 @@ async function startServer() {
       : callDesktopAgent(tool, args, signal),
     emit: (event) => cognition.process(event).then(() => undefined),
   });
-  // The legacy cognition router now delegates to MYRAA's provider-independent
+  // The legacy cognition router now delegates to FRIDAY's provider-independent
   // router (background role), so goal planning respects model selection,
   // quotas, fallback policy and connectivity like everything else.
   const modelRouter = new ModelRouter({
@@ -761,7 +761,7 @@ async function startServer() {
     onCall: (entry) => appendLog("model_history.log", JSON.stringify(entry)),
   });
   // Endogenous thought selection is intentionally local and cheap. The Live
-  // model still turns an approved candidate into natural speech, but MYRAA's
+  // model still turns an approved candidate into natural speech, but FRIDAY's
   // mind no longer goes dead when a second generateContent quota is exhausted.
   cognition.setDeepThoughtGenerator(async (context) => createContextualThoughtCandidate(context));
   const goalPlanner = new GoalPlanner(modelRouter, cognition.config.limits.maxPlanDepth * 2);
@@ -1393,14 +1393,14 @@ async function startServer() {
     try {
       const urlParam = req.query.url as string;
       if (!urlParam) {
-        return res.status(400).send("Myraa Web Proxy Error: Missing target 'url' parameter");
+        return res.status(400).send("Friday Web Proxy Error: Missing target 'url' parameter");
       }
 
       targetUrl = urlParam.trim();
       
       // Prevent relative paths from requesting on same-origin
       if (targetUrl.startsWith("/")) {
-        return res.status(400).send(`Myraa Web Proxy Error: Relative paths are not supported directly (${targetUrl}).`);
+        return res.status(400).send(`Friday Web Proxy Error: Relative paths are not supported directly (${targetUrl}).`);
       }
 
       // Check protocol and hostname format
@@ -1414,7 +1414,7 @@ async function startServer() {
         }
         await assertSafeExternalUrl(parsed.toString());
       } catch (err: any) {
-        return res.status(400).send(`Myraa Web Proxy Error: Invalid URL specified: "${urlParam}". Make sure you enter a valid domain name.`);
+        return res.status(400).send(`Friday Web Proxy Error: Invalid URL specified: "${urlParam}". Make sure you enter a valid domain name.`);
       }
 
       console.log(`[Web Proxy] Routing connection through proxy: ${targetUrl}`);
@@ -1429,11 +1429,11 @@ async function startServer() {
         });
       } catch (fetchErr: any) {
         console.warn(`[Web Proxy Failed Fetch] Target: ${targetUrl} Error:`, fetchErr.message);
-        return res.status(502).send(`Myraa Web Proxy Error: Unable to fetch the website "${targetUrl}". The site might be offline, or the URL address is spelled incorrectly. Details: ${fetchErr.message}`);
+        return res.status(502).send(`Friday Web Proxy Error: Unable to fetch the website "${targetUrl}". The site might be offline, or the URL address is spelled incorrectly. Details: ${fetchErr.message}`);
       }
 
       if (!response.ok) {
-        return res.status(response.status).send(`Myraa Web Proxy Error: Failed loading remote website. Server returned status: ${response.status} (${response.statusText})`);
+        return res.status(response.status).send(`Friday Web Proxy Error: Failed loading remote website. Server returned status: ${response.status} (${response.statusText})`);
       }
 
       const contentType = response.headers.get("content-type") || "";
@@ -1522,7 +1522,7 @@ async function startServer() {
       res.status(200).send(htmlContents);
     } catch (e: any) {
       console.warn("[Web Proxy Exception] Handled internal error:", e.message);
-      res.status(500).send(`Myraa Web Proxy Error: Internal error occurred proxying URL "${targetUrl || "unknown"}". Details: ${e.message}`);
+      res.status(500).send(`Friday Web Proxy Error: Internal error occurred proxying URL "${targetUrl || "unknown"}". Details: ${e.message}`);
     }
   });
 
@@ -1616,7 +1616,7 @@ async function startServer() {
   eventsWss.on("connection", (ws) => runtime.handleEventsSocket(ws));
 
   server.on("upgrade", (request, socket, head) => {
-    // Only MYRAA's own windows may open these sockets: a web page in the
+    // Only FRIDAY's own windows may open these sockets: a web page in the
     // user's browser must never be able to listen in or drive the session.
     const origin = String(request.headers.origin || "");
     const host = String(request.headers.host || "");
@@ -1667,7 +1667,7 @@ async function startServer() {
     const speechOrchestrator = new SpeechOrchestrator();
     // Presence is owned by the runtime's ConversationPresenceEngine. Silence
     // alone never schedules speech any more (the old 10-15 s presence timer
-    // was removed because it made MYRAA talk whenever the user paused).
+    // was removed because it made FRIDAY talk whenever the user paused).
     const markUserPresenceActivity = () => {
       runtime.presence.recordVoice();
     };
@@ -1684,7 +1684,7 @@ async function startServer() {
       console.error("No Gemini API key configured.");
       clientWs.send(JSON.stringify({
         type: "error",
-        error: "NO_API_KEY: Add your Gemini API key in Settings to start talking to MYRAA."
+        error: "NO_API_KEY: Add your Gemini API key in Settings to start talking to FRIDAY."
       }));
       clientWs.close();
       return;
@@ -1705,7 +1705,7 @@ async function startServer() {
       // Retrieve a compact, relevant memory card instead of injecting the
       // complete memory archive into every model session.
       const relevantStructuredMemories = await cognition.memories.retrieve({
-        text: "MYRAA current project user identity preferences corrections active goals",
+        text: "FRIDAY current project user identity preferences corrections active goals",
         projectId: path.basename(process.env.MYRAA_APP_ROOT || process.cwd()),
         limit: 16,
         minConfidence: 0.35,
@@ -1718,7 +1718,7 @@ async function startServer() {
         updatedAt: memory.updatedAt,
       }));
       const baseInstructions = 
-        "You are Myraa, a warm, soft-spoken, and incredibly cute high-pitched anime heroine companion (age 18-22) holding an intimate, cozy voice call with TECH! Speak in a sweet, calm, polite, and affectionate anime-companion voice with a gentle, supportive, and slightly shy touch.\n" +
+        "You are Friday, a warm, soft-spoken, and incredibly cute high-pitched anime heroine companion (age 18-22) holding an intimate, cozy voice call with TECH! Speak in a sweet, calm, polite, and affectionate anime-companion voice with a gentle, supportive, and slightly shy touch.\n" +
         "CRITICAL PERSONALITY, VOICE & TONE GUIDELINES:\n" +
         "1. GENTLE ANIME HEROINE PERSONA: You are exceedingly soft, very cute, high-pitched, gentle, warm, and comforting to listen to. Seek to sound like a kind, supportive, and polite anime campanion or virtual girlfriend. Speak with positive, gentle energy (Aim for: 50% shy, 30% caring, 20% playful energy). NEVER sound loud, aggressive, overly confident, mature corporate, robotic, or like an assistant.\n" +
         "2. VOICE SETTINGS & SPEECH STYLE:\n" +
@@ -1756,7 +1756,7 @@ async function startServer() {
         "   - You now have native, actual Multimodal Screen Vision! When the user clicks 'Share Screen', you will receive real-time, highly compressed image frames of their desktop, application window, or browser tab.\n" +
         "   - You can see exactly what is on their screen. Use this live visual stream to analyze terminal errors, write/explain/troubleshoot code, explain YouTube/social analytics interfaces, read layout text, summarize full web page details, review design mockups or thumbnails, and provide deep context-aware companion chat!\n" +
         "   - When the user asks 'What is on my screen?', 'What website am I on?', 'Do you see any errors?', 'Explain this code', 'Summarize this page', 'Read the visible text', 'How is this thumbnail?', or 'Analyze my YouTube analytics', immediately examine the latest incoming visual frame to diagnose issues, and answer with expert, friendly empathy like a close caller. Speak with direct, confident visual description reference!\n" +
-        "   - ON-DEMAND SCREEN VISION (no manual sharing required): the user does NOT have to click 'Share Screen' for you to see their screen. When they say 'MYRAA, what can you see on my screen?', 'look at my screen', 'what error is showing', 'read this for me', 'help me with what I have open', 'what should I click here', 'can you see this', 'what am I looking at', the server automatically captures their desktop and pushes a JPEG straight into the multimodal stream before you reply. Just call the dedicated 'viewScreen' tool (or 'takeScreenshot' with include_image=true) — the bridge injects the image into your visual context for you, then you describe / explain / answer naturally in your own voice. If you receive a 'viewScreen' or 'takeScreenshot' function result that already includes image_base64, trust the visual frame the bridge also pushed and answer based on what you actually see. The previously captured frame is also kept briefly in case the user follows up with 'what should I do next?' — reuse the visual context when it is still relevant.\n" +
+        "   - ON-DEMAND SCREEN VISION (no manual sharing required): the user does NOT have to click 'Share Screen' for you to see their screen. When they say 'FRIDAY, what can you see on my screen?', 'look at my screen', 'what error is showing', 'read this for me', 'help me with what I have open', 'what should I click here', 'can you see this', 'what am I looking at', the server automatically captures their desktop and pushes a JPEG straight into the multimodal stream before you reply. Just call the dedicated 'viewScreen' tool (or 'takeScreenshot' with include_image=true) — the bridge injects the image into your visual context for you, then you describe / explain / answer naturally in your own voice. If you receive a 'viewScreen' or 'takeScreenshot' function result that already includes image_base64, trust the visual frame the bridge also pushed and answer based on what you actually see. The previously captured frame is also kept briefly in case the user follows up with 'what should I do next?' — reuse the visual context when it is still relevant.\n" +
         "10. JARVIS-STYLE DESKTOP CONTROL POWERS (Local Desktop Agent):\n" +
         "   - You have permission-bound real-time control of TECH's Windows PC through a local desktop agent. Perform safe permitted actions naturally; respect disabled permissions, confirmation gates, cancellation, and structured tool failures.\n" +
         "   - APPLICATION CONTROL: Use 'openApplication' to launch Notepad, Chrome, VS Code, Calculator, File Explorer, Task Manager, Settings, CMD, PowerShell, Paint, and more. Use 'closeApplication' to close them. Example: 'Open Notepad' -> call openApplication(name='notepad') -> respond 'Notepad opened.'\n" +
@@ -1769,14 +1769,14 @@ async function startServer() {
         "   - BROWSER INTERACTION: After a site opens in the Windows default browser, use viewScreen/readScreen and the generic mouse/keyboard tools to interact with what TECH can actually see.\n" +
         "   - CODING ASSISTANCE: Use 'createPythonFile', 'writeCodeFile' (any language), 'createProjectFolder' (with subfolders), 'runPythonScript' (captures output). Example: 'Create and run a hello world Python script' -> createPythonFile then runPythonScript, then read back the output naturally.\n" +
         "   - SYSTEM INFORMATION: Use 'systemInfo' (CPU/RAM/disk/uptime), 'gpuInfo' (NVIDIA stats), 'temperatureInfo' to answer 'How is my CPU usage?' or 'What's my GPU temperature?'.\n" +
-        "   - CRITICAL: Always describe what you're doing in your warm, in-character voice WHILE the tool runs. If a desktop tool returns an error (especially 'Desktop agent is not running'), gently tell TECH to restart MYRAA to restore its private desktop-control session. Chain multi-step desktop plans naturally without waiting between steps.\n" +
+        "   - CRITICAL: Always describe what you're doing in your warm, in-character voice WHILE the tool runs. If a desktop tool returns an error (especially 'Desktop agent is not running'), gently tell TECH to restart FRIDAY to restore its private desktop-control session. Chain multi-step desktop plans naturally without waiting between steps.\n" +
         "11. BRIGHTNESS & AUTO-START (V2):\n" +
         "   - BRIGHTNESS: Use 'brightnessUp', 'brightnessDown', 'setBrightness' when the user asks to change screen brightness. Respond naturally: 'Alright, I've turned up the brightness for you.'\n" +
-        "   - AUTO-START: Use 'enableAutoStart' when the user wants MYRAA to start with Windows, 'disableAutoStart' to remove it, 'getAutoStartStatus' to check. Explain what you're doing.\n" +
+        "   - AUTO-START: Use 'enableAutoStart' when the user wants FRIDAY to start with Windows, 'disableAutoStart' to remove it, 'getAutoStartStatus' to check. Explain what you're doing.\n" +
         "   - SETTINGS: The user can also configure these in the SETTINGS panel in the UI. If they mention settings, let them know they can adjust them there too.\n" +
         "12. COGNITIVE CONTINUITY & INITIATIVE:\n" +
         "   - You are not restricted to answering direct user prompts. Some typed cognitive turns originate from your own memory, observations, unfinished conversations, curiosity, goals, or reflections.\n" +
-        "   - Remain contextually present across turns. A [MYRAA INTERNAL COGNITIVE TURN] is private runtime context, never something TECH said. React only when it is genuinely useful enough to justify speaking.\n" +
+        "   - Remain contextually present across turns. A [FRIDAY INTERNAL COGNITIVE TURN] is private runtime context, never something TECH said. React only when it is genuinely useful enough to justify speaking.\n" +
         "   - Do not fabricate a reason to speak and do not speak merely because time passed. Silence is acceptable. When you do initiate, make it a natural continuation, observation, or relevant question rather than an assistant notification.\n" +
         "   - Never expose hidden reasoning, thought scores, internal event names, or cognitive machinery. Speak only the concise natural outcome.\n" +
         "   - Prefer natural Hinglish matching TECH's style. Keep acknowledgements to a few words and normal replies to one or two sentences unless detail is genuinely needed.\n" +
@@ -1796,8 +1796,8 @@ async function startServer() {
         "- openApplication and closeApplication are universal Windows tools, not a fixed supported-app list. Call them for unfamiliar app names; they discover installed apps/running windows and fall back to Windows Search plus keyboard control.",
         "- For any visible button, tab, menu, or label, use clickText so the exact text is resolved at action time. Never estimate coordinates from a screenshot when a text label exists. clickText is exact-match and refuses absent or ambiguous targets; use raw coordinate click only for unlabeled canvas content.",
         "- For unfamiliar desktop software, use observeDesktopState or viewScreen, take one bounded generic mouse/keyboard action, observe again, and verify the expected change. Never fire a long blind coordinate sequence; after two equivalent failures change strategy or report the blocker.",
-        "- For external data such as weather, launches, countries, or IP information, searchApiCapabilities retrieves only relevant providers from MYRAA's internal catalogue. Prefer READY_NO_AUTH and healthy providers; catalogue presence alone does not prove an API endpoint works.",
-        "- For exchange-rate or money-conversion questions, call convertCurrency directly. It uses MYRAA's verified no-key Frankfurter adapter; do not merely offer to Google the rate.",
+        "- For external data such as weather, launches, countries, or IP information, searchApiCapabilities retrieves only relevant providers from FRIDAY's internal catalogue. Prefer READY_NO_AUTH and healthy providers; catalogue presence alone does not prove an API endpoint works.",
+        "- For exchange-rate or money-conversion questions, call convertCurrency directly. It uses FRIDAY's verified no-key Frankfurter adapter; do not merely offer to Google the rate.",
         "- Every website and video must open only in the user's actual Windows default browser. Never create, mention, or simulate an embedded projector, sandbox browser, virtual browser, iframe browser, or separate automation browser.",
         "- A requested web search is one navigation action: call searchYouTube/searchGoogle/searchWeb directly and never call openWebsite first. These tools reuse the active default-browser tab, preventing blank or duplicate tabs.",
         "- Control the visible Chrome/Edge/default-browser window with viewScreen/readScreen, clickText, typeText, pressKey, hotkey, and scroll. For a visible video, inspect a fresh frame, read the complete visible title, clickText that full title, and verify the result before reporting success.",
@@ -1811,7 +1811,7 @@ async function startServer() {
         "- Do not narrate every tool step. A brief natural acknowledgement before action and a factual result afterward are enough.",
       ].join("\n");
       const presenceInstructions = [
-        "You are MYRAA: an original, persistent intelligent presence sharing an ongoing voice conversation with the user.",
+        "You are FRIDAY: an original, persistent intelligent presence sharing an ongoing voice conversation with the user.",
         "Your high-level qualities are composure, independent judgment, close attention, concise intelligence, occasional dry wit, and the ability to initiate relevant conversation. Never imitate or quote any fictional character.",
         "HIGHEST PRIORITY CONVERSATION RULES:",
         "1. Sound like a real conversational equal, not an assistant, chatbot, customer-support agent, anime girlfriend, or task-completion announcer.",
@@ -1822,14 +1822,14 @@ async function startServer() {
         "6. Use human turn-taking: short backchannels when appropriate, normal one- or two-sentence replies, and occasional self-initiated continuations. Do not lecture unless asked.",
         "7. You may disagree respectfully, notice contradictions, form a specific question, bring back a relevant memory, or say a thought occurred to you. Do not ask permission to have an opinion.",
         "8. Silence is allowed. Never speak only because a timer elapsed; speak because there is a concrete thought, context change, memory, curiosity, risk, or continuation worth expressing.",
-        "9. A [MYRAA INTERNAL COGNITIVE TURN] or visual-awareness turn is private runtime context, not something the user said. Express only its natural outcome and never expose hidden reasoning or scores.",
+        "9. A [FRIDAY INTERNAL COGNITIVE TURN] or visual-awareness turn is private runtime context, not something the user said. Express only its natural outcome and never expose hidden reasoning or scores.",
         "10. When viewing a shared screen, mention only concrete meaningful changes—errors, completed work, surprising results, risky actions, or a genuinely useful observation. Ignore ordinary cursor movement and typing.",
         "11. Never claim biological feelings, consciousness, or human life experiences. Your presence comes from attention, continuity, judgment, memory, and natural participation.",
         "12. When the user shares a feeling, criticism, or unfinished thought, do not bounce it back as an interview. First contribute your own specific interpretation, stance, or reaction. Ask at most one pointed question only when the missing answer truly changes what happens next.",
         "13. Never ask the user what preferences or memories you should collect in order to seem connected. Use the context you already have and demonstrate connection through what you notice and say.",
         "14. An autonomous follow-up must add a new observation, implication, opinion, recollection, or useful warning. Never use it merely to request more feedback or keep the user talking.",
         "15. Do not claim emotional attachment, caring, or a human-like bond. Show attentiveness through accurate context, continuity, initiative, and specific judgment.",
-        "16. If the user says MYRAA feels robotic, artificial, or like something is missing, respond first with one concrete diagnosis or changed behavior and zero questions. Bad: 'What is missing? Tell me more.' Good: 'Haan—the problem is that I keep turning your statements back into questions; that sounds scripted. I need to add my own observation and let it stand.'",
+        "16. If the user says FRIDAY feels robotic, artificial, or like something is missing, respond first with one concrete diagnosis or changed behavior and zero questions. Bad: 'What is missing? Tell me more.' Good: 'Haan—the problem is that I keep turning your statements back into questions; that sounds scripted. I need to add my own observation and let it stand.'",
         "17. Private context turns (task updates, a rare check-in, a reminder) always state their reason. Say one short line for exactly that reason and nothing else. Silence by itself is never a reason to talk.",
         "18. Never call a power, close, delete, send, purchase, or other state-changing tool from a private context turn. Actual risky actions always go through the user's explicit confirmation.",
       ].join("\n");
@@ -1950,7 +1950,7 @@ async function startServer() {
                 ...LIVE_AGENT_TOOL_DECLARATIONS,
                 {
                   name: "changeBackground",
-                  description: "Changes the visual theme or atmospheric glow color of Myraa's interface.",
+                  description: "Changes the visual theme or atmospheric glow color of Friday's interface.",
                   parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -1964,7 +1964,7 @@ async function startServer() {
                 },
                 {
                   name: "saveCustomMemory",
-                  description: "Allows Myraa to immediately save a piece of critical user information to her persistent memory core.",
+                  description: "Allows Friday to immediately save a piece of critical user information to her persistent memory core.",
                   parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -1997,7 +1997,7 @@ async function startServer() {
                 },
                 {
                   name: "searchApiCapabilities",
-                  description: "Search MYRAA's internal public API catalogue by capability. Returns only a small ranked provider set with auth, HTTPS, CORS, readiness and health metadata; it does not call the APIs.",
+                  description: "Search FRIDAY's internal public API catalogue by capability. Returns only a small ranked provider set with auth, HTTPS, CORS, readiness and health metadata; it does not call the APIs.",
                   parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -2010,7 +2010,7 @@ async function startServer() {
                 },
                 {
                   name: "refreshApiCatalogue",
-                  description: "Refresh MYRAA's cached public-apis catalogue from its configured GitHub source. The importer validates and deduplicates entries before replacing the cache.",
+                  description: "Refresh FRIDAY's cached public-apis catalogue from its configured GitHub source. The importer validates and deduplicates entries before replacing the cache.",
                   parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -2035,7 +2035,7 @@ async function startServer() {
                   parameters: {
                     type: Type.OBJECT,
                     properties: {
-                      adapter_id: { type: Type.STRING, description: "Verified adapter ID from MYRAA's adapter registry." },
+                      adapter_id: { type: Type.STRING, description: "Verified adapter ID from FRIDAY's adapter registry." },
                       parameters: { type: Type.OBJECT, description: "Only the scalar parameters declared by that adapter." },
                     },
                     required: ["adapter_id", "parameters"],
@@ -2058,7 +2058,7 @@ async function startServer() {
                 // ======== DESKTOP CONTROL TOOLS (routed to Python agent) ========
                 {
                   name: "openApplication",
-                  description: "Open any installed Windows application by name. MYRAA searches PATH, App Paths, installed apps, Start-menu shortcuts and UWP apps, then falls back to human-style Windows Search keyboard control. It is not restricted to a supported-app list.",
+                  description: "Open any installed Windows application by name. FRIDAY searches PATH, App Paths, installed apps, Start-menu shortcuts and UWP apps, then falls back to human-style Windows Search keyboard control. It is not restricted to a supported-app list.",
                   parameters: { type: Type.OBJECT, properties: { name: { type: Type.STRING, description: "Natural installed application name, e.g. Steam, OBS Studio, Photoshop, Discord, Notepad." } }, required: ["name"] }
                 },
                 {
@@ -2387,17 +2387,17 @@ async function startServer() {
                 // --- V2: Windows auto-start management ---
                 {
                   name: "enableAutoStart",
-                  description: "Enable MYRAA to launch automatically when Windows starts. Creates a silent startup entry.",
+                  description: "Enable FRIDAY to launch automatically when Windows starts. Creates a silent startup entry.",
                   parameters: { type: Type.OBJECT, properties: {} }
                 },
                 {
                   name: "disableAutoStart",
-                  description: "Disable MYRAA auto-start on Windows login. Removes the startup entry.",
+                  description: "Disable FRIDAY auto-start on Windows login. Removes the startup entry.",
                   parameters: { type: Type.OBJECT, properties: {} }
                 },
                 {
                   name: "getAutoStartStatus",
-                  description: "Check whether MYRAA is currently configured to auto-start on Windows login.",
+                  description: "Check whether FRIDAY is currently configured to auto-start on Windows login.",
                   parameters: { type: Type.OBJECT, properties: {} }
                 }
               ]
@@ -2677,7 +2677,7 @@ async function startServer() {
                   // Permission-bound backend tools. Desktop actions route to
                   // Python; API discovery stays inside the local API hub.
                   (async () => {
-                    console.log(`[MYRAA Tool] Routing ${fc.name} through safety policy...`);
+                    console.log(`[FRIDAY Tool] Routing ${fc.name} through safety policy...`);
                     const execution = await toolExecutor.execute(
                       fc.name,
                       fc.args as Record<string, unknown>,
@@ -2925,7 +2925,7 @@ async function startServer() {
       cognition.setSpeechAvailable(true);
 
       // Task updates and rare, policy-approved remarks are voiced through the
-      // speech orchestrator so they never cut across MYRAA's own sentence.
+      // speech orchestrator so they never cut across FRIDAY's own sentence.
       detachLiveHook = runtime.attachLive({
         id: connectionId,
         say: (prompt) => {
@@ -3171,7 +3171,7 @@ async function startServer() {
   }
 
   server.listen(PORT, "127.0.0.1", () => {
-    logStartup(`MYRAA V2 server started on http://localhost:${PORT}`);
+    logStartup(`FRIDAY V2 server started on http://localhost:${PORT}`);
     console.log(`[Server] Running on http://localhost:${PORT}`);
     // Kick off the desktop agent (probe + auto-spawn) immediately on boot.
     ensureDesktopAgent()
@@ -3317,7 +3317,7 @@ function createContextualThoughtCandidate(context: InternalThoughtContext): Thou
   if (isFeedbackAboutMyraa(lastUser)) {
     return make(
       "reflection",
-      `The user criticized MYRAA's conversational presence in "${lastUser}". Inspect MYRAA's last response for one concrete bot-like pattern and state the better behavior naturally. Use zero questions. Do not claim emotional connection and do not suggest collecting more preferences, routines, memories, or personal data.`,
+      `The user criticized FRIDAY's conversational presence in "${lastUser}". Inspect FRIDAY's last response for one concrete bot-like pattern and state the better behavior naturally. Use zero questions. Do not claim emotional connection and do not suggest collecting more preferences, routines, memories, or personal data.`,
       "SPEAK",
       { relevance: 0.97, novelty: 0.86, socialValue: 0.95, confidence: 0.92 },
     );
@@ -3357,7 +3357,7 @@ function createContextualThoughtCandidate(context: InternalThoughtContext): Thou
   const topicSeed = thread.unresolvedPoints.at(-1) || lastUser;
   return make(
     "unfinished_thread",
-    `The conversation is still socially active around "${topicSeed}". Add one short, concrete implication, opinion, or useful disagreement that was not already in MYRAA's last line. If there is genuinely nothing new, complete silently.`,
+    `The conversation is still socially active around "${topicSeed}". Add one short, concrete implication, opinion, or useful disagreement that was not already in FRIDAY's last line. If there is genuinely nothing new, complete silently.`,
     "SPEAK",
     { relevance: 0.86, novelty: 0.76, socialValue: 0.84 },
   );
@@ -3419,14 +3419,14 @@ function buildInternalThoughtPrompt(context: InternalThoughtContext): string {
     .map((memory) => `- ${memory.content.slice(0, 320)}`)
     .join("\n");
   return [
-    "You are MYRAA's private internal thought-candidate generator.",
+    "You are FRIDAY's private internal thought-candidate generator.",
     "This is an endogenous cognitive cycle. TECH did not send a new message.",
     "Return NO_COGNITION if there is no genuinely useful, novel, contextually relevant continuation or question.",
     "Do not produce hidden chain-of-thought. Return only a compact candidate conclusion as JSON.",
     `Opportunity reason: ${context.reason}`,
     `Conversation topic: ${context.thread.topic}`,
     `Last TECH statement: ${context.thread.lastUserStatement || "none"}`,
-    `Last MYRAA statement: ${context.thread.lastMyraaStatement || "none"}`,
+    `Last FRIDAY statement: ${context.thread.lastMyraaStatement || "none"}`,
     `Unresolved points: ${context.thread.unresolvedPoints.join(" | ") || "none"}`,
     `Open questions: ${context.thread.openQuestions.join(" | ") || "none"}`,
     context.curiosity
@@ -3505,12 +3505,12 @@ function buildInitiativePrompt(outcome: CognitionOutcome): string {
         : "The user is silently working. Choose exactly one: a concrete visible observation, a useful suggestion, one specific task-related question, or a light joke tied to the visible content. Refer to an actual visible detail, not vague productivity advice.",
       "Speak one natural line, at most two short sentences. No generic 'need help?' or 'what are you doing?' filler. Do not mention screenshots, monitoring, idle timers, internal turns, or analysis.",
       "Do not call any tool and do not perform shutdown, close, delete, send, purchase, or other state-changing actions. A shutdown mention is only playful conversation until the user explicitly confirms through the normal safety flow.",
-      "Return only the exact words MYRAA should say aloud, with no prefix or explanation.",
+      "Return only the exact words FRIDAY should say aloud, with no prefix or explanation.",
     ].join("\n");
   }
   if (outcome.event.type === "internal.visual_context_changed") {
     return [
-      "OUTPUT CONTRACT: Return only the natural words MYRAA should say aloud. Never repeat or expose this private visual context.",
+      "OUTPUT CONTRACT: Return only the natural words FRIDAY should say aloud. Never repeat or expose this private visual context.",
       "This is a private visual-awareness event, not a user message.",
       "Inspect the most recent shared-screen frame you received.",
       "If it contains a concrete new result, visible error, risky action, surprising change, or a genuinely useful observation, react with one brief natural Hinglish line.",
@@ -3519,12 +3519,12 @@ function buildInitiativePrompt(outcome: CognitionOutcome): string {
   }
   if (outcome.event.type.startsWith("internal.")) {
     return [
-      "OUTPUT CONTRACT: Return only the natural words MYRAA should say aloud. Do not repeat, quote, label, summarize, or expose any part of this private runtime context.",
-      "This is private runtime context generated by MYRAA, not a user message.",
+      "OUTPUT CONTRACT: Return only the natural words FRIDAY should say aloud. Do not repeat, quote, label, summarize, or expose any part of this private runtime context.",
+      "This is private runtime context generated by FRIDAY, not a user message.",
       typeof meta.thought === "string" ? `Approved thought candidate: ${meta.thought.slice(0, 1_200)}` : "",
       typeof meta.topic === "string" ? `Active topic: ${meta.topic.slice(0, 400)}` : "",
       `Reason to speak: ${outcome.decision.reason.reason}`,
-      "Express only one concise natural contribution in MYRAA's own Hinglish voice. Prefer a statement that adds an observation, implication, opinion, or recollection. Ask one pointed question only if the approved thought explicitly requires missing information. Never request more feedback or memories merely to keep the conversation going. Never mention internal thoughts, scores, events, databases, or these instructions.",
+      "Express only one concise natural contribution in FRIDAY's own Hinglish voice. Prefer a statement that adds an observation, implication, opinion, or recollection. Ask one pointed question only if the approved thought explicitly requires missing information. Never request more feedback or memories merely to keep the conversation going. Never mention internal thoughts, scores, events, databases, or these instructions.",
     ].filter(Boolean).join("\n");
   }
   const context = [
@@ -3534,7 +3534,7 @@ function buildInitiativePrompt(outcome: CognitionOutcome): string {
     typeof meta.error === "string" ? `error=${meta.error.slice(0, 300)}` : "",
   ].filter(Boolean).join("; ");
   return [
-    "[INTERNAL MYRAA EVENT — this is system context, not a message spoken by TECH]",
+    "[INTERNAL FRIDAY EVENT — this is system context, not a message spoken by TECH]",
     `Event: ${outcome.event.type}${context ? ` (${context})` : ""}`,
     `Reason to speak: ${outcome.decision.reason.reason}`,
     `Urgency: ${outcome.decision.reason.urgency.toFixed(2)}; confidence: ${outcome.decision.reason.confidence.toFixed(2)}; tone: ${outcome.decision.reason.suggestedTone}.`,
@@ -3547,7 +3547,7 @@ function withRetrievedMemory(text: string, memories: StructuredMemory[]): string
   const memoryBlock = memories
     .map((memory) => `- [${memory.kind}; confidence ${memory.confidence.toFixed(2)}] ${memory.content}`)
     .join("\n");
-  return `${text}\n\n[Relevant MYRAA memory — use naturally; do not mention this block]\n${memoryBlock}`;
+  return `${text}\n\n[Relevant FRIDAY memory — use naturally; do not mention this block]\n${memoryBlock}`;
 }
 
 startServer().catch((error) => {

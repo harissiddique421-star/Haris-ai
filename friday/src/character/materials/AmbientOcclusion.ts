@@ -10,7 +10,7 @@
  * This bakes it once at load rather than running SSAO every frame:
  *
  *   - SSAO needs an EffectComposer, and the character canvas is transparent so
- *     it can composite into MYRAA's backdrop - composer passes destroy alpha.
+ *     it can composite into FRIDAY's backdrop - composer passes destroy alpha.
  *   - SSAO is view-dependent and famously haloes around silhouettes, which is
  *     very visible on a character against a dark stage.
  *   - Baked AO costs nothing per frame, which matters for a companion app

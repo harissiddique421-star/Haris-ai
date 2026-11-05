@@ -225,7 +225,7 @@ export const CharacterStudio: React.FC<CharacterStudioProps> = ({ initialCharact
       const next = await studioApi.patchSettings({ character: { activeCharacterId: characterId } });
       setSettings(next);
       onActiveCharacterChange?.(characterId);
-      setMessage(`${characters.find((c) => c.id === characterId)?.displayName ?? characterId} is now MYRAA's character.`);
+      setMessage(`${characters.find((c) => c.id === characterId)?.displayName ?? characterId} is now FRIDAY's character.`);
     } catch (error) {
       setMessage((error as Error).message);
     }
@@ -427,7 +427,7 @@ export const CharacterStudio: React.FC<CharacterStudioProps> = ({ initialCharact
               {importing ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />} Import
             </button>
           </div>
-          <p className="text-[10px] leading-snug text-slate-500">Imported models stay in your local MYRAA data folder and are never bundled or uploaded.</p>
+          <p className="text-[10px] leading-snug text-slate-500">Imported models stay in your local FRIDAY data folder and are never bundled or uploaded.</p>
         </div>
       </aside>
 
@@ -469,7 +469,7 @@ export const CharacterStudio: React.FC<CharacterStudioProps> = ({ initialCharact
               onClick={makeActive}
               className="rounded-md border border-amber-400/40 px-2 py-1 text-amber-200 hover:bg-amber-500/10 disabled:opacity-40"
             >
-              {isActiveCompanion ? 'Active character' : 'Use as MYRAA'}
+              {isActiveCompanion ? 'Active character' : 'Use as FRIDAY'}
             </button>
             {onClose && (
               <button type="button" onClick={onClose} className="rounded-md p-1 hover:bg-white/10" aria-label="Close studio">

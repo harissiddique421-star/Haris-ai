@@ -1,5 +1,5 @@
 /**
- * Settings — one place for everything MYRAA can be configured to do.
+ * Settings — one place for everything FRIDAY can be configured to do.
  *
  * Two stores back this page:
  *  - local renderer settings (src/lib/settingsStore.ts): wake word, mic,
@@ -183,7 +183,7 @@ function GeminiKeyBox() {
           <KeyRound size={14} className="text-indigo-300" />
           <div>
             <div className="text-xs text-slate-100">Google Gemini API key</div>
-            <div className="text-[11px] text-slate-500">Stored encrypted by the local MYRAA backend. It is never shown again.</div>
+            <div className="text-[11px] text-slate-500">Stored encrypted by the local FRIDAY backend. It is never shown again.</div>
           </div>
         </div>
         <span className={`rounded-full border px-2 py-0.5 text-[9px] font-mono uppercase ${configured ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300" : "border-amber-400/25 bg-amber-400/10 text-amber-300"}`}>
@@ -222,7 +222,7 @@ function OtherProviderKeys({ catalogue }: { catalogue: ModelCatalogue }) {
     }
   };
   return (
-    <Group title="Other providers" hint="Optional. Add a key only for providers you want MYRAA to use.">
+    <Group title="Other providers" hint="Optional. Add a key only for providers you want FRIDAY to use.">
       {providers.map((p) => (
         <div key={p.id} className="flex items-center gap-2 px-4 py-3">
           <div className="w-32 shrink-0">
@@ -316,17 +316,17 @@ function AgentSection({ app, patch }: { app: AppSettings; patch: (p: AppSettings
   const { view, error, set, load } = usePermissions();
   return (
     <div className="space-y-5">
-      <Group title="While MYRAA works">
-        <ToggleRow label="Show the task panel" description="See the plan, each step and pause / stop buttons while MYRAA uses your PC. Approval requests always appear."
+      <Group title="While FRIDAY works">
+        <ToggleRow label="Show the task panel" description="See the plan, each step and pause / stop buttons while FRIDAY uses your PC. Approval requests always appear."
           checked={app.autonomy.showTaskHud} onChange={(v) => patch({ autonomy: { showTaskHud: v } })} />
         <SliderRow label="Step limit per task" description="A task that needs more actions than this is stopped. Applies to new tasks." value={app.autonomy.maxSteps} min={5} max={80} onChange={(v) => patch({ autonomy: { maxSteps: v } })} />
-        <SliderRow label="Wait when you use the mouse" description="How long MYRAA pauses when you move the mouse or type during a task." value={app.autonomy.conflictWaitSec} min={1} max={30} unit=" s" onChange={(v) => patch({ autonomy: { conflictWaitSec: v } })} />
-        <Row label="Emergency stop shortcut" description="Stops every task immediately, even when MYRAA is hidden.">
+        <SliderRow label="Wait when you use the mouse" description="How long FRIDAY pauses when you move the mouse or type during a task." value={app.autonomy.conflictWaitSec} min={1} max={30} unit=" s" onChange={(v) => patch({ autonomy: { conflictWaitSec: v } })} />
+        <Row label="Emergency stop shortcut" description="Stops every task immediately, even when FRIDAY is hidden.">
           <kbd className="rounded-md border border-white/15 bg-black/40 px-2 py-1 font-mono text-[11px] text-slate-200">{app.autonomy.emergencyShortcut.replace(/\+/g, " + ")}</kbd>
         </Row>
       </Group>
 
-      <Group title="What MYRAA may do" hint="Allow: does it without asking. Ask: shows an approval window first. Block: never. Risky actions such as installs, purchases and power always ask.">
+      <Group title="What FRIDAY may do" hint="Allow: does it without asking. Ask: shows an approval window first. Block: never. Risky actions such as installs, purchases and power always ask.">
         {view ? <PermissionRows view={view} capabilities={ACTION_CAPABILITIES} onSet={set} /> : <div className="px-4 py-3">{error ? <span className="text-[11px] text-rose-300">{error}</span> : <Loader2 size={14} className="animate-spin text-slate-400" />}</div>}
       </Group>
 
@@ -349,11 +349,11 @@ function PrivacySection() {
   const { view, error, set } = usePermissions();
   return (
     <div className="space-y-5">
-      <Group title="What MYRAA can sense" hint="Blocking a capability stops the agent from using it at all. Voice still needs the microphone while you talk to MYRAA.">
+      <Group title="What FRIDAY can sense" hint="Blocking a capability stops the agent from using it at all. Voice still needs the microphone while you talk to FRIDAY.">
         {view ? <PermissionRows view={view} capabilities={PRIVACY_CAPABILITIES} onSet={set} /> : <div className="px-4 py-3">{error ? <span className="text-[11px] text-rose-300">{error}</span> : <Loader2 size={14} className="animate-spin text-slate-400" />}</div>}
       </Group>
       <Note>
-        When MYRAA looks at your screen for a task, the screenshot stays in memory for that step and is sent only to the AI model you chose; it is not saved to disk.
+        When FRIDAY looks at your screen for a task, the screenshot stays in memory for that step and is sent only to the AI model you chose; it is not saved to disk.
         Logs are scrubbed of API keys, tokens and passwords. The continuous <b>Share screen</b> mode in the header is separate and only runs while you have it switched on.
       </Note>
     </div>
@@ -380,7 +380,7 @@ function SystemSection({ app, patch, onRestartOnboarding }: { app: AppSettings; 
   return (
     <div className="space-y-5">
       <Group title="Desktop control agent">
-        <Row label={agent.online ? "Running" : "Not running"} description={agent.online ? `${agent.toolCount ?? 0} PC tools available` : "MYRAA starts it automatically. If it stays offline, restart MYRAA."}>
+        <Row label={agent.online ? "Running" : "Not running"} description={agent.online ? `${agent.toolCount ?? 0} PC tools available` : "FRIDAY starts it automatically. If it stays offline, restart FRIDAY."}>
           <span className={`block h-2.5 w-2.5 rounded-full ${agent.online ? "bg-emerald-400 animate-pulse" : "bg-rose-400"}`} />
         </Row>
       </Group>
@@ -505,7 +505,7 @@ export function SettingsPanel({ isOpen, onClose, settings, onChange, appSettings
                 {section === "general" && (
                   <div className="space-y-5">
                     <Group title="Startup & appearance">
-                      <ToggleRow label="Launch at Windows startup" description="Start MYRAA quietly when you log in." checked={settings.autoStart}
+                      <ToggleRow label="Launch at Windows startup" description="Start FRIDAY quietly when you log in." checked={settings.autoStart}
                         onChange={(v) => {
                           onChange({ autoStart: v });
                           void fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ autoStart: v }) }).catch(() => {});
@@ -513,7 +513,7 @@ export function SettingsPanel({ isOpen, onClose, settings, onChange, appSettings
                       <ToggleRow label="Animations" description="Motion and transitions in the interface." checked={settings.animations} onChange={(v) => onChange({ animations: v })} />
                     </Group>
                     {app && (
-                      <Group title="How chatty MYRAA is">
+                      <Group title="How chatty FRIDAY is">
                         <Row label="Talks on her own" description="Quiet: only answers. Lively: comments and checks in more often.">
                           <Choice label="Proactivity" value={app.behavior.proactivity} options={[["quiet", "Quiet"], ["balanced", "Balanced"], ["lively", "Lively"]]} onChange={(v) => patch({ behavior: { proactivity: v } })} />
                         </Row>
@@ -528,7 +528,7 @@ export function SettingsPanel({ isOpen, onClose, settings, onChange, appSettings
                 {section === "voice" && (
                   <div className="space-y-5">
                     {app && (
-                      <Group title="MYRAA's voice">
+                      <Group title="FRIDAY's voice">
                         <Row label="Voice" description="Used from the next time you connect.">
                           <select aria-label="Voice" value={app.voice.voiceName} onChange={(e) => patch({ voice: { voiceName: e.target.value } })}
                             className="rounded-lg border border-white/10 bg-black/40 px-2 py-1.5 text-[11px] text-white outline-none cursor-pointer">
@@ -544,15 +544,15 @@ export function SettingsPanel({ isOpen, onClose, settings, onChange, appSettings
                             {[[0, "Normal"], [1, "+1 (slightly higher)"], [2, "+2 (cute)"], [3, "+3 (very cute)"], [4, "+4"], [5, "+5 (max)"]].map(([v, label]) => <option key={v} value={v}>{label}</option>)}
                           </select>
                         </Row>
-                        <Row label="Spoken task updates" description="What MYRAA says out loud while she works on your PC.">
+                        <Row label="Spoken task updates" description="What FRIDAY says out loud while she works on your PC.">
                           <Choice label="Spoken task updates" value={app.voice.speakTaskUpdates} options={[["all", "Everything"], ["important", "Important"], ["none", "Nothing"]]} onChange={(v) => patch({ voice: { speakTaskUpdates: v } })} />
                         </Row>
                       </Group>
                     )}
                     <Group title="Wake word & microphone">
-                      <ToggleRow label="Wake word" description="Listen for the phrase below while MYRAA is asleep." checked={settings.wakeWordEnabled} onChange={(v) => onChange({ wakeWordEnabled: v })} />
+                      <ToggleRow label="Wake word" description="Listen for the phrase below while FRIDAY is asleep." checked={settings.wakeWordEnabled} onChange={(v) => onChange({ wakeWordEnabled: v })} />
                       <Row label="Wake phrase">
-                        <input type="text" aria-label="Wake phrase" value={settings.wakePhrase} onChange={(e) => onChange({ wakePhrase: e.target.value })} placeholder="hey myraa"
+                        <input type="text" aria-label="Wake phrase" value={settings.wakePhrase} onChange={(e) => onChange({ wakePhrase: e.target.value })} placeholder="hey friday"
                           className="w-40 rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white outline-none focus:border-cyan-400/50" />
                       </Row>
                       <Row label="Microphone" description={mics.length ? `${mics.length} found` : "Allow microphone access to list devices"}>
@@ -631,7 +631,7 @@ export function SettingsPanel({ isOpen, onClose, settings, onChange, appSettings
                       <SliderRow label="Shine" description="Reflection highlights on the character (not scene brightness)." value={settings.characterShine} min={0} max={100} unit="%" onChange={(v) => onChange({ characterShine: v })} />
                     </Group>
                     {app && (
-                      <Group title="Desktop companion" hint="MYRAA standing on your desktop or taskbar outside this window. Drag her around; right-click for options.">
+                      <Group title="Desktop companion" hint="FRIDAY standing on your desktop or taskbar outside this window. Drag her around; right-click for options.">
                         <ToggleRow label="Enable desktop companion" description="Show or hide with Ctrl+Alt+M or the tray menu. Hidden mode pauses the avatar while keeping background services available." checked={app.companion.enabled} onChange={(v) => patch({ companion: { enabled: v } })} />
                         <Row label="Interaction mode" description="Passive passes clicks through. Interactive allows dragging. Focus pauses autonomous activities. Hidden and Gaming suspend the overlay; background services stay available.">
                           <select aria-label="Companion interaction mode" value={app.companion.mode ?? 'interactive'}
@@ -674,14 +674,14 @@ export function SettingsPanel({ isOpen, onClose, settings, onChange, appSettings
 
                 {section === "about" && (
                   <div className="space-y-5">
-                    <Group title="MYRAA">
+                    <Group title="FRIDAY">
                       <Row label="Version"><span className="font-mono text-[11px] text-slate-300">{__APP_VERSION__}</span></Row>
                       <Row label="AI"><span className="text-[11px] text-slate-300">Google Gemini, with your own key</span></Row>
                       <Row label="PC control"><span className="text-[11px] text-slate-300">Local desktop agent, permission-checked</span></Row>
                     </Group>
                     <Note tone="warn">
                       <AlertTriangle size={12} className="mr-1 inline" />
-                      Characters you import stay on this PC. Many fan-made models forbid redistribution, so MYRAA never uploads or shares them.
+                      Characters you import stay on this PC. Many fan-made models forbid redistribution, so FRIDAY never uploads or shares them.
                     </Note>
                     <Note tone="ok"><Check size={12} className="mr-1 inline" /><Eye size={12} className="mr-1 inline" /> Everything runs locally except requests to the AI provider you chose.</Note>
                     <Note><MonitorSmartphone size={12} className="mr-1 inline" /> Tip: in the main view, WASD rotates the camera and Q/E zooms.</Note>

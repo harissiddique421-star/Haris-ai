@@ -58,6 +58,7 @@ class ScreenVisionCaptureTests(unittest.TestCase):
 
     def test_only_the_packaged_myraa_window_is_excluded(self):
         self.assertTrue(tools_screenshot._is_myraa_window("MYRAA"))
+        self.assertTrue(tools_screenshot._is_myraa_window("FRIDAY"))
         self.assertFalse(tools_screenshot._is_myraa_window("MYRAA docs - Browser"))
         self.assertFalse(tools_screenshot._is_myraa_window("Myra Analytics"))
 

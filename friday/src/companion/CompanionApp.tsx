@@ -11,7 +11,7 @@
  *   reports where her feet / seat are so the window lands exactly on the
  *   surface she uses.
  * - A thin contour and a soft shadow keep her readable on any wallpaper.
- * - Activity and emotion mirror the main MYRAA window (BroadcastChannel).
+ * - Activity and emotion mirror the main FRIDAY window (BroadcastChannel).
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { MyraaCharacter } from '../character/MyraaCharacter';

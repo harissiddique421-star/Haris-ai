@@ -364,7 +364,7 @@ class CompanionManager {
       alwaysOnTop: true,
       fullscreenable: false,
       backgroundColor: '#00000000',
-      title: 'MYRAA companion',
+      title: 'FRIDAY companion',
       webPreferences: {
         preload: this.options.preload,
         contextIsolation: true,
@@ -1625,9 +1625,9 @@ class CompanionManager {
       { label: 'Play with a desktop icon', type: 'checkbox', checked: Boolean(companion.iconPlay), click: (item) => this.options.saveSettings({ companion: { iconPlay: item.checked } }) },
       { label: 'Walk around', type: 'checkbox', checked: companion.walkAround !== false, click: (item) => this.options.saveSettings({ companion: { walkAround: item.checked } }) },
       { type: 'separator' },
-      { label: 'Open MYRAA', click: () => this.options.openMain() },
+      { label: 'Open FRIDAY', click: () => this.options.openMain() },
       { label: 'Character Studio…', click: () => this.options.openStudio() },
-      { label: 'Stop all MYRAA tasks', click: () => this.options.emergencyStop() },
+      { label: 'Stop all FRIDAY tasks', click: () => this.options.emergencyStop() },
       { type: 'separator' },
       { label: 'Hide companion', click: () => this.options.saveSettings({ companion: { enabled: false } }) },
     ]);

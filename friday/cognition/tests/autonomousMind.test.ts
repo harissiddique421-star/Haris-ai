@@ -23,7 +23,7 @@ async function createHarness(
   const now = { value: Date.now() };
   const runtime = new CognitiveRuntime({
     dataDir: dir,
-    projectRoot: "F:/MYRAA",
+    projectRoot: "F:/FRIDAY",
     autoStartMind: false,
     mind: {
       minimumFollowupDelayMs: 1_000,
@@ -77,7 +77,7 @@ function usefulThought(origin: ThoughtCandidate["origin"] = "unfinished_thread")
     socialValue: 0.92,
     confidence: 0.9,
     suggestedAction: origin === "curiosity" ? "ASK" : "SPEAK",
-    relatedTopic: "MYRAA architecture",
+    relatedTopic: "FRIDAY architecture",
     expiresAt: Date.now() + 180_000,
   };
 }
@@ -112,10 +112,10 @@ test("required #2: unresolved conversation creates an endogenous thought after s
   assert.equal(harness.runtime.mind.status().counters.internalThoughtsGenerated, 1);
 });
 
-test("required #3: MYRAA response is followed by autonomous speech with no new user input", async (t) => {
+test("required #3: FRIDAY response is followed by autonomous speech with no new user input", async (t) => {
   const harness = await createHarness(t, async () => usefulThought());
   const speech = new SpeechOrchestrator();
-  const spoken: string[] = ["MYRAA response #1"];
+  const spoken: string[] = ["FRIDAY response #1"];
   const userEventsBefore: string[] = [];
   harness.runtime.setSpeechAvailable(true);
   harness.runtime.onDecision((outcome) => {
@@ -124,7 +124,7 @@ test("required #3: MYRAA response is followed by autonomous speech with no new u
       id: outcome.event.id,
       source: "conversation_continuation",
       thoughtId: String(outcome.event.metadata.thoughtId || ""),
-      deliver: () => spoken.push("MYRAA autonomous speech #2"),
+      deliver: () => spoken.push("FRIDAY autonomous speech #2"),
     });
   });
   await conversation(harness);
@@ -136,11 +136,11 @@ test("required #3: MYRAA response is followed by autonomous speech with no new u
   const userEventsAfter = harness.runtime.events.recent(50)
     .filter((event) => event.type.startsWith("conversation.user_"))
     .map((event) => event.id);
-  assert.deepEqual(spoken, ["MYRAA response #1", "MYRAA autonomous speech #2"]);
+  assert.deepEqual(spoken, ["FRIDAY response #1", "FRIDAY autonomous speech #2"]);
   assert.deepEqual(userEventsAfter, userEventsBefore);
 });
 
-test("required #4: no meaningful thought leaves MYRAA quiet", async (t) => {
+test("required #4: no meaningful thought leaves FRIDAY quiet", async (t) => {
   const harness = await createHarness(t, async () => null);
   harness.runtime.setSpeechAvailable(true);
   let speech = 0;

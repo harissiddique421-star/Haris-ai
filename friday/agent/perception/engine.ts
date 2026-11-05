@@ -1,5 +1,5 @@
 /**
- * PerceptionEngine: builds MYRAA's unified DesktopState.
+ * PerceptionEngine: builds FRIDAY's unified DesktopState.
  *
  * Order of evidence, cheapest first:
  *   1. window/process metadata and input state (always)
@@ -129,8 +129,8 @@ export class PerceptionEngine {
   private visionCounter = 0;
   stats = { observations: 0, uiaReused: 0, visionCalls: 0, visionCacheHits: 0, groundingCalls: 0 };
 
-  /** MYRAA's own windows (main UI, companion) — never the target of a task. */
-  private isOwnWindow: (window: ListedWindow) => boolean = (window) => /^MYRAA( Companion)?( - |$)/i.test(window.title);
+  /** FRIDAY's own windows (main UI, companion) — never the target of a task. */
+  private isOwnWindow: (window: ListedWindow) => boolean = (window) => /^FRIDAY( Companion)?( - |$)/i.test(window.title);
 
   constructor(private readonly call: AgentCall, private readonly router: ModelRouter | null) {}
 
@@ -138,7 +138,7 @@ export class PerceptionEngine {
     this.isOwnWindow = predicate;
   }
 
-  /** Skip MYRAA itself and system overlays: the target is the topmost real app window. */
+  /** Skip FRIDAY itself and system overlays: the target is the topmost real app window. */
   pickTarget(windows: ListedWindow[], foreground: ListedWindow | null): ListedWindow | null {
     const ignorable = (window: ListedWindow) => this.isOwnWindow(window) || OVERLAY_TITLE.test(window.title) || OVERLAY_CLASS.test(window.class || "");
     if (foreground && !ignorable(foreground)) return foreground;
@@ -175,7 +175,7 @@ export class PerceptionEngine {
       const target = this.pickTarget(listed, foregroundListed);
       if (target?.hwnd && target !== foregroundListed) {
         hwndHint = target.hwnd;
-        targetNote = `The foreground window is MYRAA or a system overlay, so the target is "${target.title}" (behind it). Keyboard/mouse actions will bring it to the front first.`;
+        targetNote = `The foreground window is FRIDAY or a system overlay, so the target is "${target.title}" (behind it). Keyboard/mouse actions will bring it to the front first.`;
       } else if (target?.hwnd) {
         hwndHint = target.hwnd;
       }

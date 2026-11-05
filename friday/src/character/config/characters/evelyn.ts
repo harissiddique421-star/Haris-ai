@@ -1,5 +1,5 @@
 ﻿/**
- * Evelyn - MYRAA's primary character (model 1739444010509).
+ * Evelyn - FRIDAY's primary character (model 1739444010509).
  *
  * Every name below was read from the model itself with `tools/inspect-pmx.mjs`.
  * PMX models use Japanese MMD-standard names for bones and morphs; the embedded
@@ -675,7 +675,7 @@ export const evelynConfig: CharacterConfig = {
     exposure: 1,
     toneMapping: 'neutral',
     // Off by design: the character canvas is transparent so it composites
-    // into MYRAA's holographic backdrop, and EffectComposer's bloom passes
+    // into FRIDAY's holographic backdrop, and EffectComposer's bloom passes
     // do not preserve alpha. Glow is delivered by emissive catchlights and
     // jewellery plus the app's existing CSS glow layers. See Stage.ts.
     bloom: {

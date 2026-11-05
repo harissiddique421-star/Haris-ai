@@ -30,7 +30,7 @@ test("important deletion warns while a trivial window event is ignored", async (
     source: "filesystem",
     importance: 0.98,
     confidence: 0.96,
-    metadata: { path: "F:/MYRAA/myraa-ai-assistant", risk: 0.99, urgency: 0.96 },
+    metadata: { path: "F:/FRIDAY/myraa-ai-assistant", risk: 0.99, urgency: 0.96 },
   });
   const deletionSituation = situationModel.apply(deletion);
   const deletionAttention = attention.assess(deletion, deletionSituation);
@@ -91,12 +91,12 @@ test("structured memory retrieves by project and gives explicit correction prior
   await store.initialize();
   const wrong = await store.add({
     kind: "semantic",
-    content: "ALTREX is inside MYRAA.",
+    content: "ALTREX is inside FRIDAY.",
     projectId: "ALTREX",
     source: "conversation",
     confidence: 0.6,
   });
-  const correction = await store.correct(wrong.id, "ALTREX is not inside MYRAA.", { projectId: "ALTREX" });
+  const correction = await store.correct(wrong.id, "ALTREX is not inside FRIDAY.", { projectId: "ALTREX" });
   await store.add({
     kind: "project",
     content: "NEXTRON uses a separate repository.",
@@ -291,12 +291,12 @@ test("planner validates a bounded dependency-ordered model plan", async () => {
   const planner = new GoalPlanner(router, 5);
   const tasks = await planner.plan({
     id: "goal",
-    objective: "Upgrade MYRAA safely",
+    objective: "Upgrade FRIDAY safely",
     constraints: ["Preserve the UI"],
     successCriteria: ["Tests pass"],
     priority: 0.9,
     status: "planning",
-    projectId: "MYRAA",
+    projectId: "FRIDAY",
     tasks: [],
     blockers: [],
     createdAt: new Date().toISOString(),

@@ -3,7 +3,7 @@
  *
  * Built-in defaults are merged with `<data>/models/models.json`, which may add
  * new providers/models or override fields of existing ones by ID. Provider
- * adapters are created from `apiType`; nothing else in MYRAA branches on a
+ * adapters are created from `apiType`; nothing else in FRIDAY branches on a
  * provider or model name.
  */
 import path from "node:path";

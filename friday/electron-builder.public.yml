@@ -49,7 +49,7 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: MYRAA
+  shortcutName: FRIDAY
   artifactName: ${productName}-Setup-${version}.${ext}
 
 portable:

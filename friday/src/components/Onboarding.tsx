@@ -78,8 +78,8 @@ function AiStep() {
   const checkError = catalogue?.providers.find((p) => p.id === "gemini")?.verificationError;
   const summary = !catalogue ? "Checking your models…"
     : available ? `${available} Gemini model${available === 1 ? "" : "s"} confirmed for your key.`
-    : checkError ? `Couldn't check your models yet (${checkError}). MYRAA will retry in the background.`
-    : "Your models haven't been checked yet. MYRAA checks in the background.";
+    : checkError ? `Couldn't check your models yet (${checkError}). FRIDAY will retry in the background.`
+    : "Your models haven't been checked yet. FRIDAY checks in the background.";
   return (
     <div className="space-y-3">
       <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
@@ -100,7 +100,7 @@ function SafetyStep() {
   return (
     <div className="space-y-3">
       <p className="text-xs leading-relaxed text-slate-400">
-        MYRAA can use your mouse, keyboard, apps and files. You decide what she does freely and what needs your OK. Installs, purchases, account changes and shutting down always ask.
+        FRIDAY can use your mouse, keyboard, apps and files. You decide what she does freely and what needs your OK. Installs, purchases, account changes and shutting down always ask.
       </p>
       <div className="max-h-64 divide-y divide-white/5 overflow-y-auto rounded-xl border border-white/10 bg-white/[0.03]">
         {view ? <PermissionRows view={view} capabilities={["CONTROL_INPUT", "WRITE_FILE", "DELETE_FILE", "SEND_MESSAGE", "RUN_COMMAND", "SCREEN_CAPTURE"]} onSet={set} />
@@ -127,7 +127,7 @@ export function Onboarding({ appSettings, onAppSettingsChange, settings, onChang
   };
 
   const titles: Record<Step, { icon: typeof Sparkles; title: string; text: string }> = {
-    welcome: { icon: Sparkles, title: "Hi, I'm MYRAA", text: "I'm a 3D companion who can talk with you, see your screen when you allow it, and do things on your PC for you. Let's set me up in a minute." },
+    welcome: { icon: Sparkles, title: "Hi, I'm FRIDAY", text: "I'm a 3D companion who can talk with you, see your screen when you allow it, and do things on your PC for you. Let's set me up in a minute." },
     character: { icon: Sparkles, title: "Pick how I look", text: "Choose a character. You can change this anytime." },
     ai: { icon: Brain, title: "My brain", text: "I think with Google Gemini, using your own API key." },
     safety: { icon: ShieldCheck, title: "What I may do on your PC", text: "Allow: I just do it. Ask: I show you an approval window first. Block: never." },

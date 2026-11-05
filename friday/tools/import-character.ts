@@ -1,5 +1,5 @@
 /**
- * Import one or more local character models into MYRAA's data folder.
+ * Import one or more local character models into FRIDAY's data folder.
  *
  *   npx tsx tools/import-character.ts <model.zip|folder|model.pmx> [...more]
  *       [--name "Display Name"] [--model inner/file.pmx] [--id existing-id] [--root <characters dir>]

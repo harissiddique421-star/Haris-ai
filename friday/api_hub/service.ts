@@ -84,7 +84,7 @@ export class ApiHubService {
     timeout.unref?.();
     try {
       const metadata = this.registry.getMetadata();
-      const headers: Record<string, string> = { "user-agent": "MYRAA-ApiHub/1.0" };
+      const headers: Record<string, string> = { "user-agent": "FRIDAY-ApiHub/1.0" };
       if (metadata.sourceEtag) headers["if-none-match"] = metadata.sourceEtag;
       if (metadata.sourceLastModified) headers["if-modified-since"] = metadata.sourceLastModified;
       const response = await this.fetcher(this.sourceUrl, { signal: controller.signal, headers, redirect: "follow" });

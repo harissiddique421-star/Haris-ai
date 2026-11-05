@@ -1,5 +1,5 @@
 /**
- * Skeleton normalisation: maps any model's bone names onto MYRAA's common
+ * Skeleton normalisation: maps any model's bone names onto FRIDAY's common
  * humanoid representation while keeping the original bone names.
  *
  * Different exporters name the same bone very differently:
@@ -34,7 +34,7 @@ type LimbPart = (typeof LIMB_PARTS)[number];
 
 export type HumanoidSlot = string;
 
-/** Every slot MYRAA understands, in hierarchy-friendly order. */
+/** Every slot FRIDAY understands, in hierarchy-friendly order. */
 export const HUMANOID_SLOTS: HumanoidSlot[] = [
   ...CORE_SLOTS,
   ...(["LEFT", "RIGHT"] as Side[]).flatMap((side) => [

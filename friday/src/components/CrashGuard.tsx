@@ -26,7 +26,7 @@ export class CrashGuard extends Base {
   }
 
   componentDidCatch(error: unknown): void {
-    console.error('[MYRAA] interface crashed:', error instanceof Error ? error.stack || error.message : String(error));
+    console.error('[FRIDAY] interface crashed:', error instanceof Error ? error.stack || error.message : String(error));
     const reloads = recentReloads();
     if (reloads.length >= 3) return;
     try {
@@ -41,7 +41,7 @@ export class CrashGuard extends Base {
     if (!this.state.failed) return this.props.children;
     return (
       <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0f', color: '#cbd5e1', fontFamily: 'system-ui, sans-serif', fontSize: 14, flexDirection: 'column', gap: 12 }}>
-        <div>MYRAA hit a problem and is reloading…</div>
+        <div>FRIDAY hit a problem and is reloading…</div>
         <button type="button" onClick={() => window.location.reload()} style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #334155', background: '#111827', color: '#e2e8f0', cursor: 'pointer' }}>
           Reload now
         </button>

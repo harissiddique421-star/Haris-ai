@@ -19,11 +19,11 @@ public final class LiveVoiceService extends Service {
   @Override public int onStartCommand(Intent intent, int flags, int id) {
     if (intent != null && STOP.equals(intent.getAction())) { end(); return START_NOT_STICKY; }
     NotificationManager manager = getSystemService(NotificationManager.class);
-    manager.createNotificationChannel(new NotificationChannel("live_voice", "MYRAA Live voice", NotificationManager.IMPORTANCE_LOW));
+    manager.createNotificationChannel(new NotificationChannel("live_voice", "FRIDAY Live voice", NotificationManager.IMPORTANCE_LOW));
     PendingIntent open = PendingIntent.getActivity(this,0,new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
     PendingIntent stop = PendingIntent.getService(this,1,new Intent(this,LiveVoiceService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
     Notification notification = new Notification.Builder(this,"live_voice").setSmallIcon(android.R.drawable.ic_btn_speak_now)
-      .setContentTitle("MYRAA Live · microphone on").setContentText("Speak while using other apps. Stop ends the call.")
+      .setContentTitle("FRIDAY Live · microphone on").setContentText("Speak while using other apps. Stop ends the call.")
       .setContentIntent(open).setOngoing(true).setCategory(Notification.CATEGORY_CALL)
       .addAction(new Notification.Action.Builder(null,"Stop",stop).build()).build();
     if (Build.VERSION.SDK_INT >= 30) startForeground(42,notification,ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE|ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
@@ -32,7 +32,7 @@ public final class LiveVoiceService extends Service {
     if (Settings.canDrawOverlays(this) && chip == null) {
       try {
         windows=getSystemService(WindowManager.class);chip=new LinearLayout(this);chip.setPadding(6,4,6,4);chip.setBackgroundColor(0xee17252a);
-        Button back=new Button(this);back.setText("MYRAA · mic on");back.setTextSize(11);back.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP)));
+        Button back=new Button(this);back.setText("FRIDAY · mic on");back.setTextSize(11);back.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP)));
         Button end=new Button(this);end.setText("Stop");end.setTextSize(11);end.setOnClickListener(v->end());chip.addView(back);chip.addView(end);
         WindowManager.LayoutParams layout=new WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.WRAP_CONTENT,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,PixelFormat.TRANSLUCENT);
         layout.gravity=Gravity.TOP|Gravity.END;layout.y=70;windows.addView(chip,layout);overlayVisible=true;

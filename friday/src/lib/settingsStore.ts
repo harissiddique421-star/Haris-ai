@@ -1,7 +1,7 @@
 /**
- * MYRAA Settings Store — persistent user preferences (V2).
+ * FRIDAY Settings Store — persistent user preferences (V2).
  *
- * Establishes the persistence pattern for MYRAA: settings are mirrored to
+ * Establishes the persistence pattern for FRIDAY: settings are mirrored to
  * localStorage (instant local read) AND synced to the backend (settings.json)
  * so auto-start / wake-word preferences survive across browsers and the
  * Python desktop agent can read them too.
@@ -11,11 +11,11 @@
  */
 
 export interface MyraaSettings {
-  /** Launch MYRAA (backends + browser tab) silently on Windows login. */
+  /** Launch FRIDAY (backends + browser tab) silently on Windows login. */
   autoStart: boolean;
   /** Enable the always-listening wake-word detector. */
   wakeWordEnabled: boolean;
-  /** Phrase that activates MYRAA (case-insensitive substring match). */
+  /** Phrase that activates FRIDAY (case-insensitive substring match). */
   wakePhrase: string;
   /** Preferred microphone device id ("" = system default). */
   micDeviceId: string;
@@ -30,7 +30,7 @@ export interface MyraaSettings {
 export const DEFAULT_SETTINGS: MyraaSettings = {
   autoStart: false,
   wakeWordEnabled: false,
-  wakePhrase: "hey myraa",
+  wakePhrase: "hey friday",
   micDeviceId: "",
   sensitivity: 60,
   animations: true,

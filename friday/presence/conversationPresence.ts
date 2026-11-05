@@ -1,5 +1,5 @@
 /**
- * ConversationPresenceEngine — decides whether MYRAA may speak on her own.
+ * ConversationPresenceEngine — decides whether FRIDAY may speak on her own.
  *
  * Silence is not a reason to talk. A proactive utterance needs a concrete
  * reason, passes the user's proactivity level (QUIET / BALANCED / LIVELY),
@@ -57,7 +57,7 @@ export interface SpeechVerdict {
 
 const LEVEL_REASONS: Record<ProactivityLevel, Set<ProactiveReason>> = {
   quiet: new Set(["task_needs_user", "task_failed", "task_completed", "alarm", "reminder", "critical_warning"]),
-  // Continuations are LIVELY-only: in BALANCED a pause after MYRAA's reply never prompts more talk.
+  // Continuations are LIVELY-only: in BALANCED a pause after FRIDAY's reply never prompts more talk.
   balanced: new Set(["task_needs_user", "task_failed", "task_completed", "alarm", "reminder", "critical_warning", "away_checkin", "user_returned", "download_finished", "user_seems_stuck"]),
   lively: new Set(["task_needs_user", "task_failed", "task_completed", "alarm", "reminder", "critical_warning", "away_checkin", "user_returned", "download_finished", "user_seems_stuck", "conversation_continuation", "visual_event", "casual"]),
 };

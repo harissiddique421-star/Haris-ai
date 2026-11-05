@@ -157,7 +157,7 @@ export function MemoryDashboard({
                 </div>
                 <div>
                   <h3 className="font-display font-medium text-lg tracking-tight text-white flex items-center gap-2">
-                    Myraa Memory Core
+                    Friday Memory Core
                     <Sparkles size={14} className="text-cyan-400" />
                   </h3>
                   <p className="text-[10px] font-mono uppercase tracking-widest text-slate-400 mt-0.5">
@@ -176,7 +176,7 @@ export function MemoryDashboard({
             {/* Quick stats & action row */}
             <div className="px-6 py-4 bg-white/5 border-b border-white/5 flex items-center justify-between gap-2.5">
               <span className="text-[10px] text-slate-400 font-mono">
-                💡 Myraa remembers these details naturally as you chat.
+                💡 Friday remembers these details naturally as you chat.
               </span>
               {!isAdding && (
                 <button
@@ -233,7 +233,7 @@ export function MemoryDashboard({
                       <textarea
                         value={newText}
                         onChange={(e) => setNewText(e.target.value)}
-                        placeholder="e.g. The user's startup is called Myraa, a voice AI platform."
+                        placeholder="e.g. The user's startup is called Friday, a voice AI platform."
                         required
                         className="w-full h-18 text-xs p-3 rounded-lg border border-white/10 bg-black/40 text-white placeholder-slate-500 focus:outline-none focus:border-cyan-500/60 resize-none font-sans"
                       />
@@ -306,8 +306,8 @@ export function MemoryDashboard({
                     <h4 className="text-sm font-semibold tracking-wide text-slate-300">No memories recorded yet</h4>
                     <p className="text-xs max-w-xs mt-1.5 leading-relaxed font-mono">
                       {activeTab === "all" 
-                        ? "Start talking aloud with Myraa! Her background consolidator analyzes transcript slices and builds a life context naturally."
-                        : `No persistent recollections saved in Category "${categoryConfig[activeTab as MemoryCategory]?.label}". Add one or speak with Myraa.`}
+                        ? "Start talking aloud with Friday! Her background consolidator analyzes transcript slices and builds a life context naturally."
+                        : `No persistent recollections saved in Category "${categoryConfig[activeTab as MemoryCategory]?.label}". Add one or speak with Friday.`}
                     </p>
                   </motion.div>
                 ) : (

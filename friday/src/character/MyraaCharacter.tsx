@@ -22,7 +22,7 @@ export interface MyraaCharacterProps {
   activity: CharacterActivity;
   /** Emotional expression to hold. */
   emotion: string;
-  /** MYRAA's voice output, used for lip sync. */
+  /** FRIDAY's voice output, used for lip sync. */
   outputAnalyser: AnalyserNode | null;
   /** The user's microphone, used for listening reactions. */
   inputAnalyser: AnalyserNode | null;
@@ -99,7 +99,7 @@ const ImportFirstCharacter: React.FC = () => {
       <div className="flex max-w-md flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#07080d]/90 px-6 py-5 text-center shadow-2xl backdrop-blur-md">
       <div className="font-display text-lg text-white">Bring your character</div>
       <p className="max-w-sm text-xs leading-relaxed text-slate-300">
-        MYRAA doesn't come with a 3D model. Import any MMD character you're allowed to use (.pmx, or a .zip / folder that contains one). It stays on your PC.
+        FRIDAY doesn't come with a 3D model. Import any MMD character you're allowed to use (.pmx, or a .zip / folder that contains one). It stays on your PC.
       </p>
       <button type="button" disabled={busy} onClick={() => void pick()}
         className="pointer-events-auto rounded-xl border border-cyan-300/40 bg-cyan-400/20 px-5 py-2.5 text-sm font-medium text-cyan-50 hover:bg-cyan-400/30 disabled:opacity-50 cursor-pointer">

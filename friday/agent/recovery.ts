@@ -67,7 +67,7 @@ const STRATEGIES: Record<FailureCategory, string[]> = {
     "Several things match. Ask the user which one (task.ask_user) and list the options.",
   ],
   APPLICATION_CRASHED: [
-    "The app or MYRAA's desktop helper stopped responding. Relaunch the app once and continue from the current state.",
+    "The app or FRIDAY's desktop helper stopped responding. Relaunch the app once and continue from the current state.",
   ],
   USER_INTERRUPTED: [
     "The user is using the PC. Prefer actions that don't move the mouse (ui.click uses accessibility patterns) or wait.",

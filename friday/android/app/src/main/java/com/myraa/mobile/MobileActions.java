@@ -6,14 +6,25 @@ import android.content.*;
 import android.content.pm.*;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.AlarmClock;
 import android.provider.ContactsContract.CommonDataKinds.Phone;
+import android.provider.MediaStore;
 import android.telephony.*;
 import org.json.*;
+import java.security.SecureRandom;
 import java.util.*;
 
-/** Bounded Android intents. No accessibility, arbitrary URLs, shell or automatic sending. */
+/**
+ * Bounded Android intents. No arbitrary URLs or shell. Phone calls and WhatsApp auto-send
+ * always need a confirmation round trip: the first request returns a single-use token with
+ * the resolved name/number/text, and only a second request carrying that token acts, using
+ * the values stored natively (the model cannot swap the recipient or text in between).
+ */
 public final class MobileActions {
   public static final int CONTACTS_REQUEST=88;
+  static final long CONFIRM_WINDOW_MS=120_000;
   public interface Result { void complete(String id,JSONObject result); }
   public interface Launcher { boolean installed(String pkg); Intent app(String label); boolean open(Intent intent); }
   public interface Contacts { boolean needsPermission(); List<Recipient> find(String name); }
@@ -21,14 +32,22 @@ public final class MobileActions {
     public final String name,phone;
     public Recipient(String name,String phone){this.name=name;this.phone=phone;}
   }
+  private interface Then { void with(Recipient person); }
+  private static final class Confirmation {
+    final String kind,phone,name,text;final long until;
+    Confirmation(String kind,Recipient person,String text){this.kind=kind;this.phone=person.phone;this.name=person.name;this.text=text;this.until=System.currentTimeMillis()+CONFIRM_WINDOW_MS;}
+  }
   private final Activity activity;
   private final Result result;
   private final Launcher launcher;
   private final Contacts contacts;
-  private Runnable pending;
-  private String pendingId;
-  private AlertDialog chooser;
-  private String chooserId;
+  private final Handler main=new Handler(Looper.getMainLooper());
+  private final SecureRandom random=new SecureRandom();
+  private Runnable pending,pendingDenied;
+  private String pendingId,pendingPermission;
+  private AlertDialog chooser,confirmDialog;
+  private String chooserId,confirmId;
+  private final Map<String,Confirmation> confirmations=new HashMap<>();
   private final Map<String,JSONObject> completed=new LinkedHashMap<>();
   public MobileActions(Activity activity,Result result) {
     this(activity,result,new Launcher(){
@@ -75,7 +94,8 @@ public final class MobileActions {
     return new Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/"+phone).buildUpon().appendQueryParameter("text",message).build()).setPackage(pkg);
   }
   private JSONObject status(String status,String message){JSONObject value=new JSONObject();try{value.put("status",status).put("message",message);}catch(JSONException ignored){}return value;}
-  private void finish(String id,String status,String message){JSONObject value=status(status,message);completed.put(id,value);while(completed.size()>64)completed.remove(completed.keySet().iterator().next());result.complete(id,value);}
+  private void finish(String id,String status,String message){finish(id,status(status,message));}
+  private void finish(String id,JSONObject value){if(completed.containsKey(id))return;completed.put(id,value);while(completed.size()>64)completed.remove(completed.keySet().iterator().next());result.complete(id,value);}
   public void execute(String id,String name,String raw){
     if(id==null||!id.matches("[A-Za-z0-9-]{1,80}"))return;
     if(completed.containsKey(id)){result.complete(id,completed.get(id));return;}
@@ -89,8 +109,20 @@ public final class MobileActions {
         boolean opened=launcher.open(intent);if(!opened&&intent.getPackage()!=null)opened=launcher.open(new Intent(intent).setPackage(null));
         finish(id,opened?"opened":"unavailable",opened?(youtube?"YouTube":"Browser")+" search opened.":"No app can open this search on this device.");return;
       }
-      if("whatsapp_message".equals(action)){message(id,args.optString("recipient"),args.optString("message"));return;}
-      finish(id,"unsupported","Supported actions: open an app, search YouTube or the web, and prepare a WhatsApp message.");
+      if("whatsapp_message".equals(action)){
+        String token=args.optString("confirm_token");
+        if(!token.isEmpty()){sendConfirmed(id,token);return;}
+        message(id,args.optString("recipient"),args.optString("message"),args.optBoolean("confirm_on_screen"));return;
+      }
+      if("call".equals(action)){
+        String token=args.optString("confirm_token");
+        if(!token.isEmpty()){callConfirmed(id,token);return;}
+        call(id,args.optString("recipient"),args.optBoolean("confirm_on_screen"));return;
+      }
+      if("set_alarm".equals(action)){alarm(id,args,null);return;}
+      if("set_reminder".equals(action)){reminder(id,args);return;}
+      if("play_music".equals(action)){music(id,args.optString("query"));return;}
+      finish(id,"unsupported","Supported actions: open an app, search YouTube or the web, WhatsApp messages, phone calls, alarms, reminders and music.");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){
@@ -105,27 +137,136 @@ public final class MobileActions {
     boolean opened=launcher.open(intent);finish(id,opened?"opened":"unavailable",opened?"Opened "+input+".":"Android could not open "+input+".");
   }
   private String whatsapp(){return launcher.installed("com.whatsapp")?"com.whatsapp":launcher.installed("com.whatsapp.w4b")?"com.whatsapp.w4b":null;}
-  private void message(String id,String recipient,String text){
-    if(whatsapp()==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
-    if(recipient.trim().isEmpty()||recipient.length()>100||text.trim().isEmpty()||text.length()>4000){finish(id,"invalid","Tell me the recipient and the complete message.");return;}
+
+  /** Resolves a spoken name or international number to exactly one recipient, asking for Contacts or a choice when needed. */
+  private void resolve(String id,String recipient,Then then){
+    if(recipient.trim().isEmpty()||recipient.length()>100){finish(id,"invalid","Tell me who it is for.");return;}
     if(recipient.trim().matches("\\+?[0-9 ()-]+")){
       String phone=recipient.replaceAll("[ ()+-]","");if(phone.startsWith("00"))phone=phone.substring(2);boolean international=recipient.trim().startsWith("+")||recipient.trim().startsWith("00")||phone.length()>=11;if(!international||!phone.matches("[1-9][0-9]{7,14}")){finish(id,"invalid","Include the country code in the recipient phone number, for example +91.");return;}
-      openDraft(id,new Recipient(recipient,phone),text);return;
+      then.with(new Recipient(recipient.trim(),phone));return;
     }
     if(contacts.needsPermission()&&activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){
-      if(pending!=null){finish(id,"busy","Finish the current contact selection first.");return;}
-      pendingId=id;pending=()->message(id,recipient,text);activity.requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},CONTACTS_REQUEST);return;
+      if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
+      pendingId=id;pendingPermission=Manifest.permission.READ_CONTACTS;pendingDenied=null;pending=()->resolve(id,recipient,then);activity.requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},CONTACTS_REQUEST);return;
     }
     List<Recipient> matches=contacts.find(recipient.trim());
     if(matches.isEmpty()){finish(id,"not_found","No matching contact with a usable phone number was found. Give the full saved name or an international phone number.");return;}
-    if(matches.size()==1){openDraft(id,matches.get(0),text);return;}
+    boolean exact=matches.size()==1&&normalize(matches.get(0).name).equals(normalize(recipient));
+    if(exact){then.with(matches.get(0));return;}
     if(chooser!=null){finish(id,"busy","Choose the recipient from the current list first.");return;}
     String[] labels=new String[matches.size()];for(int i=0;i<labels.length;i++)labels[i]=matches.get(i).name+" · +"+matches.get(i).phone;
-    chooserId=id;chooser=new AlertDialog.Builder(activity).setTitle("Which "+recipient+"?").setItems(labels,(d,index)->{chooser=null;openDraft(id,matches.get(index),text);})
-      .setNegativeButton("Cancel",(d,w)->{chooser=null;finish(id,"cancelled","Message cancelled. Nothing was sent.");}).setOnCancelListener(d->{chooser=null;finish(id,"cancelled","Message cancelled. Nothing was sent.");}).show();
+    chooserId=id;chooser=new AlertDialog.Builder(activity).setTitle("Which "+recipient+"?").setItems(labels,(d,index)->{chooser=null;chooserId=null;then.with(matches.get(index));})
+      .setNegativeButton("Cancel",(d,w)->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).setOnCancelListener(d->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).show();
   }
-  private void openDraft(String id,Recipient person,String text){boolean opened=launcher.open(draft(person.phone,text,whatsapp()));finish(id,opened?"draft_opened":"unavailable",opened?"WhatsApp draft opened for "+person.name+". Review it and tap Send in WhatsApp; MYRAA has not sent it.":"WhatsApp could not open this recipient. Nothing was sent.");}
-  public void permissionResult(){Runnable retry=pending;String id=pendingId;pending=null;pendingId=null;if(retry==null)return;if(activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED)retry.run();else finish(id,"permission_required","Contacts access was denied. Use a full international phone number or allow Contacts in Android app settings.");}
-  public void cancel(String id){if(id==null||!id.matches("[A-Za-z0-9-]{1,80}"))return;if(completed.containsKey(id))return;if(id.equals(pendingId)){pending=null;pendingId=null;}if(id.equals(chooserId)&&chooser!=null){chooser.dismiss();chooser=null;chooserId=null;}finish(id,"cancelled","Action cancelled. Nothing was sent.");}
-  public void close(){pending=null;pendingId=null;if(chooser!=null){chooser.dismiss();chooser=null;}}
+  private String token(String kind,Recipient person,String text){
+    long now=System.currentTimeMillis();confirmations.values().removeIf(c->c.until<now);
+    String token=Long.toHexString(random.nextLong()&0xffffffffffL);confirmations.put(token,new Confirmation(kind,person,text));return token;
+  }
+  private Confirmation take(String kind,String token){Confirmation c=confirmations.remove(token);if(c==null||!c.kind.equals(kind)||c.until<System.currentTimeMillis())return null;return c;}
+  private void askConfirmation(String id,String kind,Recipient person,String text,String question){
+    JSONObject value=status("needs_confirmation",question+" Ask the user this exact question and wait for a clear yes. Only after they say yes, call mobile_action again with the same action and confirm_token. If they say no or change anything, do not reuse the token.");
+    try{value.put("confirm_token",token(kind,person,text)).put("recipient_name",person.name).put("recipient_phone","+"+person.phone);if(text!=null)value.put("message_text",text);}catch(JSONException ignored){}
+    finish(id,value);
+  }
+  /** Typed commands have no voice round trip, so the user confirms on screen instead. */
+  private void confirmOnScreen(String id,String title,String body,Runnable yes){
+    if(confirmDialog!=null){finish(id,"busy","Answer the current confirmation first.");return;}
+    confirmId=id;confirmDialog=new AlertDialog.Builder(activity).setTitle(title).setMessage(body)
+      .setPositiveButton("Yes",(d,w)->{confirmDialog=null;confirmId=null;yes.run();})
+      .setNegativeButton("No",(d,w)->{confirmDialog=null;confirmId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");})
+      .setOnCancelListener(d->{confirmDialog=null;confirmId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).show();
+  }
+
+  private void message(String id,String recipient,String text,boolean onScreen){
+    if(whatsapp()==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
+    if(recipient.trim().isEmpty()||recipient.length()>100||text.trim().isEmpty()||text.length()>4000){finish(id,"invalid","Tell me the recipient and the complete message.");return;}
+    resolve(id,recipient,person->{
+      if(!WhatsAppSender.enabled(activity)){openDraft(id,person,text,"Automatic sending is off, so review it and tap Send in WhatsApp. To let FRIDAY send after you confirm, enable FRIDAY in Android Accessibility settings.");return;}
+      if(onScreen){confirmOnScreen(id,"Send WhatsApp message?","To: "+person.name+" (+"+person.phone+")\n\n"+text,()->autoSend(id,person,text));return;}
+      askConfirmation(id,"whatsapp",person,text,"Send this WhatsApp message to "+person.name+" (+"+person.phone+"): \""+text+"\"?");
+    });
+  }
+  private void sendConfirmed(String id,String token){
+    Confirmation c=take("whatsapp",token);
+    if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again with the recipient and message.");return;}
+    if(whatsapp()==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
+    if(!WhatsAppSender.enabled(activity)){openDraft(id,new Recipient(c.name,c.phone),c.text,"Automatic sending is off, so review it and tap Send in WhatsApp.");return;}
+    autoSend(id,new Recipient(c.name,c.phone),c.text);
+  }
+  private void autoSend(String id,Recipient person,String text){
+    String pkg=whatsapp();
+    WhatsAppSender.arm(pkg,person.phone,text,(sent,why)->main.post(()->{
+      if(sent)finish(id,"sent","WhatsApp message sent to "+person.name+".");
+      else finish(id,"draft_opened","FRIDAY could not press Send ("+why+"). The draft for "+person.name+" is open; tap Send in WhatsApp. It has not been sent.");
+    }));
+    if(!launcher.open(draft(person.phone,text,pkg))){WhatsAppSender.disarm();finish(id,"unavailable","WhatsApp could not open this recipient. Nothing was sent.");}
+  }
+  private void openDraft(String id,Recipient person,String text,String note){boolean opened=launcher.open(draft(person.phone,text,whatsapp()));finish(id,opened?"draft_opened":"unavailable",opened?"WhatsApp draft opened for "+person.name+". "+note+" FRIDAY has not sent it.":"WhatsApp could not open this recipient. Nothing was sent.");}
+
+  private void call(String id,String recipient,boolean onScreen){
+    resolve(id,recipient,person->{
+      if(onScreen){confirmOnScreen(id,"Call "+person.name+"?","+"+person.phone,()->placeCall(id,person));return;}
+      askConfirmation(id,"call",person,null,"Call "+person.name+" (+"+person.phone+")?");
+    });
+  }
+  private void callConfirmed(String id,String token){
+    Confirmation c=take("call",token);
+    if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again who to call.");return;}
+    placeCall(id,new Recipient(c.name,c.phone));
+  }
+  private void placeCall(String id,Recipient person){
+    Uri tel=Uri.parse("tel:+"+person.phone);
+    if(activity.checkSelfPermission(Manifest.permission.CALL_PHONE)!=PackageManager.PERMISSION_GRANTED){
+      if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
+      pendingId=id;pendingPermission=Manifest.permission.CALL_PHONE;pending=()->placeCall(id,person);pendingDenied=()->dialFallback(id,person);
+      activity.requestPermissions(new String[]{Manifest.permission.CALL_PHONE},CONTACTS_REQUEST);return;
+    }
+    boolean opened=launcher.open(new Intent(Intent.ACTION_CALL,tel));
+    finish(id,opened?"calling":"unavailable",opened?"Calling "+person.name+".":"Android could not start the call.");
+  }
+  private void dialFallback(String id,Recipient person){
+    boolean opened=launcher.open(new Intent(Intent.ACTION_DIAL,Uri.parse("tel:+"+person.phone)));
+    finish(id,opened?"dialer_opened":"unavailable",opened?"Phone permission was denied, so the dialer is open with "+person.name+"'s number. Tap Call to start it.":"Android could not open the dialer.");
+  }
+
+  private void alarm(String id,JSONObject args,String label){
+    int hour=args.optInt("hour",-1),minute=args.optInt("minute",0);
+    if(hour<0||hour>23||minute<0||minute>59)throw new IllegalArgumentException("Say the alarm time, for example 6:30 AM.");
+    String text=label!=null?label:args.optString("label","").trim();if(text.length()>200)text=text.substring(0,200);
+    Intent intent=new Intent(AlarmClock.ACTION_SET_ALARM).putExtra(AlarmClock.EXTRA_HOUR,hour).putExtra(AlarmClock.EXTRA_MINUTES,minute).putExtra(AlarmClock.EXTRA_SKIP_UI,true);
+    if(!text.isEmpty())intent.putExtra(AlarmClock.EXTRA_MESSAGE,text);
+    boolean opened=launcher.open(intent);String time=String.format(Locale.ROOT,"%02d:%02d",hour,minute);
+    finish(id,opened?"set":"unavailable",opened?(label!=null?"Reminder set for "+time+": "+text:"Alarm set for "+time+(text.isEmpty()?"":" ("+text+")"))+".":"No clock app on this phone accepts alarms.");
+  }
+  private void reminder(String id,JSONObject args){
+    String text=args.optString("text","").trim();if(text.isEmpty()||text.length()>200)throw new IllegalArgumentException("Say what to remind you about.");
+    if(args.has("in_minutes")){
+      int minutes=args.optInt("in_minutes",-1);if(minutes<1||minutes>1440)throw new IllegalArgumentException("Reminders can be from 1 minute to 24 hours away.");
+      Intent intent=new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH,minutes*60).putExtra(AlarmClock.EXTRA_MESSAGE,text).putExtra(AlarmClock.EXTRA_SKIP_UI,true);
+      boolean opened=launcher.open(intent);finish(id,opened?"set":"unavailable",opened?"Reminder set in "+minutes+" minute"+(minutes==1?"":"s")+": "+text+".":"No clock app on this phone accepts timers.");return;
+    }
+    alarm(id,args,"Reminder: "+text);
+  }
+  private void music(String id,String query){
+    String q=query==null?"":query.trim();if(q.isEmpty()||q.length()>200)throw new IllegalArgumentException("Say which song, artist or playlist to play.");
+    Intent intent=new Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH).putExtra(MediaStore.EXTRA_MEDIA_FOCUS,"vnd.android.cursor.item/*").putExtra(SearchManager.QUERY,q);
+    if(launcher.open(intent)){finish(id,"playing","Playing "+q+" in your music app.");return;}
+    Intent youtube=search("youtube",q);if(launcher.installed("com.google.android.youtube"))youtube.setPackage("com.google.android.youtube");
+    boolean opened=launcher.open(youtube);finish(id,opened?"opened":"unavailable",opened?"No music app took the request, so YouTube search for "+q+" is open.":"No app on this phone can play music.");
+  }
+
+  public void permissionResult(){
+    Runnable retry=pending,denied=pendingDenied;String id=pendingId,permission=pendingPermission;pending=null;pendingDenied=null;pendingId=null;pendingPermission=null;if(retry==null)return;
+    if(activity.checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED){retry.run();return;}
+    if(denied!=null){denied.run();return;}
+    finish(id,"permission_required","Contacts access was denied. Use a full international phone number or allow Contacts in Android app settings.");
+  }
+  public void cancel(String id){
+    if(id==null||!id.matches("[A-Za-z0-9-]{1,80}"))return;if(completed.containsKey(id))return;
+    if(id.equals(pendingId)){pending=null;pendingDenied=null;pendingId=null;pendingPermission=null;}
+    if(id.equals(chooserId)&&chooser!=null){chooser.dismiss();chooser=null;chooserId=null;}
+    if(id.equals(confirmId)&&confirmDialog!=null){confirmDialog.dismiss();confirmDialog=null;confirmId=null;}
+    finish(id,"cancelled","Action cancelled. Nothing was sent.");
+  }
+  public void close(){pending=null;pendingDenied=null;pendingId=null;pendingPermission=null;confirmations.clear();WhatsAppSender.disarm();if(chooser!=null){chooser.dismiss();chooser=null;}if(confirmDialog!=null){confirmDialog.dismiss();confirmDialog=null;}}
 }

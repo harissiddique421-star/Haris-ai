@@ -1,5 +1,5 @@
 /* ===========================================================================
- * MYRAA — Electron preload
+ * FRIDAY — Electron preload
  * ---------------------------------------------------------------------------
  * Runs in an isolated context and exposes a minimal, explicit API surface to
  * the renderer via contextBridge. Only serializable metadata may cross this
@@ -22,7 +22,7 @@ async function getDesktopCaptureSources() {
     const sources = await ipcRenderer.invoke('screen:get-sources');
     return Array.isArray(sources) ? sources : [];
   } catch (err) {
-    console.error('[MYRAA preload] getDesktopCaptureSources failed:', err);
+    console.error('[FRIDAY preload] getDesktopCaptureSources failed:', err);
     return [];
   }
 }

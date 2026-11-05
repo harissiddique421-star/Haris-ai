@@ -1,7 +1,7 @@
 /**
  * Minimal JSON-schema validation for model-produced data.
  *
- * Supports the subset MYRAA uses for tool arguments and structured planner
+ * Supports the subset FRIDAY uses for tool arguments and structured planner
  * output: type, properties, required, items, enum, minimum/maximum,
  * minLength/maxLength, maxItems, additionalProperties:false, nullable via
  * type arrays. Unknown keywords are ignored rather than trusted.

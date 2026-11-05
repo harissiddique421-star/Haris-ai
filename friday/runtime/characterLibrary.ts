@@ -151,7 +151,7 @@ export class CharacterLibrary {
     const dir = this.dir(id);
     const exists = await fs.stat(path.join(dir, "profile.json")).then(() => true, () => false);
     if (!exists) return false;
-    // Only MYRAA's staged copy is removed; the user's original files are untouched.
+    // Only FRIDAY's staged copy is removed; the user's original files are untouched.
     await fs.rm(dir, { recursive: true, force: true });
     return true;
   }

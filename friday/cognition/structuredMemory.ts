@@ -284,7 +284,7 @@ function legacyKind(category: string): MemoryKind {
 }
 
 function inferProject(text: string): string | null {
-  const match = text.match(/\b(MYRAA|ALTREX|NEXTRON)\b/i);
+  const match = text.match(/\b(FRIDAY|ALTREX|NEXTRON)\b/i);
   return match ? match[1].toUpperCase() : null;
 }
 

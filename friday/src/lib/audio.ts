@@ -1,5 +1,5 @@
 /**
- * Audio handling utility for Myraa Live API Voice stream.
+ * Audio handling utility for Friday Live API Voice stream.
  * Handles:
  * - 16kHz layout sampling for microphone stream.
  * - Raw Little Endian Int16 PCM translation.
@@ -287,7 +287,7 @@ export class MyraaAudioSession {
         const response = await fetch('/api/permissions');
         if (!response.ok) throw new Error('Could not check microphone permissions. Text chat is still available.');
         const permissions = await response.json();
-        if (permissions?.policy?.capabilities?.ACCESS_MICROPHONE?.decision === 'deny') throw new Error('Microphone access is denied in MYRAA permissions. You can keep using text.');
+        if (permissions?.policy?.capabilities?.ACCESS_MICROPHONE?.decision === 'deny') throw new Error('Microphone access is denied in FRIDAY permissions. You can keep using text.');
         if (!this.isActivated) return;
       }
       // 1. Establish custom WebSocket server bridge
@@ -351,7 +351,7 @@ export class MyraaAudioSession {
           // expose getUserMedia even though the main UI itself renders normally.
           if (!navigator.mediaDevices?.getUserMedia) {
             throw new Error(
-              "Microphone access is unavailable in this browser. Open MYRAA in Chrome at http://localhost:3000 and allow microphone access.",
+              "Microphone access is unavailable in this browser. Open FRIDAY in Chrome at http://localhost:3000 and allow microphone access.",
             );
           }
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -458,7 +458,7 @@ export class MyraaAudioSession {
 
           // Turn complete
           if (data.type === "turnComplete") {
-            // Once Myraa completes speaking, change visual state back to listening
+            // Once Friday completes speaking, change visual state back to listening
             setTimeout(() => {
               if (this.activeSources.length === 0 && this.currentState === "speaking") {
                 this.setState("listening");

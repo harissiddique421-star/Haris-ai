@@ -11,7 +11,7 @@ process.env.GEMINI_API_KEY = '';
 process.env.GOOGLE_API_KEY = '';
 fs.writeFileSync(path.join(profile,'app-settings.v3.json'),JSON.stringify({version:3,onboardingComplete:true,companion:{enabled:false},behavior:{proactivity:'quiet',awayCheckin:false,returnGreeting:false}}));
 fs.mkdirSync(path.join(profile,'memory'),{recursive:true});
-const preserved = [{role:'user',text:'MYRAA V2 preservation test',at:new Date().toISOString()},{role:'model',text:'Local test history',at:new Date().toISOString()}];
+const preserved = [{role:'user',text:'FRIDAY V2 preservation test',at:new Date().toISOString()},{role:'model',text:'Local test history',at:new Date().toISOString()}];
 fs.writeFileSync(path.join(profile,'memory','text-chat.v2.json'),JSON.stringify(preserved));
 const output = path.join(__dirname,'../artifacts/windows-app-smoke.json');
 const record = { profile, checks: [], errors: [] };
@@ -47,13 +47,13 @@ app.on('web-contents-created', (_event, contents) => {
       await wait(200);
       const controls = await contents.executeJavaScript(`(()=>{const group=document.querySelector('[role="group"][aria-label="Graphics preset"]');const mode=document.querySelector('select[aria-label="Companion interaction mode"]');return{presets:[...group.querySelectorAll('button')].map(b=>b.textContent.trim()),modes:[...mode.options].map(o=>o.value)}})()`);
       record.checks.push({name:'three graphics presets and five companion modes',passed:JSON.stringify(controls.presets)===JSON.stringify(['Low','Medium','High'])&&controls.modes.length===5,detail:controls});
-      await contents.executeJavaScript(`document.querySelector('input[aria-label="Message MYRAA"]').focus();`);
+      await contents.executeJavaScript(`document.querySelector('input[aria-label="Message FRIDAY"]').focus();`);
       // Retain a React-controlled draft while changing the avatar's graphics budget.
-      await contents.executeJavaScript(`(()=>{const input=document.querySelector('input[aria-label="Message MYRAA"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'unsent graphics retention check');input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[role="switch"][aria-label="Choose graphics automatically"]').click()})()`);
+      await contents.executeJavaScript(`(()=>{const input=document.querySelector('input[aria-label="Message FRIDAY"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'unsent graphics retention check');input.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('button[role="switch"][aria-label="Choose graphics automatically"]').click()})()`);
       await wait(300);
       await contents.executeJavaScript(`[...document.querySelectorAll('[aria-label="Graphics preset"] button')].find(b=>b.textContent.trim()==='Low').click()`);
       await wait(2500);
-      record.checks.push({name:'graphics changes preserve the unsent conversation draft',passed:await contents.executeJavaScript(`document.querySelector('input[aria-label="Message MYRAA"]').value==='unsent graphics retention check'`)});
+      record.checks.push({name:'graphics changes preserve the unsent conversation draft',passed:await contents.executeJavaScript(`document.querySelector('input[aria-label="Message FRIDAY"]').value==='unsent graphics retention check'`)});
       fs.writeFileSync(path.join(__dirname,'../artifacts/windows-settings-ui.png'),(await contents.capturePage()).toPNG());
       await contents.executeJavaScript(`(()=>{const d=document.querySelector('[role="dialog"][aria-label="Settings"]');d.querySelector('button').focus()})()`);
       contents.sendInputEvent({type:'keyDown',keyCode:'Tab',modifiers:['shift']}); contents.sendInputEvent({type:'keyUp',keyCode:'Tab',modifiers:['shift']});
@@ -67,10 +67,10 @@ app.on('web-contents-created', (_event, contents) => {
         if(focusReturn.closed)break;
       }
       record.checks.push({name:'settings restores focus after Escape',passed:focusReturn.closed&&focusReturn.activeLabel==='Settings',detail:focusReturn});
-      await contents.executeJavaScript(`(()=>{const input=document.querySelector('input[aria-label="Message MYRAA"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
+      await contents.executeJavaScript(`(()=>{const input=document.querySelector('input[aria-label="Message FRIDAY"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}))})()`);
       const reloaded = new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(new Error('Renderer did not recover')),25000);contents.once('did-finish-load',()=>{clearTimeout(timeout);resolve()})});
       contents.forcefullyCrashRenderer(); await reloaded; await wait(5000);
-      record.checks.push({name:'offline startup choice survives renderer recovery',passed:await contents.executeJavaScript(`Boolean(document.querySelector('input[aria-label="Message MYRAA"]'))`)});
+      record.checks.push({name:'offline startup choice survives renderer recovery',passed:await contents.executeJavaScript(`Boolean(document.querySelector('input[aria-label="Message FRIDAY"]'))`)});
       const restored=await contents.executeJavaScript(`fetch('/api/chat/history').then(r=>r.json())`);
       record.checks.push({name:'renderer crash recovered and text history survived',passed:JSON.stringify(restored)===JSON.stringify(preserved)});
       const lost = await contents.executeJavaScript(`(()=>{const canvas=document.querySelector('canvas');const gl=canvas?.getContext('webgl2');const extension=gl?.getExtension('WEBGL_lose_context');if(!extension)return false;window.__lostCanvas=canvas;window.addEventListener('myraa:character-diagnostics',e=>window.__gpuDiag=e.detail);extension.loseContext();return true})()`);

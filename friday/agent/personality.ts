@@ -2,7 +2,7 @@
  * Personality layer for task events.
  *
  * Turns factual task state ("File transfer complete") into a short line in
- * MYRAA's voice ("Ho gaya."). It only phrases; it never changes what is
+ * FRIDAY's voice ("Ho gaya."). It only phrases; it never changes what is
  * reported. Lines are suggestions: with a live voice session the Live model
  * voices them naturally, otherwise they are shown as a bubble. Recent lines
  * are not repeated back-to-back.

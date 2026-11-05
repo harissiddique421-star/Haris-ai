@@ -1,7 +1,7 @@
 /** Exact local avatar intents; unrelated prose never triggers a device action. */
 export type CharacterCommand = { action: 'wave' | 'dance' | 'sit' | 'stand' | 'come_here' | 'follow_cursor' | 'next_character'; side?: 'left' | 'right' };
 export function parseCharacterCommand(input: string): CharacterCommand | null {
-  const text = input.toLowerCase().trim().replace(/^(?:hey\s+)?(?:myraa|myra|मायरा)[,\s:]+/u, '').replace(/[.!?।]+$/u, '').replace(/^please\s+/, '').replace(/\s+/g, ' ');
+  const text = input.toLowerCase().trim().replace(/^(?:hey\s+)?(?:friday|फ्राइडे|myraa|myra|मायरा)[,\s:]+/u, '').replace(/[.!?।]+$/u, '').replace(/^please\s+/, '').replace(/\s+/g, ' ');
   if (/^(wave(?: at me)?|haath hilao|hath hilao|हाथ हिलाओ)$/u.test(text)) return { action: 'wave' };
   if (/^(dance(?: for me)?|naacho|nacho|नाचो)$/u.test(text)) return { action: 'dance' };
   if (/^(stand(?: up)?|khadi ho jao|khade ho jao|खड़ी हो जाओ|खड़े हो जाओ)$/u.test(text)) return { action: 'stand' };

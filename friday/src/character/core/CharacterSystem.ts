@@ -72,7 +72,7 @@ export interface CharacterSystemOptions {
 export interface CharacterFrameInput {
   activity: CharacterActivity;
   emotion: string;
-  /** Analyser carrying MYRAA's voice, used for lip sync. */
+  /** Analyser carrying FRIDAY's voice, used for lip sync. */
   outputAnalyser: AnalyserNode | null;
   /** Analyser carrying the user's microphone, used for listening reactions. */
   inputAnalyser: AnalyserNode | null;

@@ -106,7 +106,7 @@ export const PhysicsPanel: React.FC<{
         <div className="mt-2 mb-1 text-[10px] uppercase tracking-wider text-slate-500">Body collision</div>
         <Segmented value={p.collisionQuality} onChange={(collisionQuality) => patch({ collisionQuality })} options={[['off', 'Off'], ['low', 'Torso & legs'], ['high', 'Full body']]} />
         <Slider label="Wind" value={Math.round(p.wind * 100)} min={0} max={100} unit="%" onChange={(v) => patch({ wind: v / 100 })} />
-        <p className="text-[10px] text-slate-500">Wind is off by default; MYRAA never adds it on her own.</p>
+        <p className="text-[10px] text-slate-500">Wind is off by default; FRIDAY never adds it on her own.</p>
       </Section>
       <Section title="Advanced">
         <Slider label="Gravity" value={p.gravityMultiplier} min={0} max={3} step={0.05} unit="×" onChange={(v) => patch({ gravityMultiplier: v })} />

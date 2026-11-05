@@ -26,7 +26,7 @@ export async function checkProviderDocumentation(
       method: "HEAD",
       redirect: "follow",
       signal: controller.signal,
-      headers: { "user-agent": "MYRAA-ApiHub/1.0" },
+      headers: { "user-agent": "FRIDAY-ApiHub/1.0" },
     });
     const latencyMs = Date.now() - started;
     const state = response.status >= 200 && response.status < 400

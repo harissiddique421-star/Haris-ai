@@ -67,7 +67,7 @@ export class UserPresenceEngine {
     return () => this.listeners.delete(listener);
   }
 
-  /** Physical mouse/keyboard input (never MYRAA's own synthetic input). */
+  /** Physical mouse/keyboard input (never FRIDAY's own synthetic input). */
   recordInput(at = this.now()): void {
     this.lastInputAt = Math.max(this.lastInputAt, at);
     this.evaluate();

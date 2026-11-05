@@ -1,7 +1,7 @@
 /**
  * Real-time lip sync.
  *
- * MYRAA's voice arrives as streamed PCM with no phoneme track, so visemes are
+ * FRIDAY's voice arrives as streamed PCM with no phoneme track, so visemes are
  * estimated from the live spectrum of `MyraaAudioSession.outputAnalyser`.
  *
  * This is a formant-band estimator, not a phoneme recogniser. It reads two

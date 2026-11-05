@@ -158,7 +158,7 @@ def _foreground_monitor_bbox(hwnd=None):
 
 def _is_myraa_window(title: str) -> bool:
     """Match only MYRAA's own packaged window, not arbitrary browser pages."""
-    return title.strip().casefold() == "myraa"
+    return title.strip().casefold() in ("friday", "myraa")
 
 
 def _capture_active_display() -> tuple[Any, str]:

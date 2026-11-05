@@ -190,7 +190,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   try {
     data = text ? JSON.parse(text) : null;
   } catch {
-    throw new Error("MYRAA backend returned an invalid response.");
+    throw new Error("FRIDAY backend returned an invalid response.");
   }
   if (!res.ok) throw new Error((data as { error?: string } | null)?.error || `Request failed (${res.status}).`);
   return data as T;

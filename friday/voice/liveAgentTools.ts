@@ -1,5 +1,5 @@
 /**
- * Gemini Live ⇄ MYRAA agent bridge.
+ * Gemini Live ⇄ FRIDAY agent bridge.
  *
  * The Live model is the conversational/personality layer. Anything that
  * needs more than one simple action — or needs to look at the screen — is
@@ -19,7 +19,7 @@ export const LIVE_AGENT_INSTRUCTIONS = [
   "- 'Message <person> <text>' / '<person> ko <text> bhejo' on WhatsApp (or any chat app) with plain text → call sendChatMessage(to, text, app) ONCE. It opens the person's own chat, sends and verifies by itself in a few seconds. If the user did not say WHAT to send, ask first. If they want a file or photo sent, use startTask and name the file they mean; if they did not say which file, ask.",
   "- 'Open <folder> and select all .zip (or any type / named) files' → ONE call: selectFiles(folder, extension or pattern or names). Never try to select files with clickText, column headers, typing or shift/ctrl key presses.",
   "- If the user answers a question the task asked, call answerTask with their answer.",
-  "- If the user approves or rejects a pending MYRAA confirmation (e.g. 'haan bhej do', 'nahi rehne do'), call respondToConfirmation. Only call it with approve=true after an explicit yes from the user in this conversation.",
+  "- If the user approves or rejects a pending FRIDAY confirmation (e.g. 'haan bhej do', 'nahi rehne do'), call respondToConfirmation. Only call it with approve=true after an explicit yes from the user in this conversation.",
   "- 'Stop', 'ruk', 'bas', 'cancel' → controlTask(stop). 'Main karta hoon' / 'let me do it' → controlTask(take_over). 'Ab tum karo' → controlTask(return_control).",
   "- Alarms, timers, reminders: setReminder. Quiet requests: setDoNotDisturb or setProactivity. Contact aliases ('Papa is \"Papa ❤️\" on WhatsApp'): saveContact.",
   "- Your desktop companion body (the character on the user's desktop): 'idhar aao' / 'come here' → companionAction(come_here); 'icons wapas rakho' / 'put the icons back' / 'fix my icons' → companionAction(restore_icons); also sit, stand, stretch, wave, hide, play_with_icons. Say a short, playful line about it.",
@@ -49,7 +49,7 @@ export const LIVE_AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "respondToConfirmation",
-    description: "Approve or reject the most recent pending MYRAA confirmation (send message, delete, run installer…) after the user explicitly said yes or no.",
+    description: "Approve or reject the most recent pending FRIDAY confirmation (send message, delete, run installer…) after the user explicitly said yes or no.",
     parameters: { type: Type.OBJECT, properties: { approve: { type: Type.BOOLEAN } }, required: ["approve"] },
   },
   {
@@ -79,7 +79,7 @@ export const LIVE_AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "setProactivity",
-    description: "How often MYRAA speaks on her own: quiet, balanced or lively.",
+    description: "How often FRIDAY speaks on her own: quiet, balanced or lively.",
     parameters: { type: Type.OBJECT, properties: { level: { type: Type.STRING, enum: ["quiet", "balanced", "lively"] } }, required: ["level"] },
   },
   {
@@ -111,7 +111,7 @@ export const LIVE_AGENT_TOOL_DECLARATIONS = [
   },
   {
     name: "companionAction",
-    description: "Make MYRAA's desktop companion (her character on the user's desktop) do something: come out to the user, put back desktop icons she moved, sit, stand up, stretch, wave, hide behind the screen edge, or play with a desktop icon.",
+    description: "Make FRIDAY's desktop companion (her character on the user's desktop) do something: come out to the user, put back desktop icons she moved, sit, stand up, stretch, wave, hide behind the screen edge, or play with a desktop icon.",
     parameters: {
       type: Type.OBJECT,
       properties: { action: { type: Type.STRING, enum: ["come_here", "restore_icons", "sit", "stand", "stretch", "wave", "dance", "hide", "play_with_icons", "save_home", "return_home", "come_to_cursor", "next_monitor"] } },

@@ -15,7 +15,7 @@ export class GoalPlanner {
 
   async plan(goal: Goal, signal?: AbortSignal): Promise<PlannedTask[]> {
     const prompt = [
-      "Create a concise executable plan for MYRAA. Return JSON only.",
+      "Create a concise executable plan for FRIDAY. Return JSON only.",
       `Objective: ${goal.objective}`,
       `Constraints: ${goal.constraints.join("; ") || "none"}`,
       `Success criteria: ${goal.successCriteria.join("; ") || "none specified"}`,

@@ -8,10 +8,10 @@
  *   granted in priority order and are always released (or cancelled).
  *
  * InputArbiter
- *   Tracks the user's *physical* input so MYRAA never fights them for the
+ *   Tracks the user's *physical* input so FRIDAY never fights them for the
  *   mouse or keyboard. Physical input arrives from the Electron main process
  *   (Raw Input: synthetic SendInput events carry no device handle). When that
- *   channel is unavailable, the OS idle timer is used and MYRAA's own
+ *   channel is unavailable, the OS idle timer is used and FRIDAY's own
  *   synthetic-input windows are subtracted from it.
  */
 import { CancelledError } from "./cancellation";
@@ -235,7 +235,7 @@ export class InputArbiter {
     this.osIdleProbe = probe;
   }
 
-  /** Wrap MYRAA's own synthetic input so the idle-timer fallback can ignore it. */
+  /** Wrap FRIDAY's own synthetic input so the idle-timer fallback can ignore it. */
   markSynthetic(start: number, end: number): void {
     this.syntheticWindows.push({ start, end: end + 250 });
     const cutoff = this.now() - 30_000;

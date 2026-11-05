@@ -114,7 +114,7 @@ const Preview: React.FC = () => {
   const [activity, setActivity] = useState<CharacterActivity>('idle');
   const [emotion, setEmotion] = useState('idle');
   const [characterId, setCharacterId] = useState(() => new URLSearchParams(location.search).get('character') || DEFAULT_CHARACTER_ID);
-  // Built-in plus locally imported characters (needs the MYRAA backend).
+  // Built-in plus locally imported characters (needs the FRIDAY backend).
   const [characters, setCharacters] = useState(listCharacters());
   useEffect(() => {
     void listAllCharacters().then((all) => setCharacters(all));

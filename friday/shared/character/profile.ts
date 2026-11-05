@@ -1,5 +1,5 @@
 /**
- * CharacterProfile: everything MYRAA remembers about an imported model, and
+ * CharacterProfile: everything FRIDAY remembers about an imported model, and
  * the honest compatibility report generated from it.
  *
  * Import once → the profile is stored next to the staged model and reused on

@@ -1,5 +1,5 @@
 /**
- * MYRAA runtime: constructs and wires every subsystem added in this release
+ * FRIDAY runtime: constructs and wires every subsystem added in this release
  * and exposes them to the HTTP server, the `/events` WebSocket, the Gemini
  * Live voice session and the Electron main process.
  *
@@ -206,20 +206,20 @@ export class MyraaRuntime {
       appEvents.publish("conversation.changed", this.conversation.snapshot());
     });
     this.social.onChange((state) => appEvents.publish("social.changed", state));
-    // The agent is blocked on these; if MYRAA's window is hidden the shell raises a notification.
+    // The agent is blocked on these; if FRIDAY's window is hidden the shell raises a notification.
     appEvents.subscribe((event) => {
       if (event.type === "confirmation.requested") {
         const request = event.payload as { title?: string };
-        this.options.sendToShell?.({ type: "attention", title: "MYRAA needs your approval", body: String(request.title || "A task is waiting for you.").slice(0, 200) });
+        this.options.sendToShell?.({ type: "attention", title: "FRIDAY needs your approval", body: String(request.title || "A task is waiting for you.").slice(0, 200) });
       } else if (event.type === "question.asked") {
         const asked = event.payload as { question?: string };
-        this.options.sendToShell?.({ type: "attention", title: "MYRAA has a question", body: String(asked.question || "A task is waiting for your answer.").slice(0, 200) });
+        this.options.sendToShell?.({ type: "attention", title: "FRIDAY has a question", body: String(asked.question || "A task is waiting for your answer.").slice(0, 200) });
       }
     });
     this.registry.onSelectionChange((selection) => appEvents.publish("model.changed", selection));
     this.router.network.onChange((state) => {
       appEvents.publish("model.status", { kind: "network", state });
-      if (state === "offline") this.notify("Offline", "MYRAA can't reach cloud models right now.");
+      if (state === "offline") this.notify("Offline", "FRIDAY can't reach cloud models right now.");
     });
     this.arbiter.onPhysicalInput((sample) => this.presence.recordInput(sample.at));
     this.arbiter.setOsIdleProbe(async () => native.idleMs());
@@ -376,7 +376,7 @@ export class MyraaRuntime {
     if (text) this.working.noteUtterance("myraa", text);
   }
 
-  /** "MYRAA stop" / Stop button / shortcut: halt every autonomous activity. */
+  /** "FRIDAY stop" / Stop button / shortcut: halt every autonomous activity. */
   emergencyStop(reason: string): number {
     this.textChat.cancel();
     const count = this.manager.stopAll(reason);
@@ -594,8 +594,8 @@ export class MyraaRuntime {
       res.on('close', close);
       try {
         const { answer } = this.confirmations.request({ taskId: null, capability,
-          title: CAPABILITY_INFO[capability].label, description: `Allow MYRAA to use ${CAPABILITY_INFO[capability].label.toLowerCase()}?`,
-          details: { source: 'local MYRAA window' }, allowRemember: true,
+          title: CAPABILITY_INFO[capability].label, description: `Allow FRIDAY to use ${CAPABILITY_INFO[capability].label.toLowerCase()}?`,
+          details: { source: 'local FRIDAY window' }, allowRemember: true,
         }, { signal: controller.signal, timeoutMs: 120_000 });
         const result = await answer;
         if (result.approved && result.remember === 'session') this.permissions.grantForSession(capability);

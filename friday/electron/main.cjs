@@ -1,5 +1,5 @@
 /* ===========================================================================
- * MYRAA — Electron main process (Phase 1)
+ * FRIDAY — Electron main process (Phase 1)
  * ---------------------------------------------------------------------------
  * Responsibilities in this phase:
  *   1. Enforce a single running instance.
@@ -27,7 +27,7 @@ const net = require('net');
 
 // --- Constants -------------------------------------------------------------
 // The installed app uses its own uncommon port: 3000 is what Vite, Next,
-// Remotion Studio etc. use, and with one of those running MYRAA's window
+// Remotion Studio etc. use, and with one of those running FRIDAY's window
 // opened *their* page. Development keeps 3000. If the port is taken anyway,
 // the next free one is used (see choosePort).
 const PREFERRED_PORT = Number(process.env.MYRAA_PORT) || (app.isPackaged ? 47130 : 3000);
@@ -52,7 +52,7 @@ async function choosePort() {
   return PREFERRED_PORT;
 }
 
-/** GET /api/config and check the answer really comes from MYRAA's backend. */
+/** GET /api/config and check the answer really comes from FRIDAY's backend. */
 function askMyraa(timeoutMs, onResult) {
   let done = false;
   const finish = (ok) => {
@@ -199,7 +199,7 @@ function startBackend() {
     if (serverProcess === child) serverProcess = null;
     if (isQuitting) return;
     // The backend died on its own: record why, then bring it back instead of
-    // closing MYRAA. Bounded: after 4 crashes in 5 minutes, give up and tell
+    // closing FRIDAY. Bounded: after 4 crashes in 5 minutes, give up and tell
     // the user rather than restart-looping.
     logCrash(`backend exited (code ${code}, signal ${signal})\n${redact(backendStderr).slice(-4_000)}`);
     const now = Date.now();
@@ -207,8 +207,8 @@ function startBackend() {
     backendCrashes.push(now);
     if (backendCrashes.length > 4) {
       dialog.showErrorBox(
-        'MYRAA backend stopped',
-        `The MYRAA backend keeps stopping (code ${code}, signal ${signal}). Details are in ${path.join(app.getPath('userData'), 'logs', 'crash.log')}.`,
+        'FRIDAY backend stopped',
+        `The FRIDAY backend keeps stopping (code ${code}, signal ${signal}). Details are in ${path.join(app.getPath('userData'), 'logs', 'crash.log')}.`,
       );
       isQuitting = true;
       app.quit();
@@ -385,7 +385,7 @@ function installCrashRecovery() {
 
 /**
  * Take one privacy-scoped display snapshot for the backend's vision turn.
- * MYRAA's own window is hidden only while the frame is acquired, then restored
+ * FRIDAY's own window is hidden only while the frame is acquired, then restored
  * to the exact visible/focused state it had before capture.
  */
 async function captureDisplayForBackend(requestedMaxDim) {
@@ -401,7 +401,7 @@ async function captureDisplayForBackend(requestedMaxDim) {
   const wasFocused = canRestore && mainWindow.isFocused();
   if (wasVisible) {
     mainWindow.hide();
-    // Give Windows DWM one frame to expose the application underneath MYRAA.
+    // Give Windows DWM one frame to expose the application underneath FRIDAY.
     await new Promise((resolve) => setTimeout(resolve, 140));
   }
 
@@ -470,8 +470,8 @@ function stopBackend() {
 function waitForBackend(timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
-    // Only MYRAA's own answer counts: another app on the port must not be
-    // mistaken for a ready backend (its page would open in MYRAA's window).
+    // Only FRIDAY's own answer counts: another app on the port must not be
+    // mistaken for a ready backend (its page would open in FRIDAY's window).
     const tryOnce = () => {
       askMyraa(2000, (ok) => {
         if (ok) resolve();
@@ -514,7 +514,7 @@ function createMainWindow() {
     show: false, // revealed on ready-to-show to avoid a white flash
     backgroundColor: '#0a0a0f',
     autoHideMenuBar: true,
-    title: 'MYRAA',
+    title: 'FRIDAY',
     icon: APP_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -544,7 +544,7 @@ function createMainWindow() {
 
   mainWindow.on('closed', () => (mainWindow = null));
   mainWindow.on('focus', () => mainWindow?.flashFrame(false));
-  // With the desktop companion on, closing the main window keeps MYRAA in
+  // With the desktop companion on, closing the main window keeps FRIDAY in
   // the tray instead of quitting.
   mainWindow.on('close', (event) => {
     if (!isQuitting && shellSettings?.companion?.enabled) {
@@ -564,7 +564,7 @@ function createMainWindow() {
   ipcMain.removeHandler('screen:get-sources');
   ipcMain.removeHandler('character:control');
   ipcMain.handle('character:control', async (event, action) => {
-    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !trustedRenderer(event.sender)) return { ok: false, error: 'Character controls require MYRAA’s main window.' };
+    if (!mainWindow || event.sender !== mainWindow.webContents || event.senderFrame !== mainWindow.webContents.mainFrame || !trustedRenderer(event.sender)) return { ok: false, error: 'Character controls require FRIDAY’s main window.' };
     if (!['enable_drag', 'sit', 'stand', 'wave', 'dance', 'come_here', 'move_left', 'move_right', 'sit_left', 'sit_right', 'stop'].includes(action)) return { ok: false, error: 'Unknown character control.' };
     if (action === 'enable_drag') {
       const next = await backendRequest('POST', '/api/app-settings', { companion: { enabled: true, mode: 'interactive' } });
@@ -596,7 +596,7 @@ function createMainWindow() {
     }
   });
 
-  // Grant capture only to MYRAA's own local renderer and provide the display
+  // Grant capture only to FRIDAY's own local renderer and provide the display
   // nearest the cursor (falling back to the primary display).
   try {
     const ses = session.defaultSession;
@@ -756,7 +756,7 @@ function applyShellSettings(settings) {
   if (!settings || typeof settings !== 'object') return;
   shellSettings = settings;
   companion?.applySettings(settings);
-  // Emergency stop shortcut (always available, even when MYRAA is hidden).
+  // Emergency stop shortcut (always available, even when FRIDAY is hidden).
   const accelerator = settings.autonomy?.emergencyShortcut || 'Control+Alt+Shift+S';
   const toggleConflicts = /^(?:control|ctrl)\+alt\+m$/i.test(accelerator);
   if (toggleConflicts && companionShortcutRegistered) {
@@ -822,7 +822,7 @@ function updateTrayMenu() {
   const mode = shellSettings?.companion?.mode || 'interactive';
   const companionVisible = companionOn && !['hidden', 'gaming'].includes(mode);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Open MYRAA', click: openMainWindow },
+    { label: 'Open FRIDAY', click: openMainWindow },
     { label: `${companionVisible ? 'Hide' : 'Show'} desktop companion (Ctrl+Alt+M)`, click: toggleCompanionVisibility },
     ...(companionOn ? [{ label: 'Call her here', click: () => companion?.summon() }] : []),
     ...(companionOn ? [{ label: 'Companion mode', submenu: [
@@ -843,14 +843,14 @@ function updateTrayMenu() {
     { type: 'separator' },
     { label: `Stop all tasks (${registeredShortcut || 'no shortcut'})`, click: emergencyStop },
     { type: 'separator' },
-    { label: 'Quit MYRAA', click: () => { isQuitting = true; app.quit(); } },
+    { label: 'Quit FRIDAY', click: () => { isQuitting = true; app.quit(); } },
   ]));
 }
 
 function startShell() {
   try {
     tray = new Tray(nativeImage.createFromPath(APP_ICON).resize({ width: 16, height: 16 }));
-    tray.setToolTip('MYRAA');
+    tray.setToolTip('FRIDAY');
     tray.on('click', openMainWindow);
   } catch (error) {
     console.warn('[shell] tray unavailable:', error && error.message);
@@ -876,7 +876,7 @@ function startShell() {
     powerMonitor.on(event, () => sendToBackend({ type: 'power', event }));
   }
 
-  // Our own process ids, so perception never treats MYRAA's windows as the target.
+  // Our own process ids, so perception never treats FRIDAY's windows as the target.
   const sendPids = () => sendToBackend({ type: 'shell.pids', pids: ownPids() });
   sendPids();
   setInterval(sendPids, 15_000);
@@ -906,7 +906,7 @@ function startPhysicalInputSink(win) {
     pending = { mouse: 0, keyboard: false, last: at };
   };
   stopRawInput = win32.startRawInput(win, (input) => {
-    if (!input.physical) return; // SendInput from MYRAA's own automation
+    if (!input.physical) return; // SendInput from FRIDAY's own automation
     if (input.kind === 'mouse') pending.mouse += Math.hypot(input.dx, input.dy);
     else pending.keyboard = true;
     if (!flushTimer) flushTimer = setTimeout(flush, 120);
@@ -925,7 +925,7 @@ function handleRuntimeMessage(message) {
       companion?.handleCommand(String(message.command || ''));
       break;
     case 'runtime:notify':
-      if (Notification.isSupported()) new Notification({ title: String(message.title || 'MYRAA'), body: String(message.body || ''), icon: APP_ICON }).show();
+      if (Notification.isSupported()) new Notification({ title: String(message.title || 'FRIDAY'), body: String(message.body || ''), icon: APP_ICON }).show();
       break;
     case 'runtime:attention': {
       // A task waits for approval or an answer. The main window shows the
@@ -933,7 +933,7 @@ function handleRuntimeMessage(message) {
       if (mainWindow && mainWindow.isVisible() && mainWindow.isFocused()) break;
       mainWindow?.flashFrame(true);
       if (Notification.isSupported()) {
-        const notice = new Notification({ title: String(message.title || 'MYRAA'), body: String(message.body || ''), icon: APP_ICON });
+        const notice = new Notification({ title: String(message.title || 'FRIDAY'), body: String(message.body || ''), icon: APP_ICON });
         notice.on('click', () => openMainWindow());
         notice.show();
       }
@@ -962,7 +962,7 @@ async function bootstrap() {
   } catch (err) {
     if (splashWindow) splashWindow.close();
     dialog.showErrorBox(
-      'MYRAA failed to start',
+      'FRIDAY failed to start',
       `${err instanceof Error ? err.message : String(err)}`,
     );
     app.quit();

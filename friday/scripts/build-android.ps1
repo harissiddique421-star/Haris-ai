@@ -37,6 +37,7 @@ $unsigned = Join-Path $buildRoot 'unsigned.apk'
 $resRoot = Join-Path $buildRoot 'res'
 New-Item -ItemType Directory -Path (Join-Path $resRoot 'drawable') -Force | Out-Null
 Copy-Item -LiteralPath 'build\icon.png' -Destination (Join-Path $resRoot 'drawable\myraa_icon.png')
+Copy-Item -Path (Join-Path $projectRoot 'android\app\src\main\res\*') -Destination $resRoot -Recurse -Force
 $compiledResources = Join-Path $buildRoot 'resources.zip'
 & (Join-Path $toolsRoot 'aapt2.exe') compile --dir $resRoot -o $compiledResources
 if ($LASTEXITCODE -ne 0) { throw 'Android icon resource compilation failed.' }
@@ -71,7 +72,7 @@ if (-not (Test-Path -LiteralPath $keyStore)) {
   if ($LASTEXITCODE -ne 0) { throw 'Local development signing key creation failed.' }
 }
 New-Item -ItemType Directory -Path 'artifacts\android' -Force | Out-Null
-$apk = Join-Path $projectRoot 'artifacts\android\MYRAA-Mobile-1.0.0-rc.5-private.apk'
+$apk = Join-Path $projectRoot 'artifacts\android\FRIDAY-Mobile-1.0.0-rc.6-private.apk'
 & (Join-Path $toolsRoot 'apksigner.bat') sign --ks $keyStore --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out $apk $aligned
 if ($LASTEXITCODE -ne 0) { throw 'APK signing failed.' }
 & (Join-Path $toolsRoot 'apksigner.bat') verify --verbose $apk

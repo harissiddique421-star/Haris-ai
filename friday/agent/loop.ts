@@ -49,7 +49,7 @@ export interface TaskManagerDeps {
   recall: (query: string) => Promise<string[]>;
   /** Persist an episodic memory about a finished task. */
   rememberEpisode: (text: string, importance: number) => Promise<void>;
-  /** Voice/bubble a task event in MYRAA's persona (gated by presence/DND upstream). */
+  /** Voice/bubble a task event in FRIDAY's persona (gated by presence/DND upstream). */
   speak: (kind: TaskEventKind, line: string, facts: string, priority: "low" | "normal" | "high") => void;
   /** Extra stop hooks (legacy tool executor, TTS, browser ops). */
   onEmergencyStop?: (reason: string) => void;

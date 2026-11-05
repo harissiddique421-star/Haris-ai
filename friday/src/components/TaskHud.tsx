@@ -1,8 +1,8 @@
 /**
- * Task HUD — what MYRAA is doing on the PC right now.
+ * Task HUD — what FRIDAY is doing on the PC right now.
  *
  * Shows the active task (goal, live status, plan, recent actions), lets the
- * user pause / resume / take over / stop it, answers MYRAA's questions, and
+ * user pause / resume / take over / stop it, answers FRIDAY's questions, and
  * offers interrupted tasks for continuation. Confirmation requests for risky
  * actions are always shown (even with the HUD hidden in settings) because the
  * agent is blocked until the user decides.
@@ -136,7 +136,7 @@ const ConfirmationDialog: React.FC<{ request: ConfirmationRequest; queued: numbe
             <ShieldAlert size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[10px] font-mono uppercase tracking-widest text-amber-300/80">MYRAA needs your approval</div>
+            <div className="text-[10px] font-mono uppercase tracking-widest text-amber-300/80">FRIDAY needs your approval</div>
             <h3 id="confirm-title" className="mt-0.5 text-base font-medium text-white">{request.title}</h3>
             <p className="mt-1 text-xs leading-relaxed text-slate-300">{request.description}</p>
           </div>
@@ -156,7 +156,7 @@ const ConfirmationDialog: React.FC<{ request: ConfirmationRequest; queued: numbe
         {request.allowRemember && (
           <label className="mt-3 flex cursor-pointer items-center gap-2 text-[11px] text-slate-300">
             <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-cyan-500" />
-            Allow this again without asking until MYRAA restarts
+            Allow this again without asking until FRIDAY restarts
           </label>
         )}
 
@@ -227,7 +227,7 @@ function QuestionBox({ task, question, options }: { task: TaskView; question: st
         </div>
       )}
       <form onSubmit={submit} className="mt-2 flex gap-1.5">
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type your answer…" aria-label="Answer MYRAA"
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type your answer…" aria-label="Answer FRIDAY"
           className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white outline-none focus:border-amber-300/40" />
         <button type="submit" disabled={busy || !text.trim()}
           className="rounded-lg border border-amber-300/30 bg-amber-400/15 px-2.5 text-[10px] font-mono uppercase text-amber-100 disabled:opacity-40 cursor-pointer">
@@ -342,7 +342,7 @@ const TaskCard: React.FC<{ task: TaskView; question?: { question: string; option
             ? <HudButton onClick={() => void act("resume")} title="Resume task"><Play size={10} /> Resume</HudButton>
             : <HudButton onClick={() => void act("pause")} title="Pause task" disabled={task.state === "user_takeover"}><Pause size={10} /> Pause</HudButton>}
           {task.state === "user_takeover"
-            ? <HudButton onClick={() => void act("return")} title="Give control back to MYRAA"><RotateCcw size={10} /> Hand back</HudButton>
+            ? <HudButton onClick={() => void act("return")} title="Give control back to FRIDAY"><RotateCcw size={10} /> Hand back</HudButton>
             : <HudButton onClick={() => void act("takeover")} title="Take over the mouse and keyboard"><Hand size={10} /> Take over</HudButton>}
           <HudButton onClick={() => void act("stop")} title="Stop this task" tone="danger"><Square size={9} /> Stop</HudButton>
         </div>
@@ -407,7 +407,7 @@ export function TaskHud({ events, showHud, emergencyShortcut }: { events: AppEve
                 exit={{ opacity: 0, y: -6 }}
                 onClick={() => void emergencyStop()}
                 disabled={stopping}
-                title={`Stop everything MYRAA is doing${emergencyShortcut ? ` (${emergencyShortcut.replace(/\+/g, " + ")})` : ""}`}
+                title={`Stop everything FRIDAY is doing${emergencyShortcut ? ` (${emergencyShortcut.replace(/\+/g, " + ")})` : ""}`}
                 className="flex items-center gap-1.5 rounded-xl border border-rose-400/40 bg-rose-600/80 px-3 py-1.5 text-[10px] font-bold font-mono uppercase tracking-widest text-white shadow-lg hover:bg-rose-600 cursor-pointer disabled:opacity-60"
               >
                 <OctagonX size={13} /> Emergency stop
@@ -423,7 +423,7 @@ export function TaskHud({ events, showHud, emergencyShortcut }: { events: AppEve
                 className="w-80 rounded-2xl border border-white/10 bg-slate-950/80 p-4 text-left shadow-2xl backdrop-blur-2xl">
                 <div className="text-[10px] font-mono uppercase tracking-widest text-slate-400">Unfinished task</div>
                 <p className="mt-1 text-sm text-white">{task.goal}</p>
-                <p className="mt-1 text-[11px] text-slate-400">It was interrupted when MYRAA closed. Continue from where it stopped?</p>
+                <p className="mt-1 text-[11px] text-slate-400">It was interrupted when FRIDAY closed. Continue from where it stopped?</p>
                 <div className="mt-3 flex gap-1.5">
                   <HudButton onClick={() => void continueTask(task)} title="Continue the interrupted task"><Play size={10} /> Continue</HudButton>
                   <HudButton onClick={() => setDismissed((d) => new Set(d).add(task.id))} title="Forget this task"><X size={10} /> Dismiss</HudButton>
