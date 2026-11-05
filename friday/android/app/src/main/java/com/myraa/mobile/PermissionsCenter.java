@@ -33,6 +33,7 @@ final class PermissionsCenter {
     {"dnd","Do Not Disturb access","So FRIDAY can switch silent and vibrate mode."},
     {"system_settings","Modify system settings","So FRIDAY can change screen brightness."},
     {"overlay","Display over other apps","For the floating FRIDAY button while you use other apps."},
+    {"fullscreen","Wake up on the lock screen","So \"Wake up FRIDAY\" can turn the screen on when the phone is locked. You still unlock it yourself."},
     {"battery","Battery: no optimization","So a Live call keeps running with the screen off or in the background."},
   };
 
@@ -51,6 +52,7 @@ final class PermissionsCenter {
       case "dnd":return activity.getSystemService(NotificationManager.class).isNotificationPolicyAccessGranted();
       case "system_settings":return Settings.System.canWrite(activity);
       case "overlay":return Settings.canDrawOverlays(activity);
+      case "fullscreen":return Build.VERSION.SDK_INT<34||activity.getSystemService(NotificationManager.class).canUseFullScreenIntent();
       case "battery":return activity.getSystemService(PowerManager.class).isIgnoringBatteryOptimizations(activity.getPackageName());
       default:return false;
     }
@@ -82,6 +84,7 @@ final class PermissionsCenter {
       case "system_settings":return open(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,Uri.parse("package:"+activity.getPackageName())));
       case "overlay":return open(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+activity.getPackageName())));
       case "battery":return open(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+      case "fullscreen":return Build.VERSION.SDK_INT>=34&&open(new Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,Uri.parse("package:"+activity.getPackageName())));
       default:return false;
     }
     // A runtime permission the user denied twice no longer shows a dialog; send them to app settings instead.

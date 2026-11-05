@@ -122,7 +122,7 @@ final class AssistantMemory {
         .put("name",name()).put("email",email()).put("persona",persona()).put("voices",voices).put("memories",memories())
         .put("language",prefs.getString("language","hi-IN"))
         .put("announceCalls",Announcer.announceCalls(c)).put("drivingMode",Announcer.driving(c)).put("drivingReadText",Announcer.readText(c))
-        .put("wakeWord",WakeWordService.wanted(c)).put("routines",routines());
+        .put("wakeWord",WakeWordService.wanted(c)).put("wakeLocked",WakeWordService.whenLocked(c)).put("routines",routines());
     }catch(JSONException ignored){}
     return v;
   }
@@ -139,6 +139,7 @@ final class AssistantMemory {
     if(in.has("drivingMode"))Announcer.set(c,"drivingMode",in.optBoolean("drivingMode"));
     if(in.has("drivingReadText"))Announcer.set(c,"drivingReadText",in.optBoolean("drivingReadText"));
     if(in.has("wakeWord"))WakeWordService.setWanted(c,in.optBoolean("wakeWord"));
+    if(in.has("wakeLocked"))WakeWordService.setWhenLocked(c,in.optBoolean("wakeLocked"));
     JSONObject rs=in.optJSONObject("routines");
     if(rs!=null){Iterator<String> it=rs.keys();while(it.hasNext()){String k=it.next();try{saveRoutine(k,rs.optJSONArray(k));}catch(IllegalArgumentException ignored){}}}
     int added=0;JSONArray list=in.optJSONArray("memories");
