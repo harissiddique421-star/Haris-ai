@@ -43,7 +43,8 @@ final class Announcer {
   static String prompt(Context c){
     StringBuilder b=new StringBuilder();
     if(driving(c))b.append("\nDriving mode is ON: the user is driving. Keep every reply to one or two short sentences, never ask them to look at or tap the screen, and prefer voice actions. When a [Phone] message reports a new message, read it out and ask if they want to reply; send a reply only with whatsapp_message or send_sms and the usual confirmation.");
-    b.append("\nUse set_driving_mode (on true/false) when the user asks to turn driving mode on or off, and set_call_announce (on true/false) to turn spoken caller names on or off.");
+    b.append("\nUse set_driving_mode (on true/false) when the user asks to turn driving mode on or off, and set_call_announce (on true/false) to turn spoken caller names on or off. Use set_wake_word (on true/false) to turn the \"Wake up FRIDAY\" wake phrase on or off. If this call started from the wake phrase, greet the user in one short line and ask how you can help."
+      +" Email: use the email action with recipient (a contact name, an email address, or \"me\" for the user's own saved address), subject and message. It only opens a draft; tell the user to check it and tap Send.");
     return b.toString();
   }
 

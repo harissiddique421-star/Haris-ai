@@ -58,6 +58,48 @@ final class AssistantMemory {
   String name(){return prefs.getString("userName","");}
   void setName(String raw){String n=raw==null?"":raw.trim().replaceAll("\\s+"," ");if(n.length()>40)n=n.substring(0,40);prefs.edit().putString("userName",n).apply();}
 
+  // ---- the user's own email (for "email me" drafts); stays on this phone
+  String email(){return prefs.getString("userEmail","");}
+  void setEmail(String raw){
+    String e=raw==null?"":raw.trim();
+    if(!e.isEmpty()&&!validEmail(e))throw new IllegalArgumentException("That email address does not look right.");
+    prefs.edit().putString("userEmail",e).apply();
+  }
+  static boolean validEmail(String e){return e!=null&&e.length()<=120&&e.matches("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}");}
+
+  // ---- backup: everything personal except the API key and chat history
+  JSONObject backup(Context c){
+    JSONObject v=new JSONObject(),voices=new JSONObject();
+    try{
+      for(String p:PERSONAS)voices.put(p,voice(p));
+      v.put("app","FRIDAY").put("backupVersion",1).put("created",System.currentTimeMillis())
+        .put("name",name()).put("email",email()).put("persona",persona()).put("voices",voices).put("memories",memories())
+        .put("language",prefs.getString("language","hi-IN"))
+        .put("announceCalls",Announcer.announceCalls(c)).put("drivingMode",Announcer.driving(c)).put("drivingReadText",Announcer.readText(c))
+        .put("wakeWord",WakeWordService.wanted(c));
+    }catch(JSONException ignored){}
+    return v;
+  }
+  /** Restores a backup made by FRIDAY. Unknown or invalid fields are skipped; memories still pass the password/PIN filter. */
+  int restore(Context c,JSONObject in){
+    if(in==null||!"FRIDAY".equals(in.optString("app")))throw new IllegalArgumentException("This is not a FRIDAY backup file.");
+    if(in.has("name"))setName(in.optString("name"));
+    if(in.has("email")){try{setEmail(in.optString("email"));}catch(IllegalArgumentException ignored){}}
+    if(in.has("persona")){try{prefs.edit().putString("persona",normalizePersona(in.optString("persona"))).apply();}catch(IllegalArgumentException ignored){}}
+    JSONObject voices=in.optJSONObject("voices");
+    if(voices!=null)for(String p:PERSONAS){String v=voices.optString(p,"");if(Arrays.asList(VOICES).contains(v))prefs.edit().putString("voice."+p,v).apply();}
+    String lang=in.optString("language","");if(lang.matches("(hi-IN|en-IN|en-US)"))prefs.edit().putString("language",lang).apply();
+    if(in.has("announceCalls"))Announcer.set(c,"announceCalls",in.optBoolean("announceCalls"));
+    if(in.has("drivingMode"))Announcer.set(c,"drivingMode",in.optBoolean("drivingMode"));
+    if(in.has("drivingReadText"))Announcer.set(c,"drivingReadText",in.optBoolean("drivingReadText"));
+    if(in.has("wakeWord"))WakeWordService.setWanted(c,in.optBoolean("wakeWord"));
+    int added=0;JSONArray list=in.optJSONArray("memories");
+    if(list!=null)for(int i=0;i<list.length()&&i<MAX_MEMORIES;i++){
+      try{JSONObject r=remember(list.optString(i));if(r.optString("message").startsWith("Remembered"))added++;}catch(IllegalArgumentException ignored){}
+    }
+    return added;
+  }
+
   // ---- personas and voices
   String persona(){String p=prefs.getString("persona","friday");return Arrays.asList(PERSONAS).contains(p)?p:"friday";}
   static String normalizePersona(String raw){
@@ -95,7 +137,7 @@ final class AssistantMemory {
     JSONObject v=new JSONObject(),voices=new JSONObject();
     try{
       for(String p:PERSONAS)voices.put(p,voice(p));
-      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("memories",memories());
+      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("email",email()).put("memories",memories());
     }catch(JSONException ignored){}
     return v;
   }

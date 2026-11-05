@@ -38,7 +38,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MainActivity extends Activity {
   private static final String ORIGIN = "https://appassets.androidplatform.net";
   private static final String KEY_ALIAS = "myraa.mobile.gemini.v1";
-  private static final int MICROPHONE_REQUEST = 77, CAMERA_REQUEST = 78, SCREEN_REQUEST = 79;
+  private static final int MICROPHONE_REQUEST = 77, CAMERA_REQUEST = 78, SCREEN_REQUEST = 79, WAKE_MIC_REQUEST = 83, BACKUP_EXPORT = 81, BACKUP_IMPORT = 82;
+  static volatile boolean visible;
+  private volatile boolean pendingWake;
   private AssistantMemory memory;
   private PermissionsCenter permissionsCenter;
   private final ExecutorService liveNetwork = Executors.newSingleThreadExecutor();
@@ -90,8 +92,15 @@ public class MainActivity extends Activity {
     });
     if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP),Context.RECEIVER_NOT_EXPORTED);
     else registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP));
+    pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());
     createWebView();
   }
+  @Override protected void onNewIntent(Intent intent){
+    super.onNewIntent(intent);setIntent(intent);
+    if(WakeWordService.WAKE.equals(intent.getAction()))pendingWake=true;
+  }
+  private void backupResult(String status,String message){emit(json("type","backup","status",status,"message",message,"assistant",memory.state(),"announce",Announcer.state(this),"wake",wakeState()));}
+  private JSONObject wakeState(){return json("on",WakeWordService.wanted(this),"running",WakeWordService.running,"available",android.speech.SpeechRecognizer.isRecognitionAvailable(this));}
 
   @SuppressWarnings("SetJavaScriptEnabled") private void createWebView() {
     try {
@@ -199,7 +208,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.12", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.13", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", "gemini-3.1-flash-live-preview"));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -330,11 +339,27 @@ public class MainActivity extends Activity {
           if (input.has("remember")) memory.remember(input.optString("remember"));
           if (input.has("announceCalls")) Announcer.set(MainActivity.this, "announceCalls", input.optBoolean("announceCalls"));
           if (input.has("drivingMode")) Announcer.set(MainActivity.this, "drivingMode", input.optBoolean("drivingMode"));
+          if (input.has("email")) memory.setEmail(input.optString("email"));
+          if (input.has("wakeWord")) {
+            boolean on = input.optBoolean("wakeWord"); WakeWordService.setWanted(MainActivity.this, on);
+            String status = WakeWordService.ensure(MainActivity.this);
+            if ("needs_microphone".equals(status)) requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST);
+            else if ("unavailable".equals(status)) { WakeWordService.setWanted(MainActivity.this, false); throw new IllegalArgumentException("This phone has no speech recognizer, so the wake word cannot work. Install or update the Google app."); }
+          }
           if (input.has("drivingReadText")) Announcer.set(MainActivity.this, "drivingReadText", input.optBoolean("drivingReadText"));
-          emit(json("type", "assistant", "assistant", memory.state(), "announce", Announcer.state(MainActivity.this)));
-        } catch (Exception error) { emit(json("type", "assistant", "assistant", memory.state(), "message", error instanceof IllegalArgumentException ? error.getMessage() : "That setting could not be saved.")); }
+          emit(json("type", "assistant", "assistant", memory.state(), "announce", Announcer.state(MainActivity.this), "wake", wakeState()));
+        } catch (Exception error) { emit(json("type", "assistant", "assistant", memory.state(), "announce", Announcer.state(MainActivity.this), "wake", wakeState(), "message", error instanceof IllegalArgumentException ? error.getMessage() : "That setting could not be saved.")); }
       });
     }
+    @JavascriptInterface public boolean consumeWake() { boolean w = pendingWake; pendingWake = false; return w; }
+    @JavascriptInterface public void exportBackup() { runOnUiThread(() -> {
+      try { startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE, "FRIDAY-backup.json"), BACKUP_EXPORT); }
+      catch (RuntimeException e) { backupResult("error", "This phone has no file picker for saving the backup."); }
+    }); }
+    @JavascriptInterface public void importBackup() { runOnUiThread(() -> {
+      try { startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), BACKUP_IMPORT); }
+      catch (RuntimeException e) { backupResult("error", "This phone has no file picker for opening a backup."); }
+    }); }
     @JavascriptInterface public void requestPermission(String id) { runOnUiThread(() -> { if (!permissionsCenter.request(id == null ? "" : id)) emit(json("type", "permissions", "permissions", permissionsCenter.state(), "message", "That setting is not available on this phone.")); }); }
     @JavascriptInterface public void clearHistory() { cancel(); prefs.edit().putString("history", "[]").commit(); }
     @JavascriptInterface public void openSettings() { runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))); }
@@ -455,11 +480,11 @@ public class MainActivity extends Activity {
   private void error(String service, String message, String id) { JSONObject value = json("type", "error", "service", service, "message", message); if (id != null) try { value.put("id", id); } catch (JSONException ignored) {} emit(value); }
 
   private void cancelLive() {
-    pendingLiveId = null; liveGeneration.incrementAndGet(); allowBackgroundLive=false; NotificationReader.setCallListener(null); stopService(new Intent(this,LiveVoiceService.class));
+    pendingLiveId = null; liveGeneration.incrementAndGet(); allowBackgroundLive=false; NotificationReader.setCallListener(null); WakeWordService.livePaused(this,false); stopService(new Intent(this,LiveVoiceService.class));
     HttpsURLConnection connection = liveConnection; liveConnection = null; if (connection != null) connection.disconnect();
   }
   private void provisionLive(String id) {
-    pendingLiveId = null; final int mine = liveGeneration.incrementAndGet();
+    pendingLiveId = null; final int mine = liveGeneration.incrementAndGet(); WakeWordService.livePaused(this,true);
     NotificationReader.setCallListener(new NotificationReader.IncomingCall(){
       public void ringing(String caller){emit(json("type","incoming-call","caller",caller.length()>80?caller.substring(0,80):caller));}
       public void message(String app,String from,String text){emit(json("type","incoming-message","app",app,"from",from,"text",text));}
@@ -490,6 +515,22 @@ public class MainActivity extends Activity {
   }
   @Override protected void onActivityResult(int request,int result,Intent data){
     super.onActivityResult(request,result,data);
+    if(request==BACKUP_EXPORT||request==BACKUP_IMPORT){
+      if(result!=RESULT_OK||data==null||data.getData()==null){backupResult("cancelled","Backup cancelled.");return;}
+      Uri uri=data.getData();
+      try{
+        if(request==BACKUP_EXPORT){
+          try(java.io.OutputStream out=getContentResolver().openOutputStream(uri,"wt")){if(out==null)throw new IOException("no stream");out.write(memory.backup(this).toString(2).getBytes(StandardCharsets.UTF_8));}
+          backupResult("saved","Backup saved. It has your name, email, persona, voices, memories and FRIDAY settings, but not your API key or chats.");
+        }else{
+          String raw;try(java.io.InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException("no stream");raw=new String(readLimited(in,512_000),StandardCharsets.UTF_8);}
+          int added=memory.restore(this,new JSONObject(raw));WakeWordService.ensure(this);
+          backupResult("restored","Backup restored. "+added+" new "+(added==1?"memory":"memories")+" added.");
+        }
+      }catch(IllegalArgumentException e){backupResult("error",e.getMessage());}
+      catch(Exception e){backupResult("error",request==BACKUP_EXPORT?"The backup could not be saved there.":"That file could not be read as a FRIDAY backup.");}
+      return;
+    }
     if(request!=SCREEN_REQUEST)return;
     if(result!=RESULT_OK||data==null||!LiveVoiceService.running){emit(json("type","screen-share","active",false,"message","Screen sharing was not started."));return;}
     try{startForegroundService(new Intent(this,LiveVoiceService.class).setAction(LiveVoiceService.SHARE_SCREEN).putExtra("resultCode",result).putExtra("data",data));emit(json("type","screen-share","active",true));}
@@ -499,6 +540,7 @@ public class MainActivity extends Activity {
     super.onRequestPermissionsResult(request, permissions, results);
     if(request==CAMERA_REQUEST){emit(json("type","camera-permission","granted",checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED));return;}
     if(request==MobileActions.CONTACTS_REQUEST){mobileActions.permissionResult();return;}
+    if(request==WAKE_MIC_REQUEST){WakeWordService.ensure(this);emit(json("type","assistant","assistant",memory.state(),"announce",Announcer.state(this),"wake",wakeState()));return;}
     if(request==PermissionsCenter.REQUEST){emit(json("type","permissions","permissions",permissionsCenter.state()));return;}
     if (request != MICROPHONE_REQUEST || pendingLiveId == null) return;
     if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -509,12 +551,12 @@ public class MainActivity extends Activity {
     }
   }
   @Override protected void onPause() {
-    foreground=false;super.onPause();boolean keep=allowBackgroundLive;
+    foreground=false;visible=false;super.onPause();boolean keep=allowBackgroundLive;
     if(web!=null){web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false,backgroundLive:"+keep+",permissionPrompt:"+(pendingLiveId!=null)+"}}))",null);if(!keep)web.onPause();}
     if(pendingLiveId==null&&!keep)cancelLive();if(tts!=null)tts.stop();
   }
   @Override protected void onResume() {
-    foreground=true;super.onResume();if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
+    foreground=true;visible=true;super.onResume();WakeWordService.ensure(this);if(pendingWake)emit(json("type","wake"));if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
     if(web!=null){web.onResume();web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:true,backgroundLive:"+allowBackgroundLive+"}}))",null);}
     if(permissionsCenter!=null)emit(json("type","permissions","permissions",permissionsCenter.state()));
   }

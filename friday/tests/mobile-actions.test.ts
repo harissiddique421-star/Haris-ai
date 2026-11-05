@@ -79,3 +79,11 @@ test('driving mode and call announcement commands parse locally',()=>{
   assert.deepEqual(parseMobileAction('caller name on karo'),{action:'set_call_announce',on:true});
   assert.equal(parseMobileAction('driving mode'),null);
 });
+test('wake word and email commands parse locally',()=>{
+  assert.deepEqual(parseMobileAction('wake word on'),{action:'set_wake_word',on:true});
+  assert.deepEqual(parseMobileAction('turn off the wake word'),{action:'set_wake_word',on:false});
+  assert.deepEqual(parseMobileAction('email me: buy milk'),{action:'email',recipient:'me',message:'buy milk'});
+  assert.deepEqual(parseMobileAction('mujhe email karo: kal meeting hai'),{action:'email',recipient:'mujhe',message:'kal meeting hai'});
+  assert.deepEqual(parseMobileAction('Ali ko email bhejo: report ready hai'),{action:'email',recipient:'Ali',message:'report ready hai'});
+  assert.equal(parseMobileAction('email Ali and delete everything: hi'),null);
+});
