@@ -244,6 +244,12 @@ public final class MobileActions {
       if("list_routines".equals(action)){finish(id,memory().listRoutines());return;}
       if("delete_routine".equals(action)){finish(id,memory().deleteRoutine(args.optString("name")));return;}
       if("sleep".equals(action)){JSONObject v=PhoneControls.result("sleeping","Going to sleep. Say \"Wake up FRIDAY\" when you need me.");v.put("sleep",true);finish(id,v);return;}
+      if("make_document".equals(action)){
+        Documents.Saved doc=Documents.save(activity,args.optString("title"),args.optString("text"),args.optString("format","pdf"));
+        Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(doc.uri,doc.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        boolean opened=launcher.open(view);ControlLog.i("document: saved "+(doc.mime.endsWith("pdf")?"pdf":"txt"));
+        finish(id,"saved","Saved "+doc.name+" in Downloads/FRIDAY"+(opened?" and opened it.":". No app here opens this file type, but it is in your Downloads."));return;
+      }
       if("set_timer".equals(action)){timer(id,args);return;}
       if("add_event".equals(action)){event(id,args);return;}
       if("email".equals(action)){finish(id,email(args));return;}

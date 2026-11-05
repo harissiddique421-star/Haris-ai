@@ -228,8 +228,8 @@ function showView(view: 'home' | 'chat') {
   el('nav-chat').querySelector('span')!.textContent = view === 'chat' ? 'Home' : 'Chat';
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
-const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened']);
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', answer_call: 'Call', reject_call: 'Call' };
+const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', answer_call: 'Call', reject_call: 'Call' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
@@ -254,7 +254,7 @@ async function runTyped(mobile: MobileAction) {
     if (!step || step.action === 'run_routine') { append('model', `Step ${i + 1} ("${steps[i]}") needs a Live call, so I stopped here. Start FRIDAY Live and say the routine name to run all of it.`); return; }
     const done = await runMobileAction('mobile_action', onScreenConfirm.has(step.action) ? { ...step, confirm_on_screen: true } : step);
     appendAction(step.action, done); notice(done?.message || '');
-    if (!['done', 'set', 'opened', 'playing', 'sent', 'calling', 'draft_opened'].includes(String(done?.status))) { append('model', `Routine stopped at step ${i + 1}: ${done?.message || 'it did not finish.'}`); return; }
+    if (!['done', 'set', 'opened', 'playing', 'sent', 'calling', 'draft_opened', 'saved'].includes(String(done?.status))) { append('model', `Routine stopped at step ${i + 1}: ${done?.message || 'it did not finish.'}`); return; }
     await new Promise(resolve => setTimeout(resolve, 1200));
   }
   append('model', `Routine "${result.routine}" finished.`);
