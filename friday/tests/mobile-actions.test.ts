@@ -39,3 +39,12 @@ test('phone controls parse locally',()=>{
   assert.deepEqual(parseMobileAction('SMS Ammi: ghar aa raha hun'),{action:'send_sms',recipient:'Ammi',message:'ghar aa raha hun'});
   for(const text of ['volume 400','brightness 250']) assert.equal(parseMobileAction(text),null,text);
 });
+test('phone control: settings pages, screenshot and lock parse locally; taps never do',()=>{
+  assert.deepEqual(parseMobileAction('open wifi settings'),{action:'open_settings',page:'wifi'});
+  assert.deepEqual(parseMobileAction('Wi-Fi settings'),{action:'open_settings',page:'wifi'});
+  assert.deepEqual(parseMobileAction('bluetooth kholo'),{action:'open_settings',page:'bluetooth'});
+  assert.deepEqual(parseMobileAction('airplane mode settings'),{action:'open_settings',page:'airplane_mode'});
+  assert.deepEqual(parseMobileAction('take a screenshot'),{action:'phone_control',control:'screenshot'});
+  assert.deepEqual(parseMobileAction('lock the phone'),{action:'phone_control',control:'lock_screen'});
+  for(const text of ['tap send','click pay now','type my password']) assert.equal(parseMobileAction(text),null,text);
+});

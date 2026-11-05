@@ -137,7 +137,13 @@ public final class MobileActions {
         if(!token.isEmpty()){smsConfirmed(id,token);return;}
         sms(id,args.optString("recipient"),args.optString("message"),args.optBoolean("confirm_on_screen"));return;
       }
-      finish(id,"unsupported","Supported actions: apps, searches, WhatsApp, calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, and answering calls.");
+      if("open_settings".equals(action)){finish(id,phone().settings(args.optString("page")));return;}
+      if("phone_control".equals(action)){PhoneController c=control(id);if(c!=null)finish(id,c.global(args.optString("control")));return;}
+      if("read_screen".equals(action)){PhoneController c=control(id);if(c!=null)finish(id,c.readScreen());return;}
+      if("scroll".equals(action)){PhoneController c=control(id);if(c!=null)finish(id,c.scroll(args.optString("direction")));return;}
+      if("type_text".equals(action)){PhoneController c=control(id);if(c==null)return;if(ownScreen(id,c))return;finish(id,c.type(args.optString("target"),args.optString("text")));return;}
+      if("tap".equals(action)){tap(id,args);return;}
+      finish(id,"unsupported","Supported actions: apps, searches, WhatsApp, calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){
@@ -290,6 +296,40 @@ public final class MobileActions {
     if(launcher.open(intent)){finish(id,"playing","Playing "+q+" in your music app.");return;}
     Intent youtube=search("youtube",q);if(launcher.installed("com.google.android.youtube"))youtube.setPackage("com.google.android.youtube");
     boolean opened=launcher.open(youtube);finish(id,opened?"opened":"unavailable",opened?"No music app took the request, so YouTube search for "+q+" is open.":"No app on this phone can play music.");
+  }
+
+  /** Phone control needs FRIDAY's phone control accessibility service; opens that setting when it is off. */
+  private PhoneController control(String id){
+    PhoneController c=PhoneController.get();if(c!=null)return c;
+    launcher.open(new Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS));
+    finish(id,"permission_required","Phone control is off. I opened Accessibility settings: turn on \"FRIDAY phone control\", then ask again.");return null;
+  }
+  private boolean ownScreen(String id,PhoneController c){
+    if(!activity.getPackageName().equals(c.foreground()))return false;
+    finish(id,"refused","FRIDAY's own screen is in front. Open the app you want me to use first, then ask again.");return true;
+  }
+  /** Taps a labelled button. Risky labels and permission/install screens need a yes first, bound to the same app via the token. */
+  private void tap(String id,JSONObject args){
+    PhoneController c=control(id);if(c==null||ownScreen(id,c))return;
+    String token=args.optString("confirm_token"),target,expectPkg=null;boolean confirmed=false;
+    if(!token.isEmpty()){
+      Confirmation k=take("tap",token);
+      if(k==null){finish(id,"invalid","That confirmation expired or was already used. Ask again what to tap.");return;}
+      target=k.name;expectPkg=k.phone;confirmed=true;
+    }else target=args.optString("target").trim();
+    if(target.isEmpty()||target.length()>120){finish(id,"invalid","Say which button or item to tap.");return;}
+    String pkg=c.foreground();
+    if(expectPkg!=null&&!expectPkg.equals(pkg)){finish(id,"cancelled","The screen changed since you confirmed, so I did not tap anything.");return;}
+    android.view.accessibility.AccessibilityNodeInfo node=c.find(target,false);
+    if(node==null){finish(id,"not_found","I can't see \""+target+"\" on this screen. Use read_screen to see what is there.");return;}
+    String label=PhoneController.labelOf(node);
+    if(!confirmed&&PhoneController.risky(label,pkg)){
+      JSONObject value=status("needs_confirmation","Tapping \""+label+"\" in "+c.appLabel(pkg)+" may send, pay, delete, install or change a permission. Ask the user this exact question and wait for a clear yes. Only after they say yes, call mobile_action again with action tap and this confirm_token.");
+      try{value.put("confirm_token",token("tap",new Recipient(target,pkg),null)).put("label",label).put("app",c.appLabel(pkg));}catch(JSONException ignored){}
+      finish(id,value);return;
+    }
+    boolean ok=c.tap(node);
+    finish(id,ok?"done":"failed",ok?"Tapped \""+label+"\". Check the screen again before the next step.":"That item did not respond to a tap.");
   }
 
   public void permissionResult(){

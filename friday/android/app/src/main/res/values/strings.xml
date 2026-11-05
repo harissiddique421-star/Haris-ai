@@ -2,4 +2,6 @@
 <resources>
   <string name="whatsapp_sender_label">FRIDAY WhatsApp send</string>
   <string name="whatsapp_sender_description">Lets FRIDAY press Send in WhatsApp, only for a message you just confirmed out loud or on screen. It reads WhatsApp\'s message box to check the text matches, and does nothing in any other app.</string>
+  <string name="phone_control_label">FRIDAY phone control</string>
+  <string name="phone_control_description">Lets FRIDAY press Back and Home, read the screen, tap buttons, type and scroll in the app in front, only when you ask it to. It never reads or fills password fields. Taps that could send, pay, delete, install or allow something wait for your yes first.</string>
 </resources>

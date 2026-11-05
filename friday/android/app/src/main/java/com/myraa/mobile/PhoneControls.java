@@ -124,6 +124,36 @@ final class PhoneControls {
     return value;
   }
 
+  /** Opens a settings page or, on Android 10+, the quick panel for Wi-Fi, internet, NFC and volume. Apps cannot flip these switches directly on modern Android. */
+  JSONObject settings(String raw){
+    String page=raw==null?"":raw.trim().toLowerCase(Locale.ROOT).replace(' ','_').replace('-','_');
+    boolean panels=Build.VERSION.SDK_INT>=29;String action;
+    switch(page){
+      case "wifi":case "wi_fi":action=panels?Settings.Panel.ACTION_WIFI:Settings.ACTION_WIFI_SETTINGS;break;
+      case "internet":case "mobile_data":case "data":action=panels?Settings.Panel.ACTION_INTERNET_CONNECTIVITY:Settings.ACTION_WIRELESS_SETTINGS;break;
+      case "nfc":action=panels?Settings.Panel.ACTION_NFC:Settings.ACTION_NFC_SETTINGS;break;
+      case "volume":case "sound_panel":action=panels?Settings.Panel.ACTION_VOLUME:Settings.ACTION_SOUND_SETTINGS;break;
+      case "bluetooth":action=Settings.ACTION_BLUETOOTH_SETTINGS;break;
+      case "hotspot":case "network":action=Settings.ACTION_WIRELESS_SETTINGS;break;
+      case "airplane":case "airplane_mode":case "flight_mode":action=Settings.ACTION_AIRPLANE_MODE_SETTINGS;break;
+      case "location":case "gps":action=Settings.ACTION_LOCATION_SOURCE_SETTINGS;break;
+      case "display":case "screen":action=Settings.ACTION_DISPLAY_SETTINGS;break;
+      case "sound":action=Settings.ACTION_SOUND_SETTINGS;break;
+      case "battery":case "battery_saver":action=Settings.ACTION_BATTERY_SAVER_SETTINGS;break;
+      case "apps":action=Settings.ACTION_APPLICATION_SETTINGS;break;
+      case "storage":action=Settings.ACTION_INTERNAL_STORAGE_SETTINGS;break;
+      case "date":case "time":action=Settings.ACTION_DATE_SETTINGS;break;
+      case "language":action=Settings.ACTION_LOCALE_SETTINGS;break;
+      case "accessibility":action=Settings.ACTION_ACCESSIBILITY_SETTINGS;break;
+      case "notifications":action=Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS;break;
+      case "settings":case "all":case "":action=Settings.ACTION_SETTINGS;break;
+      default:throw new IllegalArgumentException("I can open Wi-Fi, internet, Bluetooth, hotspot, airplane mode, location, display, sound, battery, apps, storage, date and time, language or NFC settings.");
+    }
+    if(open(new Intent(action)))return result("opened","Opened "+page.replace('_',' ')+(action.startsWith("android.settings.panel")?" panel":" settings")+". To switch something, read the screen and tap it.");
+    if(open(new Intent(Settings.ACTION_SETTINGS)))return result("opened","That page isn't on this phone, so I opened Settings.");
+    return result("unavailable","Settings could not be opened.");
+  }
+
   private boolean open(Intent intent){try{activity.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return true;}catch(ActivityNotFoundException|SecurityException e){return false;}}
   static JSONObject result(String status,String message){JSONObject v=new JSONObject();try{v.put("status",status).put("message",message);}catch(JSONException ignored){}return v;}
 }
