@@ -14,12 +14,18 @@ export type MobileAction =
   | { action: 'navigate'; place: string; mode?: 'driving' | 'walking' | 'bicycling' }
   | { action: 'read_notifications'; limit?: number }
   | { action: 'send_sms'; recipient: string; message: string }
-  | { action: 'answer_call' | 'reject_call' };
+  | { action: 'answer_call' | 'reject_call' }
+  | { action: 'open_settings'; page: string }
+  | { action: 'phone_control'; control: 'back' | 'home' | 'recents' | 'notifications' | 'quick_settings' | 'power_menu' | 'lock_screen' | 'screenshot' }
+  | { action: 'read_screen' }
+  | { action: 'tap'; target?: string; confirm_token?: string }
+  | { action: 'type_text'; text: string; target?: string }
+  | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right' };
 export const MOBILE_TOOL = {
   name: 'mobile_action',
-  description: 'Perform an Android action requested by the user: open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, or read recent notifications. WhatsApp messages, SMS and calls return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
+  description: 'Perform an Android action requested by the user: open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. WhatsApp messages, SMS, calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
   parameters: { type: 'OBJECT', properties: {
-    action: { type: 'STRING', enum: ['open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call'] },
+    action: { type: 'STRING', enum: ['open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
     app: { type: 'STRING', description: 'App name, such as WhatsApp (WP), YouTube or Chrome. Only for open_app.' },
     query: { type: 'STRING', description: 'Exact search, or song/artist/playlist for play_music.' },
     recipient: { type: 'STRING', description: 'Saved contact name as spoken, or a full international phone number with country code. For whatsapp_message, send_sms and call. Contacts are resolved locally.' },
@@ -28,15 +34,18 @@ export const MOBILE_TOOL = {
     hour: { type: 'INTEGER', description: '0-23, 24-hour clock. For set_alarm, or set_reminder at a clock time.' },
     minute: { type: 'INTEGER', description: '0-59.' },
     label: { type: 'STRING', description: 'Optional alarm label.' },
-    text: { type: 'STRING', description: 'What to remind the user about. For set_reminder.' },
+    text: { type: 'STRING', description: 'For set_reminder: what to remind the user about. For type_text: the exact text to type.' },
     in_minutes: { type: 'INTEGER', description: 'For set_reminder: minutes from now (1-1440). Use instead of hour/minute.' },
     on: { type: 'BOOLEAN', description: 'For torch: true to turn on, false to turn off.' },
     stream: { type: 'STRING', enum: ['media', 'ring', 'alarm'], description: 'For volume. Default media.' },
-    direction: { type: 'STRING', enum: ['up', 'down', 'mute', 'max', 'auto'], description: 'For volume or brightness (auto is brightness only).' },
+    direction: { type: 'STRING', enum: ['up', 'down', 'mute', 'max', 'auto', 'left', 'right'], description: 'For volume or brightness (auto is brightness only), or scroll (up, down, left, right).' },
     percent: { type: 'INTEGER', description: '0-100 for volume or brightness.' },
     mode: { type: 'STRING', description: 'ringer_mode: silent, vibrate or normal. navigate: driving, walking or bicycling.' },
     place: { type: 'STRING', description: 'For navigate: destination name or address.' },
     limit: { type: 'INTEGER', description: 'For read_notifications: how many (1-20).' },
+    page: { type: 'STRING', description: 'For open_settings: wifi, internet, bluetooth, hotspot, airplane, location, display, sound, battery, apps, storage, date, language, nfc or settings.' },
+    control: { type: 'STRING', enum: ['back', 'home', 'recents', 'notifications', 'quick_settings', 'power_menu', 'lock_screen', 'screenshot'], description: 'For phone_control.' },
+    target: { type: 'STRING', description: 'For tap: the button or item label exactly as read_screen showed it. For type_text: optional label or hint of the text box.' },
   }, required: ['action'] },
 };
 /** Exact local typed commands; Live voice uses structured Gemini function calls. */
@@ -75,6 +84,10 @@ export function parseMobileAction(input: string): MobileAction | null {
   }
   match = /^play\s+(.+?)(?:\s+(?:song|songs|music))?$/i.exec(text.replace(/[.!?।]+$/u, '')) || /^(.+?)\s+(?:gaana|gana|song)\s+(?:chalao|bajao|lagao)$/i.exec(text.replace(/[.!?।]+$/u, ''));
   if (match && !/\band\b/i.test(match[1])) return { action: 'play_music', query: match[1].trim() };
+  match = /^(?:open\s+)?(wi-?fi|wifi|internet|mobile data|bluetooth|hotspot|airplane mode|flight mode|location|gps|display|sound|battery saver|nfc)\s+settings$/i.exec(plain) || /^(wi-?fi|bluetooth|hotspot|location)\s+(?:settings\s+)?(?:kholo|khol do|open karo)$/i.exec(plain);
+  if (match) return { action: 'open_settings', page: match[1].toLowerCase().replace(/-/g, '').replace(/ /g, '_') };
+  if (/^(?:take\s+(?:a\s+)?)?screenshot(?:\s+(?:lo|le lo|karo))?$/i.test(plain)) return { action: 'phone_control', control: 'screenshot' };
+  if (/^(?:lock(?:\s+the)?\s+(?:phone|screen)|(?:phone|screen)\s+lock\s+(?:karo|kar do))$/i.test(plain)) return { action: 'phone_control', control: 'lock_screen' };
   const openText = text.replace(/[.!?।]+$/u, '');
   match = /^(?:open|launch)\s+([\p{L}\p{N}][\p{L}\p{N} ._-]{0,79})$/iu.exec(openText) || /^(whatsapp|wp|wa|youtube|chrome)\s+(?:kholo|khol do|open karo)$/i.exec(openText);
   if (match && !/\band\b/i.test(match[1])) return { action: 'open_app', app: match[1].trim() };
