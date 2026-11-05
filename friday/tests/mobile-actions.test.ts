@@ -70,3 +70,12 @@ test('memory and persona commands parse locally',()=>{
   assert.deepEqual(parseMobileAction('professional mode on'),{action:'set_persona',persona:'professional'});
   assert.deepEqual(parseMobileAction('use girlfriend voice'),{action:'set_persona',persona:'gf'});
 });
+test('driving mode and call announcement commands parse locally',()=>{
+  assert.deepEqual(parseMobileAction('driving mode on'),{action:'set_driving_mode',on:true});
+  assert.deepEqual(parseMobileAction('Driving mode band karo'),{action:'set_driving_mode',on:false});
+  assert.deepEqual(parseMobileAction('turn off driving mode'),{action:'set_driving_mode',on:false});
+  assert.deepEqual(parseMobileAction("I'm driving"),{action:'set_driving_mode',on:true});
+  assert.deepEqual(parseMobileAction('call announcement off'),{action:'set_call_announce',on:false});
+  assert.deepEqual(parseMobileAction('caller name on karo'),{action:'set_call_announce',on:true});
+  assert.equal(parseMobileAction('driving mode'),null);
+});

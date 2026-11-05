@@ -40,6 +40,9 @@ svg .fill{fill:currentColor;stroke:none}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
 .pill{font-size:11px;padding:5px 11px;border-radius:999px;border:1px solid #2ee58a77;color:var(--green);background:#0b2a1f88}
 .pill.live{border-color:#ff3b5588;color:#ff8193;background:#2a0b1388}
+.pill.driving{border-color:#ffb34788;color:#ffc56b;background:#2a1d0b88;margin-right:6px;font:inherit;font-size:11px;cursor:pointer}
+.pill.driving::before{content:"\1F697  "}
+.pill[hidden]{display:none}
 .icon-button{border-radius:50%;width:42px;height:42px;padding:0;display:grid;place-items:center;font-size:20px}
 
 /* views */

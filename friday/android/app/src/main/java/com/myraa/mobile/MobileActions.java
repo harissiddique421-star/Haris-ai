@@ -62,6 +62,17 @@ public final class MobileActions {
   private PhoneControls phone;
   private AssistantMemory memory;
   private AssistantMemory memory(){if(memory==null)memory=new AssistantMemory(activity);return memory;}
+  private JSONObject announceSetting(boolean driving,JSONObject args){
+    if(!args.has("on"))throw new IllegalArgumentException(driving?"Say whether to turn driving mode on or off.":"Say whether to turn call announcements on or off.");
+    boolean on=args.optBoolean("on");Announcer.set(activity,driving?"drivingMode":"announceCalls",on);
+    boolean access=NotificationReader.enabled(activity);
+    String msg=driving?(on?"Driving mode is on. I will read out new messages and say who is calling.":"Driving mode is off.")
+      :(on?"I will say the caller's name when the phone rings.":"Call announcements are off.");
+    if(on&&!access)msg+=" Notification access is off, so turn it on in Settings > Permissions first.";
+    JSONObject v=PhoneControls.result(on&&!access?"permission_required":"done",msg);
+    try{v.put("driving",Announcer.driving(activity)).put("announceCalls",Announcer.announceCalls(activity));}catch(JSONException ignored){}
+    return v;
+  }
   private PhoneControls phone(){if(phone==null)phone=new PhoneControls(activity);return phone;}
   private final Map<String,JSONObject> completed=new LinkedHashMap<>();
   public MobileActions(Activity activity,Result result) {
@@ -181,6 +192,7 @@ public final class MobileActions {
       if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
       if("list_memories".equals(action)){finish(id,memory().listMemories());return;}
       if("set_persona".equals(action)){finish(id,memory().setPersona(args.optString("persona")));return;}
+      if("set_driving_mode".equals(action)||"set_call_announce".equals(action)){finish(id,announceSetting("set_driving_mode".equals(action),args));return;}
       if("open_dialer".equals(action)){boolean opened=launcher.open(new Intent(Intent.ACTION_DIAL));finish(id,opened?"opened":"unavailable",opened?"Dialer opened.":"No dialer app on this phone.");return;}
       if("tap".equals(action)){tap(id,args);return;}
       finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
