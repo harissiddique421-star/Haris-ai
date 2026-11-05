@@ -5,22 +5,38 @@ export type MobileAction =
   | { action: 'call'; recipient: string }
   | { action: 'set_alarm'; hour: number; minute: number; label?: string }
   | { action: 'set_reminder'; text: string; in_minutes?: number; hour?: number; minute?: number }
-  | { action: 'play_music'; query: string };
+  | { action: 'play_music'; query: string }
+  | { action: 'torch'; on: boolean }
+  | { action: 'volume'; stream?: 'media' | 'ring' | 'alarm'; direction?: 'up' | 'down' | 'mute' | 'max'; percent?: number }
+  | { action: 'ringer_mode'; mode: 'silent' | 'vibrate' | 'normal' }
+  | { action: 'brightness'; direction?: 'up' | 'down' | 'max' | 'auto'; percent?: number }
+  | { action: 'battery' }
+  | { action: 'navigate'; place: string; mode?: 'driving' | 'walking' | 'bicycling' }
+  | { action: 'read_notifications'; limit?: number }
+  | { action: 'send_sms'; recipient: string; message: string }
+  | { action: 'answer_call' | 'reject_call' };
 export const MOBILE_TOOL = {
   name: 'mobile_action',
-  description: 'Perform an Android action requested by the user: open an installed app, search YouTube, search the web, send a WhatsApp message, place a phone call, set an alarm or reminder, or play music. WhatsApp messages and calls return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
+  description: 'Perform an Android action requested by the user: open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, or read recent notifications. WhatsApp messages, SMS and calls return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
   parameters: { type: 'OBJECT', properties: {
-    action: { type: 'STRING', enum: ['open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'call', 'set_alarm', 'set_reminder', 'play_music'] },
+    action: { type: 'STRING', enum: ['open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call'] },
     app: { type: 'STRING', description: 'App name, such as WhatsApp (WP), YouTube or Chrome. Only for open_app.' },
     query: { type: 'STRING', description: 'Exact search, or song/artist/playlist for play_music.' },
-    recipient: { type: 'STRING', description: 'Saved contact name as spoken, or a full international phone number with country code. For whatsapp_message and call. Contacts are resolved locally.' },
-    message: { type: 'STRING', description: 'Complete WhatsApp message, exactly as the user said it. Ask for it if missing.' },
+    recipient: { type: 'STRING', description: 'Saved contact name as spoken, or a full international phone number with country code. For whatsapp_message, send_sms and call. Contacts are resolved locally.' },
+    message: { type: 'STRING', description: 'Complete WhatsApp or SMS message, exactly as the user said it. Ask for it if missing.' },
     confirm_token: { type: 'STRING', description: 'Token from a needs_confirmation result. Send it only after the user clearly said yes.' },
     hour: { type: 'INTEGER', description: '0-23, 24-hour clock. For set_alarm, or set_reminder at a clock time.' },
     minute: { type: 'INTEGER', description: '0-59.' },
     label: { type: 'STRING', description: 'Optional alarm label.' },
     text: { type: 'STRING', description: 'What to remind the user about. For set_reminder.' },
     in_minutes: { type: 'INTEGER', description: 'For set_reminder: minutes from now (1-1440). Use instead of hour/minute.' },
+    on: { type: 'BOOLEAN', description: 'For torch: true to turn on, false to turn off.' },
+    stream: { type: 'STRING', enum: ['media', 'ring', 'alarm'], description: 'For volume. Default media.' },
+    direction: { type: 'STRING', enum: ['up', 'down', 'mute', 'max', 'auto'], description: 'For volume or brightness (auto is brightness only).' },
+    percent: { type: 'INTEGER', description: '0-100 for volume or brightness.' },
+    mode: { type: 'STRING', description: 'ringer_mode: silent, vibrate or normal. navigate: driving, walking or bicycling.' },
+    place: { type: 'STRING', description: 'For navigate: destination name or address.' },
+    limit: { type: 'INTEGER', description: 'For read_notifications: how many (1-20).' },
   }, required: ['action'] },
 };
 /** Exact local typed commands; Live voice uses structured Gemini function calls. */
@@ -32,6 +48,21 @@ export function parseMobileAction(input: string): MobileAction | null {
   if (match) return { action: 'search_web', query: match[1].trim() };
   match = /^(?:message|msg|text)\s+(.+?)\s+(?:on|using)\s+(?:whatsapp|wp|wa)\s*:\s*(.+)$/is.exec(text) || /^(?:whatsapp|wp|wa)\s+(?:message|msg)(?:\s+to)?\s+(.+?)\s*:\s*(.+)$/is.exec(text);
   if (match) return { action: 'whatsapp_message', recipient: match[1].trim(), message: match[2].trim() };
+  const plain = text.replace(/[.!?।]+$/u, '');
+  match = /^(?:turn\s+)?(?:the\s+)?(?:torch|flashlight|flash light)\s+(on|off)$/i.exec(plain) || /^turn\s+(on|off)\s+(?:the\s+)?(?:torch|flashlight)$/i.exec(plain) || /^torch\s+(on|off)\s+(?:karo|kar do)$/i.exec(plain);
+  if (match) return { action: 'torch', on: match[1].toLowerCase() === 'on' };
+  match = /^(?:volume)\s+(up|down|max|mute)$/i.exec(plain) || /^(?:set\s+)?volume\s+(?:to\s+)?(\d{1,3})\s*%?$/i.exec(plain);
+  if (match) return /^\d+$/.test(match[1]) ? (Number(match[1]) <= 100 ? { action: 'volume', percent: Number(match[1]) } : null) : { action: 'volume', direction: match[1].toLowerCase() as 'up' };
+  match = /^(?:put\s+(?:the\s+)?phone\s+on\s+|set\s+(?:the\s+)?phone\s+to\s+)?(silent|vibrate|normal)(?:\s+mode)?(?:\s+(?:karo|kar do))?$/i.exec(plain);
+  if (match) return { action: 'ringer_mode', mode: match[1].toLowerCase() as 'silent' };
+  match = /^brightness\s+(up|down|max|auto)$/i.exec(plain) || /^(?:set\s+)?brightness\s+(?:to\s+)?(\d{1,3})\s*%?$/i.exec(plain);
+  if (match) return /^\d+$/.test(match[1]) ? (Number(match[1]) <= 100 ? { action: 'brightness', percent: Number(match[1]) } : null) : { action: 'brightness', direction: match[1].toLowerCase() as 'up' };
+  if (/^(?:battery|battery level|how much battery(?: is left)?|battery kitni hai)$/i.test(plain)) return { action: 'battery' };
+  if (/^(?:read|show)\s+(?:my\s+)?notifications$/i.test(plain)) return { action: 'read_notifications' };
+  match = /^(?:navigate|directions)\s+to\s+(.+)$/i.exec(plain);
+  if (match) return { action: 'navigate', place: match[1].trim() };
+  match = /^(?:sms|send\s+(?:an?\s+)?sms\s+to|text)\s+(.+?)\s*:\s*(.+)$/is.exec(text);
+  if (match && /^(?:sms|send)/i.test(text)) return { action: 'send_sms', recipient: match[1].trim(), message: match[2].trim() };
   match = /^(?:call|phone|dial)\s+(.+?)$/i.exec(text.replace(/[.!?।]+$/u, '')) || /^(.+?)\s+ko\s+(?:call|phone)\s+(?:karo|kar do|lagao)$/i.exec(text.replace(/[.!?।]+$/u, ''));
   if (match && !/\band\b/i.test(match[1])) return { action: 'call', recipient: match[1].trim() };
   match = /^remind me in\s+(\d{1,4})\s*(?:min|mins|minute|minutes)\s+(?:to\s+)?(.+)$/i.exec(text);

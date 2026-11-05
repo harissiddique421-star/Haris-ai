@@ -26,3 +26,16 @@ test('calls, alarms, reminders and music parse locally',()=>{
   assert.deepEqual(parseMobileAction('Kesariya gaana chalao'),{action:'play_music',query:'Kesariya'});
   for(const text of ['call Rahul and delete contacts','alarm at 25:00','do not call mom']) assert.equal(parseMobileAction(text),null,text);
 });
+test('phone controls parse locally',()=>{
+  assert.deepEqual(parseMobileAction('torch on'),{action:'torch',on:true});
+  assert.deepEqual(parseMobileAction('turn off the flashlight'),{action:'torch',on:false});
+  assert.deepEqual(parseMobileAction('volume up'),{action:'volume',direction:'up'});
+  assert.deepEqual(parseMobileAction('set volume to 40%'),{action:'volume',percent:40});
+  assert.deepEqual(parseMobileAction('put the phone on silent'),{action:'ringer_mode',mode:'silent'});
+  assert.deepEqual(parseMobileAction('brightness 70'),{action:'brightness',percent:70});
+  assert.deepEqual(parseMobileAction('battery kitni hai?'),{action:'battery'});
+  assert.deepEqual(parseMobileAction('read my notifications'),{action:'read_notifications'});
+  assert.deepEqual(parseMobileAction('navigate to Lahore airport'),{action:'navigate',place:'Lahore airport'});
+  assert.deepEqual(parseMobileAction('SMS Ammi: ghar aa raha hun'),{action:'send_sms',recipient:'Ammi',message:'ghar aa raha hun'});
+  for(const text of ['volume 400','brightness 250']) assert.equal(parseMobileAction(text),null,text);
+});

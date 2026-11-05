@@ -48,6 +48,8 @@ public final class MobileActions {
   private AlertDialog chooser,confirmDialog;
   private String chooserId,confirmId;
   private final Map<String,Confirmation> confirmations=new HashMap<>();
+  private PhoneControls phone;
+  private PhoneControls phone(){if(phone==null)phone=new PhoneControls(activity);return phone;}
   private final Map<String,JSONObject> completed=new LinkedHashMap<>();
   public MobileActions(Activity activity,Result result) {
     this(activity,result,new Launcher(){
@@ -122,7 +124,20 @@ public final class MobileActions {
       if("set_alarm".equals(action)){alarm(id,args,null);return;}
       if("set_reminder".equals(action)){reminder(id,args);return;}
       if("play_music".equals(action)){music(id,args.optString("query"));return;}
-      finish(id,"unsupported","Supported actions: open an app, search YouTube or the web, WhatsApp messages, phone calls, alarms, reminders and music.");
+      if("torch".equals(action)){finish(id,phone().torch(args.optBoolean("on",true)));return;}
+      if("volume".equals(action)){finish(id,phone().volume(args.optString("stream","media"),args.optString("direction"),args.optInt("percent",-1)));return;}
+      if("ringer_mode".equals(action)){finish(id,phone().ringer(args.optString("mode")));return;}
+      if("brightness".equals(action)){finish(id,phone().brightness(args.optString("direction"),args.optInt("percent",-1)));return;}
+      if("battery".equals(action)){finish(id,phone().battery());return;}
+      if("navigate".equals(action)){finish(id,phone().navigate(args.optString("place"),args.optString("mode")));return;}
+      if("read_notifications".equals(action)){finish(id,phone().notifications(args.optInt("limit",10)));return;}
+      if("answer_call".equals(action)||"reject_call".equals(action)){boolean accept="answer_call".equals(action);withPermission(id,Manifest.permission.ANSWER_PHONE_CALLS,()->finish(id,phone().answerCall(accept)),()->finish(id,"permission_required","Phone permission was denied, so FRIDAY cannot answer or reject calls."));return;}
+      if("send_sms".equals(action)){
+        String token=args.optString("confirm_token");
+        if(!token.isEmpty()){smsConfirmed(id,token);return;}
+        sms(id,args.optString("recipient"),args.optString("message"),args.optBoolean("confirm_on_screen"));return;
+      }
+      finish(id,"unsupported","Supported actions: apps, searches, WhatsApp, calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, and answering calls.");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){
@@ -229,6 +244,28 @@ public final class MobileActions {
     finish(id,opened?"dialer_opened":"unavailable",opened?"Phone permission was denied, so the dialer is open with "+person.name+"'s number. Tap Call to start it.":"Android could not open the dialer.");
   }
 
+  private void withPermission(String id,String permission,Runnable granted,Runnable denied){
+    if(activity.checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED){granted.run();return;}
+    if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
+    pendingId=id;pendingPermission=permission;pending=granted;pendingDenied=denied;
+    activity.requestPermissions(new String[]{permission},CONTACTS_REQUEST);
+  }
+  private void sms(String id,String recipient,String text,boolean onScreen){
+    if(text.trim().isEmpty()||text.length()>1000){finish(id,"invalid","Tell me the recipient and the complete message.");return;}
+    resolve(id,recipient,person->{
+      if(onScreen){confirmOnScreen(id,"Send SMS?","To: "+person.name+" (+"+person.phone+")\n\n"+text,()->sendSms(id,person,text));return;}
+      askConfirmation(id,"sms",person,text,"Send this SMS to "+person.name+" (+"+person.phone+"): \""+text+"\"?");
+    });
+  }
+  private void smsConfirmed(String id,String token){
+    Confirmation c=take("sms",token);
+    if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again with the recipient and message.");return;}
+    sendSms(id,new Recipient(c.name,c.phone),c.text);
+  }
+  private void sendSms(String id,Recipient person,String text){
+    withPermission(id,Manifest.permission.SEND_SMS,()->{try{finish(id,phone().sms(person.phone,text,person.name));}catch(RuntimeException e){finish(id,"failed","The SMS could not be sent.");}},
+      ()->finish(id,"permission_required","SMS permission was denied, so nothing was sent."));
+  }
   private void alarm(String id,JSONObject args,String label){
     int hour=args.optInt("hour",-1),minute=args.optInt("minute",0);
     if(hour<0||hour>23||minute<0||minute>59)throw new IllegalArgumentException("Say the alarm time, for example 6:30 AM.");
