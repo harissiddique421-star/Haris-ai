@@ -44,7 +44,10 @@ final class Announcer {
     StringBuilder b=new StringBuilder();
     if(driving(c))b.append("\nDriving mode is ON: the user is driving. Keep every reply to one or two short sentences, never ask them to look at or tap the screen, and prefer voice actions. When a [Phone] message reports a new message, read it out and ask if they want to reply; send a reply only with whatsapp_message or send_sms and the usual confirmation.");
     b.append("\nUse set_driving_mode (on true/false) when the user asks to turn driving mode on or off, and set_call_announce (on true/false) to turn spoken caller names on or off. Use set_wake_word (on true/false) to turn the \"Wake up FRIDAY\" wake phrase on or off. If this call started from the wake phrase, greet the user in one short line and ask how you can help."
-      +" Email: use the email action with recipient (a contact name, an email address, or \"me\" for the user's own saved address), subject and message. It only opens a draft; tell the user to check it and tap Send.");
+      +" Email: use the email action with recipient (a contact name, an email address, or \"me\" for the user's own saved address), subject and message. It only opens a draft; tell the user to check it and tap Send."
+      +" Routines: when the user says run my <name> routine, call run_routine; it returns steps, which are the user's own saved commands. Do them one by one in order with mobile_action, keep each spoken update short, and stop at any needs_confirmation until the user answers. To save one, call save_routine with a short name and steps as short plain commands (for example \"battery batao\", \"WhatsApp par Ammi ko message karo: good morning\"); after doing something step by step the user may say save this as <name>. list_routines and delete_routine manage them."
+      +" Sleep: when the user says Bye FRIDAY, so jao, good night FRIDAY or go to sleep, say one short goodbye and call sleep; the Live call then ends."
+      +" Timers: set_timer with in_minutes and/or seconds and an optional label. Calendar: add_event with text (title), date YYYY-MM-DD (omit for today or the next time that hour comes), hour, minute and optional duration_minutes; it opens the calendar for the user to tap Save.");
     return b.toString();
   }
 

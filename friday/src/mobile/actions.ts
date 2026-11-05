@@ -11,6 +11,12 @@ export type MobileAction =
   | { action: 'open_dialer' }
   | { action: 'set_driving_mode' | 'set_call_announce' | 'set_wake_word'; on: boolean }
   | { action: 'email'; recipient: string; subject?: string; message?: string }
+  | { action: 'save_routine'; name: string; steps: string[] }
+  | { action: 'make_document'; title: string; text: string; format?: 'pdf' | 'txt' }
+  | { action: 'run_routine' | 'delete_routine'; name: string }
+  | { action: 'list_routines' | 'sleep' }
+  | { action: 'set_timer'; in_minutes?: number; seconds?: number; label?: string }
+  | { action: 'add_event'; text: string; date?: string; hour: number; minute?: number; duration_minutes?: number }
   | { action: 'call'; recipient: string }
   | { action: 'set_alarm'; hour: number; minute: number; label?: string }
   | { action: 'set_reminder'; text: string; in_minutes?: number; hour?: number; minute?: number }
@@ -32,19 +38,26 @@ export type MobileAction =
   | { action: 'scroll'; direction: 'up' | 'down' | 'left' | 'right' };
 export const MOBILE_TOOL = {
   name: 'mobile_action',
-  description: 'Perform an Android action requested by the user: remember a fact about the user (remember), forget it (forget), say what you remember (list_memories), switch persona (set_persona: friday, gf, professional, venom), turn driving mode on or off (set_driving_mode with on), turn spoken caller names on or off (set_call_announce with on), turn the wake phrase on or off (set_wake_word with on), open an email draft (email with recipient, subject, message; recipient "me" is the user), open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, start a WhatsApp voice or video call (whatsapp_call, video true for video), open a saved contact, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. Never just open WhatsApp when the user wants to message or call someone: use whatsapp_message or whatsapp_call. WhatsApp messages and calls, SMS, phone calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
+  description: 'Perform an Android action requested by the user: remember a fact about the user (remember), forget it (forget), say what you remember (list_memories), switch persona (set_persona: friday, gf, professional, venom), turn driving mode on or off (set_driving_mode with on), turn spoken caller names on or off (set_call_announce with on), turn the wake phrase on or off (set_wake_word with on), open an email draft (email with recipient, subject, message; recipient "me" is the user), save, run, list or delete a routine of saved commands (save_routine, run_routine, list_routines, delete_routine), go to sleep and end the Live call when the user says Bye FRIDAY (sleep), set a timer (set_timer), open a calendar event draft (add_event), save a document you wrote as a PDF or text file in Downloads (make_document with title, text, format), open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, start a WhatsApp voice or video call (whatsapp_call, video true for video), open a saved contact, place a phone call, answer or reject a ringing call, set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. Never just open WhatsApp when the user wants to message or call someone: use whatsapp_message or whatsapp_call. WhatsApp messages and calls, SMS, phone calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
   parameters: { type: 'OBJECT', properties: {
-    action: { type: 'STRING', enum: ['remember', 'forget', 'list_memories', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'email', 'open_dialer', 'open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
+    action: { type: 'STRING', enum: ['remember', 'forget', 'list_memories', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'email', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'sleep', 'set_timer', 'add_event', 'make_document', 'open_dialer', 'open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
     app: { type: 'STRING', description: 'App name, such as WhatsApp (WP), YouTube or Chrome. Only for open_app.' },
     recipient: { type: 'STRING', description: 'Saved contact name as spoken, or a full international phone number with country code. For whatsapp_message, whatsapp_call, open_contact, send_sms and call. Contacts and their WhatsApp accounts are resolved locally.' },
     message: { type: 'STRING', description: 'Complete WhatsApp, SMS or email message, exactly as the user said it. Ask for it if missing.' },
     subject: { type: 'STRING', description: 'For email: a short subject line.' },
+    title: { type: 'STRING', description: 'For make_document: the document title.' },
+    format: { type: 'STRING', enum: ['pdf', 'txt'], description: 'For make_document. Default pdf.' },
+    name: { type: 'STRING', description: 'For save_routine, run_routine and delete_routine: the routine name, like morning.' },
+    steps: { type: 'ARRAY', items: { type: 'STRING' }, description: 'For save_routine: up to 10 short plain commands, in order.' },
+    seconds: { type: 'INTEGER', description: 'For set_timer: extra seconds (use with or instead of in_minutes).' },
+    date: { type: 'STRING', description: 'For add_event: YYYY-MM-DD. Omit for today.' },
+    duration_minutes: { type: 'INTEGER', description: 'For add_event: length in minutes, default 60.' },
     confirm_token: { type: 'STRING', description: 'Token from a needs_confirmation result. Send it only after the user clearly said yes.' },
     hour: { type: 'INTEGER', description: '0-23, 24-hour clock. For set_alarm, or set_reminder at a clock time.' },
     minute: { type: 'INTEGER', description: '0-59.' },
     label: { type: 'STRING', description: 'Optional alarm label.' },
-    text: { type: 'STRING', description: 'For set_reminder: what to remind the user about. For type_text: the exact text to type.' },
-    in_minutes: { type: 'INTEGER', description: 'For set_reminder: minutes from now (1-1440). Use instead of hour/minute.' },
+    text: { type: 'STRING', description: 'For set_reminder: what to remind the user about. For add_event: the event title. For make_document: the complete document text you wrote. For type_text: the exact text to type.' },
+    in_minutes: { type: 'INTEGER', description: 'For set_reminder or set_timer: minutes from now (1-1440). For set_reminder use instead of hour/minute.' },
     fact: { type: 'STRING', description: 'For remember: one short fact about the user, in their words. Never passwords, PINs, OTPs or card numbers.' },
     query: { type: 'STRING', description: 'Exact search, or song/artist/playlist for play_music, or for forget: words from the memory to delete (or "everything").' },
     persona: { type: 'STRING', enum: ['friday', 'gf', 'professional', 'venom'], description: 'For set_persona.' },
@@ -80,6 +93,16 @@ export function parseMobileAction(input: string): MobileAction | null {
   if (match) return { action: 'forget', query: match[1].trim() };
   match = /^(?:switch to|use|change to)\s+(friday|gf|girlfriend|professional|venom)(?:\s+(?:mode|persona|voice))?$/i.exec(plain) || /^(friday|gf|girlfriend|professional|venom)\s+mode(?:\s+(?:on|karo|kar do|lagao))?$/i.exec(plain);
   if (match) { const p = match[1].toLowerCase(); return { action: 'set_persona', persona: p === 'girlfriend' ? 'gf' : p as 'gf' }; }
+  if (/^(?:bye|goodbye|good night|gn)(?:\s+(?:friday|फ्राइडे))?$|^(?:so jao|sleep|go to sleep|chup ho jao)$/i.test(plain)) return { action: 'sleep' };
+  if (/^(?:list|show)?\s*(?:my\s+)?routines$|^(?:meri\s+)?routines\s+(?:dikhao|batao)$/i.test(plain)) return { action: 'list_routines' };
+  match = /^(?:run|start|do)\s+(?:my\s+|the\s+)?(.+?)\s+routine$/i.exec(plain) || /^(?:meri\s+|mera\s+)?(.+?)\s+routine\s+(?:chalao|chala do|shuru karo|start karo)$/i.exec(plain);
+  if (match && !/\band\b/i.test(match[1])) return { action: 'run_routine', name: match[1].trim() };
+  match = /^(?:delete|remove)\s+(?:my\s+|the\s+)?(.+?)\s+routine$/i.exec(plain) || /^(.+?)\s+routine\s+(?:delete karo|hata do|mita do)$/i.exec(plain);
+  if (match) return { action: 'delete_routine', name: match[1].trim() };
+  match = /^(?:save|create|make)\s+(?:a\s+)?routine\s+(.{1,40}?)\s*:\s*(.+)$/is.exec(text);
+  if (match) { const steps = match[2].split(/\s*(?:;|\n|\s+then\s+|\s+phir\s+)\s*/i).map(step => step.trim()).filter(Boolean); if (steps.length) return { action: 'save_routine', name: match[1].trim(), steps }; }
+  match = /^(?:set\s+)?(?:a\s+)?timer\s+(?:for\s+)?(\d{1,4})\s*(min(?:ute)?s?|sec(?:ond)?s?)$/i.exec(plain) || /^(\d{1,4})\s*(min(?:ute)?s?|sec(?:ond)?s?)\s+(?:ka\s+)?timer(?:\s+(?:lagao|laga do|set karo))?$/i.exec(plain);
+  if (match) { const n = Number(match[1]); return /^s/i.test(match[2]) ? { action: 'set_timer', seconds: n } : { action: 'set_timer', in_minutes: n }; }
   match = /^(?:turn\s+)?wake\s*(?:word|phrase|up word)\s+(on|off|chalu|band)(?:\s+(?:karo|kar do))?$/i.exec(plain) || /^turn\s+(on|off)\s+(?:the\s+)?wake\s*(?:word|phrase)$/i.exec(plain);
   if (match) return { action: 'set_wake_word', on: /^(?:on|chalu)$/i.test(match[1]) };
   match = /^(?:email|mail)\s+(.+?)\s*:\s*(.+)$/is.exec(text) || /^(.+?)\s+(?:ko\s+)?(?:email|mail)\s+(?:karo|kar do|bhejo|bhej do)\s*:\s*(.+)$/is.exec(text);

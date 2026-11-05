@@ -1,7 +1,7 @@
 import './mobile.css';
 import { MyraaAudioSession, type LiveState } from '../lib/audio';
 import { MobileLiveTransport } from './LiveTransport';
-import { parseMobileAction } from './actions';
+import { parseMobileAction, type MobileAction } from './actions';
 import fridayLogo from '../../branding/friday-icon-small.png';
 import fridayCore from '../../branding/friday-icon.png';
 import { CharacterSystem } from '../character/core/CharacterSystem';
@@ -181,6 +181,11 @@ app.innerHTML = `
       <div class="card"><b>Voice</b><small id="voice-for">Pick a voice. Applies the next time a Live call starts.</small><div id="voice-list" class="voice-list"></div></div>
     </div>
     <div class="settings-page" data-page="memory" hidden>
+      <div class="card"><b>Routines</b><small>One line runs several steps. Say "run my morning routine". Each step is a normal command, and calls or messages still ask you first.</small>
+        <ul id="routine-list" class="memory-list"></ul>
+        <input id="routine-name" maxlength="40" placeholder="Name, e.g. morning">
+        <textarea id="routine-steps" rows="4" maxlength="2000" placeholder="One step per line, e.g.&#10;battery&#10;read my notifications&#10;play some Arijit Singh"></textarea>
+        <button id="routine-save">Save routine</button></div>
       <div class="card"><b>Memory</b><small>Stays on this phone. Say "remember that…" or add one here. FRIDAY never saves passwords, PINs or OTPs.</small><div class="row"><input id="memory-new" maxlength="300" placeholder="e.g. My sister's name is Sara"><button id="memory-add">Add</button></div><ul id="memory-list" class="memory-list"></ul></div>
     </div>
     <div class="settings-page" data-page="permissions" hidden><p class="muted">FRIDAY needs these to do things for you. Allow only what you want.</p><div id="permission-list" class="permission-list"></div></div>
@@ -223,8 +228,8 @@ function showView(view: 'home' | 'chat') {
   el('nav-chat').querySelector('span')!.textContent = view === 'chat' ? 'Home' : 'Chat';
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
-const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened']);
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', answer_call: 'Call', reject_call: 'Call' };
+const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', answer_call: 'Call', reject_call: 'Call' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
@@ -233,6 +238,26 @@ function appendAction(action: string, result: any) {
   const body = document.createElement('p'); body.textContent = String(result?.message || 'Finished.').slice(0, 400);
   const mark = document.createElement('i'); mark.textContent = ok ? '✓' : result?.status === 'needs_confirmation' ? '?' : '!';
   card.append(mark, title, body); el('messages').appendChild(card); el('messages').scrollTop = el('messages').scrollHeight;
+}
+const onScreenConfirm = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms']);
+const refreshAfter = new Set(['remember', 'forget', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'save_routine', 'delete_routine']);
+/** Runs a typed command; a routine runs its saved steps one by one and stops at anything that needs the user. */
+async function runTyped(mobile: MobileAction) {
+  const result = await runMobileAction('mobile_action', onScreenConfirm.has(mobile.action) ? { ...mobile, confirm_on_screen: true } : mobile);
+  appendAction(mobile.action, result); notice(result?.message || '');
+  if (refreshAfter.has(mobile.action)) refreshState();
+  if (mobile.action === 'sleep') { stopVoice(); return; }
+  if (mobile.action !== 'run_routine' || result?.status !== 'steps') return;
+  const steps = (result.steps || []) as string[];
+  for (let i = 0; i < steps.length; i++) {
+    const step = parseMobileAction(steps[i]);
+    if (!step || step.action === 'run_routine') { append('model', `Step ${i + 1} ("${steps[i]}") needs a Live call, so I stopped here. Start FRIDAY Live and say the routine name to run all of it.`); return; }
+    const done = await runMobileAction('mobile_action', onScreenConfirm.has(step.action) ? { ...step, confirm_on_screen: true } : step);
+    appendAction(step.action, done); notice(done?.message || '');
+    if (!['done', 'set', 'opened', 'playing', 'sent', 'calling', 'draft_opened', 'saved'].includes(String(done?.status))) { append('model', `Routine stopped at step ${i + 1}: ${done?.message || 'it did not finish.'}`); return; }
+    await new Promise(resolve => setTimeout(resolve, 1200));
+  }
+  append('model', `Routine "${result.routine}" finished.`);
 }
 function refreshState() { if (bridge) { try { const next = JSON.parse(bridge.getState()); state.assistant = next.assistant; state.permissions = next.permissions; state.controlStatus = next.controlStatus; state.controlLog = next.controlLog; state.announce = next.announce; state.wake = next.wake; } catch { /* keep old */ } } renderAssistant(); renderPermissions(); }
 const personaLabels: Record<string, string> = { friday: 'FRIDAY', gf: 'GF', professional: 'Professional', venom: 'Venom' };
@@ -271,6 +296,13 @@ function renderAssistant() {
     b.className = chosen ? 'chosen' : ''; b.textContent = voice + (chosen ? '  ✓' : '');
     b.onclick = () => bridge?.setAssistant?.(JSON.stringify({ voice, voicePersona: personaTab })); list.append(b);
   }
+  const routines = el('routine-list'); routines.replaceChildren();
+  for (const [name, steps] of Object.entries((a.routines || {}) as Record<string, string[]>)) {
+    const li = document.createElement('li'); const span = document.createElement('span'); span.textContent = `${name}: ${steps.join(' → ')}`;
+    const del = document.createElement('button'); del.textContent = '×'; del.setAttribute('aria-label', `Delete ${name} routine`);
+    del.onclick = () => bridge?.setAssistant?.(JSON.stringify({ deleteRoutine: name })); li.append(span, del); routines.append(li);
+  }
+  if (!Object.keys(a.routines || {}).length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'No routines yet.'; routines.append(li); }
   const memories = el('memory-list'); memories.replaceChildren();
   ((a.memories || []) as string[]).forEach((text, index) => {
     const li = document.createElement('li'); const span = document.createElement('span'); span.textContent = text;
@@ -405,7 +437,7 @@ window.MyraaEvents = event => {
 function send() {
   const input = el<HTMLTextAreaElement>('input'); const text = input.value.trim(); if (!text || busy) return;
   const mobile = parseMobileAction(text);
-  if (mobile) { input.value = ''; append('user', text); void runMobileAction('mobile_action', mobile.action === 'whatsapp_message' || mobile.action === 'whatsapp_call' || mobile.action === 'call' || mobile.action === 'send_sms' ? { ...mobile, confirm_on_screen: true } : mobile).then(result => { appendAction(mobile.action, result); notice(result.message); if (mobile.action === 'remember' || mobile.action === 'forget' || mobile.action === 'set_persona' || mobile.action === 'set_driving_mode' || mobile.action === 'set_call_announce' || mobile.action === 'set_wake_word') refreshState(); }); showView('chat'); return; }
+  if (mobile) { input.value = ''; append('user', text); void runTyped(mobile); showView('chat'); return; }
   showView('chat');
   if (liveSession && liveSession.getState() !== 'disconnected') { liveSession.sendText(text); input.value = ''; append('user', text); return; }
   const command = parseCharacterCommand(text);
@@ -437,7 +469,7 @@ el('voice').onclick = () => {
   liveSession = new MyraaAudioSession({
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
     onStateChange: liveState, onTranscription: liveTranscription,
-    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } void runMobileAction(name, args).then(result => { notice(result.message); appendAction(String((args as any)?.action || ''), result); callback(result); if (/^set_(?:driving_mode|call_announce|wake_word)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
+    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } void runMobileAction(name, args).then(result => { notice(result.message); appendAction(String((args as any)?.action || ''), result); callback(result); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
     onError: message => { notice(message); stopVoice(); },
   });
   notice('Connecting to FRIDAY Live…'); void liveSession.connect(true);
@@ -478,6 +510,11 @@ el('save-advanced').onclick = () => el('save').click();
 el('announce-calls').onchange = () => setAnnounce({ announceCalls: el<HTMLInputElement>('announce-calls').checked });
 el('driving-mode').onchange = () => setAnnounce({ drivingMode: el<HTMLInputElement>('driving-mode').checked });
 el('driving-read').onchange = () => setAnnounce({ drivingReadText: el<HTMLInputElement>('driving-read').checked });
+el('routine-save').onclick = () => {
+  const name = el<HTMLInputElement>('routine-name').value.trim(); const steps = el<HTMLTextAreaElement>('routine-steps').value.split('\n').map(step => step.trim()).filter(Boolean);
+  if (!name || !steps.length) { notice('Give the routine a name and at least one step.'); return; }
+  bridge?.setAssistant?.(JSON.stringify({ saveRoutine: { name, steps } })); el<HTMLInputElement>('routine-name').value = ''; el<HTMLTextAreaElement>('routine-steps').value = '';
+};
 el('wake-word').onchange = () => bridge?.setAssistant?.(JSON.stringify({ wakeWord: el<HTMLInputElement>('wake-word').checked }));
 el('user-email').onchange = () => bridge?.setAssistant?.(JSON.stringify({ email: el<HTMLInputElement>('user-email').value.trim() }));
 el('backup-export').onclick = () => bridge?.exportBackup?.();

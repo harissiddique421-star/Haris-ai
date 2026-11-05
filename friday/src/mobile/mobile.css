@@ -178,7 +178,9 @@ dialog::backdrop{background:#000a}
 .grant{border:0;border-radius:999px;padding:12px 24px;background:#6ea8ff;color:#06122e;font-weight:700;flex:none}
 .granted{color:#6ea8ff;font-size:14px;flex:none}
 dialog label{display:block;font-size:13px;color:#cfe0ff;margin:14px 0 0}
-dialog input:not([type=checkbox]),dialog select{display:block;width:100%;margin-top:6px;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0a1430;color:var(--text)}
+dialog input:not([type=checkbox]),dialog select,dialog textarea{display:block;width:100%;margin-top:6px;padding:12px;border-radius:12px;border:1px solid var(--line);background:#0a1430;color:var(--text)}
+#routine-save{margin-top:8px}
+dialog textarea{resize:vertical;min-height:84px}
 .check{display:flex!important;gap:10px;align-items:center}
 .primary{width:100%;margin-top:16px;padding:13px;border-radius:14px;background:linear-gradient(180deg,var(--blue),#1a5cff);border:0;font-weight:700}
 dialog .primary+button{width:100%;margin-top:8px}

@@ -239,6 +239,19 @@ public final class MobileActions {
       if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
       if("list_memories".equals(action)){finish(id,memory().listMemories());return;}
       if("set_persona".equals(action)){finish(id,memory().setPersona(args.optString("persona")));return;}
+      if("save_routine".equals(action)){finish(id,memory().saveRoutine(args.optString("name"),args.optJSONArray("steps")));return;}
+      if("run_routine".equals(action)){finish(id,memory().runRoutine(args.optString("name")));return;}
+      if("list_routines".equals(action)){finish(id,memory().listRoutines());return;}
+      if("delete_routine".equals(action)){finish(id,memory().deleteRoutine(args.optString("name")));return;}
+      if("sleep".equals(action)){JSONObject v=PhoneControls.result("sleeping","Going to sleep. Say \"Wake up FRIDAY\" when you need me.");v.put("sleep",true);finish(id,v);return;}
+      if("make_document".equals(action)){
+        Documents.Saved doc=Documents.save(activity,args.optString("title"),args.optString("text"),args.optString("format","pdf"));
+        Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(doc.uri,doc.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        boolean opened=launcher.open(view);ControlLog.i("document: saved "+(doc.mime.endsWith("pdf")?"pdf":"txt"));
+        finish(id,"saved","Saved "+doc.name+" in Downloads/FRIDAY"+(opened?" and opened it.":". No app here opens this file type, but it is in your Downloads."));return;
+      }
+      if("set_timer".equals(action)){timer(id,args);return;}
+      if("add_event".equals(action)){event(id,args);return;}
       if("email".equals(action)){finish(id,email(args));return;}
       if("set_wake_word".equals(action)){finish(id,wakeWord(args));return;}
       if("set_driving_mode".equals(action)||"set_call_announce".equals(action)){finish(id,announceSetting("set_driving_mode".equals(action),args));return;}
@@ -399,6 +412,36 @@ public final class MobileActions {
       boolean opened=launcher.open(intent);finish(id,opened?"set":"unavailable",opened?"Reminder set in "+minutes+" minute"+(minutes==1?"":"s")+": "+text+".":"No clock app on this phone accepts timers.");return;
     }
     alarm(id,args,"Reminder: "+text);
+  }
+  private void timer(String id,JSONObject args){
+    int seconds=args.optInt("in_minutes",0)*60+args.optInt("seconds",0);
+    if(seconds<1||seconds>86_400)throw new IllegalArgumentException("Say how long the timer should be, up to 24 hours.");
+    String label=args.optString("label","").trim();if(label.length()>100)label=label.substring(0,100);
+    Intent intent=new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH,seconds).putExtra(AlarmClock.EXTRA_SKIP_UI,true);
+    if(!label.isEmpty())intent.putExtra(AlarmClock.EXTRA_MESSAGE,label);
+    int m=seconds/60,sec=seconds%60;String length=(m>0?m+" minute"+(m==1?"":"s"):"")+(m>0&&sec>0?" ":"")+(sec>0?sec+" second"+(sec==1?"":"s"):"");
+    boolean opened=launcher.open(intent);finish(id,opened?"set":"unavailable",opened?"Timer set for "+length+(label.isEmpty()?"":" ("+label+")")+".":"No clock app on this phone accepts timers.");
+  }
+  /** Opens the calendar's new-event screen filled in; the user saves it there. */
+  private void event(String id,JSONObject args){
+    String title=args.optString("text","").trim();if(title.isEmpty()||title.length()>200)throw new IllegalArgumentException("Say what the event is.");
+    int hour=args.optInt("hour",-1),minute=args.optInt("minute",0),duration=args.optInt("duration_minutes",60);
+    if(hour<0||hour>23||minute<0||minute>59)throw new IllegalArgumentException("Say the event time, for example 3 PM.");
+    if(duration<5||duration>24*60)duration=60;
+    Calendar when=Calendar.getInstance();when.set(Calendar.SECOND,0);when.set(Calendar.MILLISECOND,0);
+    String date=args.optString("date","").trim();
+    if(date.matches("\\d{4}-\\d{2}-\\d{2}")){
+      String[] d=date.split("-");when.set(Integer.parseInt(d[0]),Integer.parseInt(d[1])-1,Integer.parseInt(d[2]));
+    }else if(!date.isEmpty()&&!date.equalsIgnoreCase("today"))throw new IllegalArgumentException("Give the date as YYYY-MM-DD.");
+    when.set(Calendar.HOUR_OF_DAY,hour);when.set(Calendar.MINUTE,minute);
+    long begin=when.getTimeInMillis();
+    if(date.isEmpty()&&begin<System.currentTimeMillis())begin+=24L*60*60*1000;
+    Intent intent=new Intent(Intent.ACTION_INSERT).setData(android.provider.CalendarContract.Events.CONTENT_URI)
+      .putExtra(android.provider.CalendarContract.EXTRA_EVENT_BEGIN_TIME,begin).putExtra(android.provider.CalendarContract.EXTRA_EVENT_END_TIME,begin+duration*60_000L)
+      .putExtra(android.provider.CalendarContract.Events.TITLE,title);
+    boolean opened=launcher.open(intent);
+    String at=new java.text.SimpleDateFormat("EEE d MMM, HH:mm",Locale.ENGLISH).format(new Date(begin));
+    finish(id,opened?"draft_opened":"unavailable",opened?"Calendar event \""+title+"\" for "+at+" is open. Check it and tap Save.":"No calendar app on this phone.");
   }
   private void music(String id,String query){
     String q=query==null?"":query.trim();if(q.isEmpty()||q.length()>200)throw new IllegalArgumentException("Say which song, artist or playlist to play.");
