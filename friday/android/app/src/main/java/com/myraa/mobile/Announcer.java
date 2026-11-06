@@ -73,6 +73,12 @@ final class Announcer {
       tts.speak(text,flush?TextToSpeech.QUEUE_FLUSH:TextToSpeech.QUEUE_ADD,null,"friday-announce");
     });
   }
+  /** Speaks one line for a reminder (not on silent/vibrate unless driving), then frees the speech engine. */
+  void sayOnce(String text){
+    AudioManager audio=context.getSystemService(AudioManager.class);
+    if(audio!=null&&audio.getRingerMode()!=AudioManager.RINGER_MODE_NORMAL&&!driving(context))return;
+    speak(clean(text,200),false);main.postDelayed(this::shutdown,25_000);
+  }
   void stop(){main.post(()->{ringingKey=null;main.removeCallbacksAndMessages(null);if(tts!=null&&ready)tts.stop();});}
   void shutdown(){main.post(()->{main.removeCallbacksAndMessages(null);if(tts!=null)tts.shutdown();tts=null;ready=false;});}
 

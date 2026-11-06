@@ -126,6 +126,7 @@ final class AssistantMemory {
     }catch(JSONException ignored){}
     return v;
   }
+  static boolean looksSecret(String text){return text!=null&&(text.matches("(?is).*\\b(password|passcode|pin|otp|cvv|card number)\\b.*")||text.replaceAll("[\\s-]","").matches(".*\\d{12,}.*"));}
   /** Restores a backup made by FRIDAY. Unknown or invalid fields are skipped; memories still pass the password/PIN filter. */
   int restore(Context c,JSONObject in){
     if(in==null||!"FRIDAY".equals(in.optString("app")))throw new IllegalArgumentException("This is not a FRIDAY backup file.");

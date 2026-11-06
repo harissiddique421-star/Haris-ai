@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.myraa.mobile" android:versionCode="18" android:versionName="1.0.0-rc.18">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.myraa.mobile" android:versionCode="19" android:versionName="1.0.0-rc.19">
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.READ_CALENDAR" />
+  <uses-permission android:name="android.permission.READ_CALL_LOG" />
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
   <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
   <uses-permission android:name="android.permission.READ_CONTACTS" />
@@ -37,6 +41,9 @@
     <service android:name=".NotificationReader" android:label="FRIDAY" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true">
       <intent-filter><action android:name="android.service.notification.NotificationListenerService" /></intent-filter>
     </service>
+    <receiver android:name=".ReminderReceiver" android:exported="false">
+      <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+    </receiver>
     <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
     <service android:name=".LiveVoiceService" android:exported="false" android:foregroundServiceType="microphone|mediaPlayback|mediaProjection" />
     <activity android:name=".MainActivity" android:launchMode="singleTask" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">

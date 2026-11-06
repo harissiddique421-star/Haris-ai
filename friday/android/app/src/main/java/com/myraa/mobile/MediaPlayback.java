@@ -74,13 +74,17 @@ final class MediaPlayback {
 
   // ---- opening
   /** Watch link for the YouTube app. Songs get YouTube's own mix after them, so next/previous work. */
-  static Uri watchUri(String id,boolean music){
+  static Uri watchUri(String id,boolean music){return watchUri(id,music,0);}
+  /** startSeconds > 0 opens the video at that point (resume where the user stopped). */
+  static Uri watchUri(String id,boolean music,int startSeconds){
     Uri.Builder b=Uri.parse("https://www.youtube.com/watch").buildUpon().appendQueryParameter("v",id);
     if(music)b.appendQueryParameter("list","RD"+id);
+    if(startSeconds>0)b.appendQueryParameter("t",startSeconds+"s");
     return b.build();
   }
-  static Intent openIntent(Context c,String id,boolean music,String pkg){
-    Intent i=new Intent(Intent.ACTION_VIEW,watchUri(id,music)).addCategory(Intent.CATEGORY_BROWSABLE);
+  static Intent openIntent(Context c,String id,boolean music,String pkg){return openIntent(c,id,music,pkg,0);}
+  static Intent openIntent(Context c,String id,boolean music,String pkg,int startSeconds){
+    Intent i=new Intent(Intent.ACTION_VIEW,watchUri(id,music,startSeconds)).addCategory(Intent.CATEGORY_BROWSABLE);
     if(pkg!=null)i.setPackage(pkg);
     return i;
   }
@@ -118,6 +122,45 @@ final class MediaPlayback {
     MediaMetadata md=mc.getMetadata();if(md==null)return "";
     String t=md.getString(MediaMetadata.METADATA_KEY_TITLE);return t==null?"":t;
   }
+
+  // ---- remembering where the user stopped (Quran, stories, lectures)
+  private static MediaController tracked;private static MediaController.Callback trackCallback;
+  private static SharedPreferences prefs(Context c){return c.getSharedPreferences(Announcer.PREFS,Context.MODE_PRIVATE);}
+  /** Called when FRIDAY opens a video: remember which one, from the start. */
+  static void remember(Context c,String id,String title,boolean music){
+    prefs(c).edit().putString("lastVideo",id).putString("lastVideoTitle",title==null?"":title).putBoolean("lastVideoMusic",music).putLong("lastVideoPos",0).apply();
+  }
+  /** Called once it really plays: follow the YouTube session and save the position whenever it pauses or stops. */
+  static void track(Context c,String pkg){
+    Context app=c.getApplicationContext();MediaController mc=controller(app,pkg);
+    if(mc==null||!pkg.equals(mc.getPackageName()))return;
+    if(tracked!=null&&trackCallback!=null){try{tracked.unregisterCallback(trackCallback);}catch(RuntimeException ignored){}}
+    String title=nowPlaying(app,pkg);if(!title.isEmpty())prefs(app).edit().putString("lastVideoTitle",title).apply();
+    tracked=mc;trackCallback=new MediaController.Callback(){
+      @Override public void onPlaybackStateChanged(PlaybackState s){save(app,s);}
+      @Override public void onMetadataChanged(MediaMetadata md){
+        String t=md==null?null:md.getString(MediaMetadata.METADATA_KEY_TITLE);
+        // The next video in a playlist or mix started: FRIDAY knows it only by its title now.
+        if(t!=null&&!t.equals(prefs(app).getString("lastVideoTitle","")))prefs(app).edit().putString("lastVideoTitle",t).remove("lastVideo").putLong("lastVideoPos",0).apply();
+      }
+      @Override public void onSessionDestroyed(){if(tracked!=null)save(app,tracked.getPlaybackState());tracked=null;}
+    };
+    mc.registerCallback(trackCallback,new Handler(Looper.getMainLooper()));
+  }
+  private static void save(Context c,PlaybackState s){
+    if(s==null)return;long pos=s.getPosition();
+    if(s.getState()==PlaybackState.STATE_PLAYING)pos+=(long)((SystemClock.elapsedRealtime()-s.getLastPositionUpdateTime())*s.getPlaybackSpeed());
+    if(pos>0)prefs(c).edit().putLong("lastVideoPos",pos).apply();
+  }
+  /** The live position if YouTube still has the video, else the saved one. Seconds. */
+  static int resumePoint(Context c){
+    MediaController mc=controller(c,YOUTUBE);
+    if(mc!=null&&YOUTUBE.equals(mc.getPackageName())&&mc.getPlaybackState()!=null){save(c,mc.getPlaybackState());}
+    return (int)Math.max(0,prefs(c).getLong("lastVideoPos",0)/1000-3);
+  }
+  static String lastId(Context c){return prefs(c).getString("lastVideo",null);}
+  static String lastTitle(Context c){return prefs(c).getString("lastVideoTitle","");}
+  static boolean lastMusic(Context c){return prefs(c).getBoolean("lastVideoMusic",false);}
 
   // ---- transport controls
   /** pause, resume, stop, next or previous: media session first, then a system media key. Returns which route worked. */

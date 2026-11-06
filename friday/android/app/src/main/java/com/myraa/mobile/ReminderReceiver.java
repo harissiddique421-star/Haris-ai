@@ -1,0 +1,20 @@
+package com.myraa.mobile;
+
+import android.content.*;
+
+/** Wakes up for FRIDAY's reminders, their Done / Snooze buttons, the end of meeting mode, and phone restarts. */
+public final class ReminderReceiver extends BroadcastReceiver {
+  @Override public void onReceive(Context context,Intent intent){
+    String action=intent==null?null:intent.getAction();if(action==null)return;
+    long id=intent.getLongExtra("id",-1);
+    switch(action){
+      case CareReminders.FIRE:CareReminders.fire(context,id);break;
+      case CareReminders.DONE:CareReminders.markDone(context,id);break;
+      case CareReminders.SNOOZE:CareReminders.snooze(context,id);break;
+      case MeetingMode.END:MeetingMode.stop(context,true);break;
+      case Intent.ACTION_BOOT_COMPLETED:case Intent.ACTION_MY_PACKAGE_REPLACED:
+        CareReminders.rescheduleAll(context);MeetingMode.afterRestart(context);break;
+      default:break;
+    }
+  }
+}

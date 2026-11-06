@@ -121,3 +121,18 @@ test('YouTube playback, links and media controls parse locally',()=>{
   assert.deepEqual(parseMobileAction('unmute'),{action:'volume',direction:'unmute'});
   assert.equal(parseMobileAction('play songs on youtube and delete my chats'),null);
 });
+
+test('briefing, reminders, meeting mode, modes and resume parse locally', () => {
+  assert.deepEqual(parseMobileAction('good morning'),{action:'briefing'});
+  assert.deepEqual(parseMobileAction('subah ki briefing'),{action:'briefing'});
+  assert.deepEqual(parseMobileAction('kis ne call kiya tha?'),{action:'missed_calls'});
+  assert.deepEqual(parseMobileAction('mere reminders'),{action:'list_reminders'});
+  assert.deepEqual(parseMobileAction('dawai le li'),{action:'reminder_done'});
+  assert.deepEqual(parseMobileAction('meeting mode on'),{action:'meeting_mode',on:true});
+  assert.deepEqual(parseMobileAction('meeting mode band karo'),{action:'meeting_mode',on:false});
+  assert.deepEqual(parseMobileAction('english practice'),{action:'set_mode',mode:'english_practice'});
+  assert.deepEqual(parseMobileAction('translator mode for Arabic'),{action:'set_mode',mode:'translator',language:'Arabic'});
+  assert.deepEqual(parseMobileAction('normal mode'),{action:'set_mode',mode:'normal'});
+  assert.deepEqual(parseMobileAction('wahin se chalao'),{action:'resume_video'});
+  assert.equal(parseMobileAction('done'),null);
+});

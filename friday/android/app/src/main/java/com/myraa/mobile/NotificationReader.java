@@ -55,6 +55,7 @@ public final class NotificationReader extends NotificationListenerService {
     JSONObject item=new JSONObject();
     try{item.put("app",app).put("title",clip(title,100)).put("text",clip(text,300)).put("time",sbn.getPostTime());}catch(JSONException ignored){}
     synchronized(NotificationReader.class){recent.addLast(item);while(recent.size()>30)recent.removeFirst();}
+    if(MeetingMode.on(this)&&Announcer.isMessaging(this,sbn.getPackageName(),n))MeetingMode.onMessage(this,sbn,app,title);
     if(Announcer.driving(this)&&Announcer.isMessaging(this,sbn.getPackageName(),n)){
       IncomingCall listener=callListener;
       // During a Live call FRIDAY reads it out in the conversation; otherwise the phone's voice does.
