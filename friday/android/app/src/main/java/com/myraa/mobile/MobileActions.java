@@ -259,6 +259,15 @@ public final class MobileActions {
         finish(id,"saved","Saved "+doc.name+" in Downloads/FRIDAY"+(opened?" and opened it.":". No app here opens this file type, but it is in your Downloads."));return;
       }
       if("set_timer".equals(action)){timer(id,args);return;}
+      if("briefing".equals(action)){finish(id,Briefing.morning(activity));return;}
+      if("missed_calls".equals(action)){int n=args.optInt("limit",5);withPermission(id,Manifest.permission.READ_CALL_LOG,()->finish(id,Briefing.missedCalls(activity,n)),()->finish(id,"permission_required","Call history permission was denied, so I can't see missed calls. You can allow it in Settings > Permissions."));return;}
+      if("care_reminder".equals(action)){finish(id,CareReminders.add(activity,args.optString("text"),args.optString("kind","general"),args.optString("repeat",""),args.optInt("hour",-1),args.optInt("minute",0),args.optInt("day",-1),args.optString("date","")));return;}
+      if("list_reminders".equals(action)){finish(id,CareReminders.list(activity));return;}
+      if("delete_reminder".equals(action)){finish(id,CareReminders.delete(activity,args.optString("text")));return;}
+      if("reminder_done".equals(action)){finish(id,CareReminders.done(activity,args.optString("text")));return;}
+      if("meeting_mode".equals(action)){finish(id,args.optBoolean("on",true)?MeetingMode.start(activity,args.optInt("in_minutes",60),args.optString("message","")):MeetingMode.stop(activity,false));return;}
+      if("set_mode".equals(action)){finish(id,setMode(args));return;}
+      if("resume_video".equals(action)){resumeVideo(id);return;}
       if("add_event".equals(action)){event(id,args);return;}
       if("email".equals(action)){finish(id,email(args));return;}
       if("set_wake_word".equals(action)){finish(id,wakeWord(args));return;}
@@ -479,13 +488,15 @@ public final class MobileActions {
       });
     });
   }
-  private void openVideo(String id,String videoId,String title,boolean music,String asked){
+  private void openVideo(String id,String videoId,String title,boolean music,String asked){openVideo(id,videoId,title,music,asked,0);}
+  private void openVideo(String id,String videoId,String title,boolean music,String asked,int startSeconds){
     String pkg=launcher.installed(MediaPlayback.YOUTUBE)?MediaPlayback.YOUTUBE:music&&launcher.installed(MediaPlayback.YT_MUSIC)?MediaPlayback.YT_MUSIC:null;
-    boolean opened=pkg!=null&&launcher.open(MediaPlayback.openIntent(activity,videoId,music,pkg));
+    MediaPlayback.remember(activity,videoId,title,music);
+    boolean opened=pkg!=null&&launcher.open(MediaPlayback.openIntent(activity,videoId,music,pkg,startSeconds));
     if(!opened){
       // No YouTube app, or it refused the link: open the same video in the browser.
       ControlLog.i("youtube: app did not open the link, trying the browser");
-      opened=launcher.open(MediaPlayback.openIntent(activity,videoId,music,null));
+      opened=launcher.open(MediaPlayback.openIntent(activity,videoId,music,null,startSeconds));
       if(!opened){finish(id,"failed","I couldn't open YouTube on this phone.");return;}
       String name=title.isEmpty()?"the video":"\""+title+"\"";
       finish(id,"opened","Opened "+name+" in the browser. Browsers can block autoplay, so tap play if it hasn't started.");return;
@@ -505,6 +516,7 @@ public final class MobileActions {
     if("playing".equals(state)){
       String now=MediaPlayback.nowPlaying(activity,pkg);if(name.startsWith("the ")&&!now.isEmpty())name="\""+now+"\"";
       ControlLog.i("youtube: playing after "+second+"s"+(pressedPlay?" (play command)":"")+(tapped?" (accessibility tap)":""));
+      MediaPlayback.track(activity,pkg);
       JSONObject v=status("playing",(music?"Playing ":"Playing ")+name+" now.");try{v.put("playback","playing");}catch(JSONException ignored){}
       finish(id,v);return;
     }
@@ -539,6 +551,34 @@ public final class MobileActions {
       finish(id,v);return;
     }
     main.postDelayed(()->verifyPlayback(id,pkg,title,music,second+1,pressedPlay,tapped),1000);
+  }
+  /** "Wahin se chalao": continue the last video FRIDAY played from where the user stopped. */
+  private void resumeVideo(String id){
+    String state=MediaPlayback.state(activity,MediaPlayback.YOUTUBE);
+    if("paused".equals(state)){media(id,"resume");return;}
+    if("playing".equals(state)){finish(id,"done","It's already playing.");return;}
+    String videoId=MediaPlayback.lastId(activity),title=MediaPlayback.lastTitle(activity);boolean music=MediaPlayback.lastMusic(activity);
+    int at=MediaPlayback.resumePoint(activity);
+    if(videoId==null&&title.isEmpty()){finish(id,"not_found","I don't know what you were watching last. Tell me what to play.");return;}
+    ControlLog.i("youtube: resuming at "+at+"s");
+    if(videoId!=null){openVideo(id,videoId,title,music,title,at);return;}
+    // Only the title is known (it moved on inside a playlist): find it again, then seek.
+    MediaPlayback.background(()->{
+      List<MediaPlayback.Video> found;try{found=MediaPlayback.search(title);}catch(IOException e){found=Collections.emptyList();}
+      final List<MediaPlayback.Video> results=found;
+      main.post(()->{if(gone(id))return;if(results.isEmpty()){finish(id,"failed","I couldn't find \""+title+"\" again. Check the internet and try again.");return;}openVideo(id,results.get(0).id,title,music,title,at);});
+    });
+  }
+  /** Translator and English-practice modes change FRIDAY's instructions, so the Live call reconnects. */
+  private JSONObject setMode(JSONObject args){
+    String mode=args.optString("mode","normal").trim().toLowerCase(Locale.ROOT);
+    if(!Arrays.asList("normal","translator","english_practice").contains(mode))throw new IllegalArgumentException("Say translator mode, English practice or normal mode.");
+    String to=args.optString("language","English").trim();if(to.isEmpty()||to.length()>30||!to.matches("[\\p{L} ()-]+"))to="English";
+    activity.getSharedPreferences("myraa.mobile.v1",0).edit().putString("chatMode",mode).putString("translateTo",to).apply();
+    ControlLog.i("mode: "+mode);
+    JSONObject v=status("done","translator".equals(mode)?"Translator mode on: Urdu and "+to+". The call reconnects in a moment; say \"normal mode\" to stop.":"english_practice".equals(mode)?"English practice mode on. The call reconnects in a moment; say \"normal mode\" to stop.":"Back to normal mode. The call reconnects in a moment.");
+    try{v.put("reconnect",true).put("mode",mode);}catch(JSONException ignored){}
+    return v;
   }
   /** pause, resume, stop, next, previous for whatever is playing, YouTube preferred. */
   private void media(String id,String raw){

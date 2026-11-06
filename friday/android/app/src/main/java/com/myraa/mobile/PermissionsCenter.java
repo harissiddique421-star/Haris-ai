@@ -34,6 +34,9 @@ final class PermissionsCenter {
     {"system_settings","Modify system settings","So FRIDAY can change screen brightness."},
     {"overlay","Display over other apps","For the floating FRIDAY button while you use other apps."},
     {"fullscreen","Wake up on the lock screen","So \"Wake up FRIDAY\" can turn the screen on when the phone is locked. You still unlock it yourself."},
+    {"calendar","Calendar","So the morning briefing can tell you today's events."},
+    {"call_log","Call history","So FRIDAY can tell you who called while you missed it."},
+    {"exact_alarms","Alarms & reminders","So medicine and bill reminders ring on the exact minute."},
     {"battery","Battery: no optimization","So a Live call keeps running with the screen off or in the background."},
   };
 
@@ -52,6 +55,9 @@ final class PermissionsCenter {
       case "dnd":return activity.getSystemService(NotificationManager.class).isNotificationPolicyAccessGranted();
       case "system_settings":return Settings.System.canWrite(activity);
       case "overlay":return Settings.canDrawOverlays(activity);
+      case "calendar":return runtime(Manifest.permission.READ_CALENDAR);
+      case "call_log":return runtime(Manifest.permission.READ_CALL_LOG);
+      case "exact_alarms":return CareReminders.exact(activity);
       case "fullscreen":return Build.VERSION.SDK_INT<34||activity.getSystemService(NotificationManager.class).canUseFullScreenIntent();
       case "battery":return activity.getSystemService(PowerManager.class).isIgnoringBatteryOptimizations(activity.getPackageName());
       default:return false;
@@ -77,6 +83,9 @@ final class PermissionsCenter {
       case "phone":runtime=Manifest.permission.CALL_PHONE;break;
       case "answer_calls":runtime=Manifest.permission.ANSWER_PHONE_CALLS;break;
       case "sms":runtime=Manifest.permission.SEND_SMS;break;
+      case "calendar":runtime=Manifest.permission.READ_CALENDAR;break;
+      case "call_log":runtime=Manifest.permission.READ_CALL_LOG;break;
+      case "exact_alarms":return Build.VERSION.SDK_INT>=31&&open(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:"+activity.getPackageName())));
       case "notifications_post":if(Build.VERSION.SDK_INT>=33)runtime=Manifest.permission.POST_NOTIFICATIONS;else return open(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,activity.getPackageName()));break;
       case "notification_access":return open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));
       case "accessibility":return open(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
