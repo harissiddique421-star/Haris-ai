@@ -69,43 +69,51 @@ final class VoiceGuardian {
     int min=AudioRecord.getMinBufferSize(RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
     AudioRecord r=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(min,RATE));
     if(r.getState()!=AudioRecord.STATE_INITIALIZED){r.release();throw new IllegalStateException("microphone busy");}
+    // The phone's own noise suppression (where it has one) takes the edge off fans, traffic and TV.
+    try{if(android.media.audiofx.NoiseSuppressor.isAvailable()){android.media.audiofx.NoiseSuppressor ns=android.media.audiofx.NoiseSuppressor.create(r.getAudioSessionId());if(ns!=null)ns.setEnabled(true);}}catch(RuntimeException ignored){}
     return r;
   }
   interface Stop { boolean now(); }
   /**
    * Waits for one burst of speech and returns it, trimmed, or null when stopped or when
-   * nothing was said before the timeout (0 = no timeout). Bursts longer than 3.5 s are skipped.
+   * nothing was said before the timeout (0 = no timeout). Bursts longer than 3.5 s are steady noise: they are skipped and the noise level is raised to them.
    */
   static short[] nextUtterance(AudioRecord r,Stop stop,long timeoutMs){
     final int pre=25,endSilence=40,minFrames=35,maxFrames=350;
     short[] hop=new short[HOP];
     ArrayDeque<short[]> before=new ArrayDeque<>();
-    ArrayList<short[]> speech=new ArrayList<>();
-    double floor=150;int loud=0,quiet=0;boolean inSpeech=false,tooLong=false;
+    ArrayList<short[]> speech=new ArrayList<>();ArrayList<Double> levels=new ArrayList<>();
+    double floor=150;int loud=0,quiet=0;boolean inSpeech=false;
     long deadline=timeoutMs>0?System.currentTimeMillis()+timeoutMs:Long.MAX_VALUE;
     while(!stop.now()){
       int got=0;
       while(got<HOP){int n=r.read(hop,got,HOP-got);if(n<=0){return null;}got+=n;}
       if(stop.now())return null;
       double e=rms(hop);short[] copy=hop.clone();
-      boolean voiced=e>Math.max(floor*3.0,260);
+      boolean voiced=e>Math.max(floor*3.0,200);
       if(!inSpeech){
         if(System.currentTimeMillis()>deadline)return null;
         before.add(copy);if(before.size()>pre)before.poll();
-        if(voiced){if(++loud>=3){inSpeech=true;speech.addAll(before);before.clear();quiet=0;}}
+        if(voiced){if(++loud>=3){inSpeech=true;speech.addAll(before);before.clear();quiet=0;levels.clear();}}
         else{loud=0;floor=Math.max(40,floor*0.97+e*0.03);}
         continue;
       }
-      speech.add(copy);
-      if(speech.size()>maxFrames){tooLong=true;}
+      speech.add(copy);levels.add(e);
+      if(speech.size()>maxFrames){
+        // A "burst" that never ends is steady noise (fan, TV, traffic): raise the floor to it so real speech stands out again.
+        Collections.sort(levels);floor=Math.max(floor,Math.min(4000,levels.get(levels.size()/4)*1.1));
+        speech.clear();levels.clear();inSpeech=false;loud=0;
+        if(timeoutMs>0&&System.currentTimeMillis()>deadline)return null;
+        continue;
+      }
       quiet=voiced?0:quiet+1;
       if(quiet>=endSilence){
-        if(!tooLong&&speech.size()-quiet>=minFrames){
+        if(speech.size()-quiet>=minFrames){
           int keep=speech.size()-quiet+10;short[] out=new short[keep*HOP];
           for(int i=0;i<keep;i++)System.arraycopy(speech.get(i),0,out,i*HOP,HOP);
           return out;
         }
-        speech.clear();inSpeech=false;tooLong=false;loud=0;
+        speech.clear();levels.clear();inSpeech=false;loud=0;
         if(timeoutMs>0&&System.currentTimeMillis()>deadline)return null;
       }
     }
@@ -197,7 +205,7 @@ final class VoiceGuardian {
   /** True when the burst is the wake phrase in the saved voice. Logs only the scores. */
   static boolean matches(Context c,short[] pcm){double[] r=score(c,pcm);return r!=null&&r[0]<=1&&r[1]<=1;}
   /** Sensitivity: low = stricter (fewer false wakes), high = more forgiving. */
-  static double factor(Context c){String s=WakeWordService.sensitivity(c);return "low".equals(s)?0.85:"high".equals(s)?1.2:1.0;}
+  static double factor(Context c){String s=WakeWordService.sensitivity(c);return "low".equals(s)?1.0:"high".equals(s)?1.5:1.25;}
   /** {phrase distance / limit, voice distance / limit}; both at or under 1 is a match. Null without a saved voice. */
   static double[] score(Context c,short[] pcm){
     Voice v=load(c);if(v==null)return null;

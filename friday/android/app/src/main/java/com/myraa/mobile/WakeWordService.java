@@ -25,10 +25,11 @@ import java.util.regex.Pattern;
  */
 public final class WakeWordService extends Service {
   static final String WAKE="com.myraa.mobile.WAKE",PAUSE="com.myraa.mobile.WAKE_PAUSE",RESUME="com.myraa.mobile.WAKE_RESUME",STOP="com.myraa.mobile.WAKE_STOP",REFRESH="com.myraa.mobile.WAKE_REFRESH";
-  private static final Pattern NAME=Pattern.compile("(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)");
+  private static final String NAMES="friday|fri day|fry day|fryday|fraiday|freddy|frida|फ्राइडे|फ्राईडे|फ्रायडे|फ्राइडेय|فرائیڈے|فرائڈے|فرائی ڈے";
+  private static final Pattern NAME=Pattern.compile("("+NAMES+")");
   private static final Pattern WAKE_PHRASE=Pattern.compile(
-    "(wake\\s*up|wakeup|hey|hay|hi|ok|okay|वेक\\s*अप|हे|उठो|uth\\s*jao|utho|ویک\\s*اپ|ہے|ہیلو|اٹھو|اٹھ\\s*جاؤ)\\s*,?\\s*(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)"
-    +"|(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)\\s*,?\\s*(wake\\s*up|wakeup|wake|वेक\\s*अप|वेक|उठो|uth\\s*jao|utho|ویک\\s*اپ|ویک|اٹھو|اٹھ\\s*جاؤ)");
+    "(?<!\\p{L})(wake\\s*up|wakeup|wake|weak\\s*up|walk\\s*up|hey|hay|hi|ok|okay|वेक\\s*अप|वेकअप|हे|हाय|उठो|uth\\s*jao|utho|uttho|ویک\\s*اپ|ہے|ہیلو|اٹھو|اٹھ\\s*جاؤ)\\s*,?\\s*("+NAMES+")"
+    +"|(?<!\\p{L})("+NAMES+")\\s*,?\\s*(wake\\s*up|wakeup|wake|weak\\s*up|वेक\\s*अप|वेक|उठो|uth\\s*jao|utho|uttho|ویک\\s*اپ|ویک|اٹھو|اٹھ\\s*جاؤ)");
   public static volatile boolean running;
   private static volatile boolean livePaused,screenAllowed=true;
   private final Handler main=new Handler(Looper.getMainLooper());
@@ -37,6 +38,8 @@ public final class WakeWordService extends Service {
   private SpeechRecognizer recognizer;
   private boolean listening,screenOk=true;
   private int failures;
+  /** The phone's offline recognizer is tried first; if its language model is missing or it fails, the normal one is used. */
+  private boolean onDevice=true;
   private BroadcastReceiver screen;
   private PowerManager.WakeLock cpu;
   private Thread guardian;private volatile boolean guardianRun;private volatile AudioRecord guardianMic;
@@ -51,7 +54,15 @@ public final class WakeWordService extends Service {
   static boolean nameOnly(Context c){return c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getBoolean("wakeNameOnly",false);}
   static void setNameOnly(Context c,boolean on){c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).edit().putBoolean("wakeNameOnly",on).apply();}
   /** Lowest recognizer confidence accepted (when the recognizer reports one). */
-  static float minConfidence(Context c,boolean nameOnlyMatch){String s=sensitivity(c);float base="low".equals(s)?0.5f:"high".equals(s)?0.05f:0.2f;return nameOnlyMatch?Math.max(base,0.6f):base;}
+  static float minConfidence(Context c,boolean nameOnlyMatch){String s=sensitivity(c);float base="low".equals(s)?0.3f:"high".equals(s)?0f:0.08f;return nameOnlyMatch?Math.max(base,0.5f):base;}
+  /** The wake phrase is English, so an English (India) recognizer hears it best, also with a Pakistani or Indian accent. */
+  static final String LANGUAGE="en-IN";
+  static Intent recognizerIntent(Context c){
+    return new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+      .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+      .putExtra(RecognizerIntent.EXTRA_LANGUAGE,LANGUAGE).putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,true)
+      .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,5).putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,c.getPackageName());
+  }
   /** One word for the settings screen: active, paused, permission_required, battery_restricted, unavailable, stopped or off. */
   static String status(Context c){
     if(!wanted(c))return "off";
@@ -109,7 +120,7 @@ public final class WakeWordService extends Service {
   /** Just the name on its own ("FRIDAY", "hey FRIDAY" is already a full phrase), nothing else in the sentence. */
   static boolean nameAlone(String heard){
     if(heard==null)return false;
-    return clean(heard).matches("(friday|fri day|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)");
+    return clean(heard).matches("("+NAMES+")");
   }
   private static String clean(String heard){return heard.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{M}\\s]"," ").replaceAll("\\s+"," ").trim();}
 
@@ -173,16 +184,14 @@ public final class WakeWordService extends Service {
     if(VoiceGuardian.recording){listenSoon(2000);return;}
     if(VoiceGuardian.active(this)){listenGuardian();return;}
     if(recognizer==null){
-      recognizer=Build.VERSION.SDK_INT>=31&&SpeechRecognizer.isOnDeviceRecognitionAvailable(this)?SpeechRecognizer.createOnDeviceSpeechRecognizer(this):SpeechRecognizer.createSpeechRecognizer(this);
+      boolean local=onDevice&&Build.VERSION.SDK_INT>=31&&SpeechRecognizer.isOnDeviceRecognitionAvailable(this);
+      if(!local)onDevice=false;
+      recognizer=local?SpeechRecognizer.createOnDeviceSpeechRecognizer(this):SpeechRecognizer.createSpeechRecognizer(this);
       recognizer.setRecognitionListener(new Listener());
     }
-    String language=getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getString("language","hi-IN");
-    Intent intent=new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-      .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-      .putExtra(RecognizerIntent.EXTRA_LANGUAGE,language).putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS,true)
-      .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,true).putExtra(RecognizerIntent.EXTRA_MAX_RESULTS,3)
-      .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE,getPackageName());
-    try{listening=true;recognizer.startListening(intent);}catch(RuntimeException e){listening=false;recreate(2000);}
+    Intent intent=recognizerIntent(this);
+    if(onDevice)intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,true);
+    try{listening=true;recognizer.startListening(intent);}catch(RuntimeException e){listening=false;if(onDevice){onDevice=false;ControlLog.i("wake: offline recognizer unavailable, using the normal one");}recreate(2000);}
   }
   private void halt(){main.removeCallbacksAndMessages(null);stopGuardian();if(recognizer!=null&&listening){try{recognizer.cancel();}catch(RuntimeException ignored){}}listening=false;}
   /** Voice Guardian: our own microphone loop; each burst of speech is compared with the user's saved wake phrase. */
@@ -283,6 +292,8 @@ public final class WakeWordService extends Service {
         case SpeechRecognizer.ERROR_RECOGNIZER_BUSY:listenSoon(1500);break;
         default:
           failures++;ControlLog.i("wake: recognizer error "+error);
+          // The offline recognizer often lacks the language model (errors 12/13) or fails on some phones: switch to the normal recognizer right away.
+          if(onDevice){onDevice=false;failures=0;ControlLog.i("wake: switching to the normal speech recognizer");recreate(500);break;}
           recreate(Math.min(60_000,1000L*(1L<<Math.min(failures,6))));
       }
     }

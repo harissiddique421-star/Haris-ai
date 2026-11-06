@@ -40,6 +40,8 @@ export class MobileLiveTransport implements AudioSocket {
         model: 'models/' + value.model,
         generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: value.voice || 'Aoede' } } } },
         systemInstruction: { parts: [{ text: value.instruction || 'You are MYRAA. Speak warmly and naturally in the user’s language.' }] },
+        // Gemini starts a user turn only on clear, sustained speech, so small noises don't interrupt FRIDAY.
+        realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', prefixPaddingMs: 300, silenceDurationMs: 800 } },
         inputAudioTranscription: {}, outputAudioTranscription: {}, tools: [{ functionDeclarations: [MOBILE_TOOL] }, { googleSearch: {} }],
       } }));
       this.onopen?.({});
