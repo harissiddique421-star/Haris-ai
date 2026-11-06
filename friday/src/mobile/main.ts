@@ -2,6 +2,7 @@ import './mobile.css';
 import { MyraaAudioSession, type LiveState } from '../lib/audio';
 import { MobileLiveTransport } from './LiveTransport';
 import { parseMobileAction, type MobileAction } from './actions';
+import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
 import { drawPattern, patternMessage, closePattern } from './pattern';
 import fridayLogo from '../../branding/friday-icon-small.png';
 import fridayCore from '../../branding/friday-icon.png';
@@ -47,7 +48,50 @@ let lastVoiceTimings: MyraaAudioSession['timings'] | null = null;
 function voiceDiagnostics() {
   const t = liveSession?.timings || lastVoiceTimings; if (!t || !t.connectStartedAt) return '';
   const after = (at: number) => at ? `${at - t.connectStartedAt} ms` : 'not yet';
-  return `\n\nLive voice: online ${navigator.onLine !== false ? 'yes' : 'no'} · microphone ready after ${after(t.micReadyAt)} · Gemini ready after ${after(t.liveReadyAt)} · last reply started ${t.lastReplyLatencyMs >= 0 ? t.lastReplyLatencyMs + ' ms' : '-'} after you stopped speaking · microphone restarts ${t.micRestarts}${t.lastMicIssue ? ' (' + t.lastMicIssue + ')' : ''}`;
+  return `\n\nLive voice: online ${navigator.onLine !== false ? 'yes' : 'no'} · microphone ready after ${after(t.micReadyAt)} · Gemini ready after ${after(t.liveReadyAt)} · last reply started ${t.lastReplyLatencyMs >= 0 ? t.lastReplyLatencyMs + ' ms' : '-'} after you stopped speaking · microphone restarts ${t.micRestarts}${t.lastMicIssue ? ' (' + t.lastMicIssue + ')' : ''} · tone ${emotions.emotion}`;
+}
+/** Tone of the conversation (see emotion.ts) and what FRIDAY is doing on the phone, for follow-up commands. */
+const emotions = new EmotionEngine();
+const convo = { currentApp: '', media: '', lastAction: '', lastStatus: '', pendingConfirmation: false };
+const MEDIA_ACTIONS = new Set(['search_youtube', 'play_music', 'resume_video']);
+function trackAction(action: string, args: any, status: string) {
+  convo.lastAction = action; convo.lastStatus = status; convo.pendingConfirmation = status === 'needs_confirmation';
+  if (status !== 'done' && status !== 'opened' && status !== 'playing' && status !== 'set') return;
+  if (action === 'open_app') convo.currentApp = String(args?.app || '').slice(0, 60);
+  if (MEDIA_ACTIONS.has(action)) { convo.currentApp = action === 'play_music' ? (convo.currentApp || 'music') : 'YouTube'; convo.media = String(args?.query || args?.app || 'video').slice(0, 80); }
+  if (action === 'media' && /stop|pause/i.test(String(args?.command || args?.control || ''))) convo.media = '';
+  if (action === 'phone_control' && /home|lock/i.test(String(args?.control || ''))) convo.currentApp = '';
+}
+// Idle check-in: once per quiet spell, with a cooldown, and only while FRIDAY is on screen.
+const IDLE_KEY = 'friday.idleCheckin';
+function idleCheckinOn() { try { return localStorage.getItem(IDLE_KEY) !== 'off'; } catch { return true; } }
+const IDLE_AFTER_MS = 45_000, IDLE_COOLDOWN_MS = 10 * 60_000;
+let lastActivityAt = 0, lastCheckinAt = 0, userSpokeThisCall = false, spokeSinceCheckin = true, checkinPending = false, heardUserSinceReply = false;
+let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
+let lastUserCaption = '';
+function markActivity() { lastActivityAt = Date.now(); }
+setInterval(() => {
+  if (!idleCheckinOn() || !liveSession || liveSession.getState() !== 'listening' || document.hidden || !foreground) return;
+  // Never ask twice in a row: after a check-in, wait until the user speaks again.
+  if (!userSpokeThisCall || !spokeSinceCheckin || checkinPending || !lastActivityAt) return;
+  const now = Date.now();
+  if (now - lastActivityAt < IDLE_AFTER_MS || now - lastCheckinAt < IDLE_COOLDOWN_MS) return;
+  lastCheckinAt = now; checkinPending = true; spokeSinceCheckin = false;
+  liveSession.sendText('[Phone] The user has been quiet for about 45 seconds with FRIDAY open. Say one short, natural line in their language to check whether they need anything else (for example "Kuch aur karna hai?"). Do not repeat it. If they do not answer, stay silent.');
+}, 5000);
+function showThinking(on: boolean) {
+  if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
+  if (!liveSession || liveSession.getState() !== 'listening') return;
+  el('listen-state').textContent = on ? 'THINKING…' : 'LISTENING…';
+  el('presence').textContent = on ? 'Thinking…' : 'Live · listening to you';
+  system?.setFrameInput({ activity: on ? 'thinking' : 'listening', emotion: on ? 'thinking' : AVATAR_EMOTION[emotions.emotion] });
+  // Gemini may decide the sound was not meant for it: go back to listening if no reply comes.
+  if (on) thinkingTimer = setTimeout(() => showThinking(false), 6000);
+}
+function userSpeech(speaking: boolean) {
+  markActivity();
+  if (speaking) { if (thinkingTimer) showThinking(false); return; }
+  if (heardUserSinceReply) showThinking(true);
 }
 function liveActive() { return !!liveSession && liveSession.getState() !== 'disconnected'; }
 function updateVisionButtons() {
@@ -90,6 +134,8 @@ function showCore() {
   document.querySelector('.gestures')?.setAttribute('hidden', '');
 }
 function liveState(value: LiveState) {
+  markActivity();
+  if (value === 'speaking') { heardUserSinceReply = false; checkinPending = false; if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; } }
   queueMicrotask(() => { if (value === "disconnected") stopVision(); else updateVisionButtons(); });
   const active = value !== 'disconnected';
   if (value === 'listening') notice('Live voice connected. Speak naturally.');
@@ -101,10 +147,16 @@ function liveState(value: LiveState) {
   el('connection-pill').classList.toggle('live', active);
   if (active && !listeningMinimized) showListening(true); if (!active) { showListening(false); listeningMinimized = false; }
   el('presence').textContent = value === 'connecting' ? 'Connecting live…' : value === 'speaking' ? 'Speaking with you' : value === 'listening' ? 'Live · listening to you' : 'Here with you';
-  system?.setFrameInput({ activity: value === 'speaking' ? 'talking' : value === 'listening' ? 'listening' : 'idle',
+  // The face follows the conversation's tone, relaxing back to neutral after a quiet while.
+  const face = value === 'disconnected' ? 'idle' : emotions.ageMs > 30_000 ? 'idle' : AVATAR_EMOTION[emotions.emotion];
+  system?.setFrameInput({ activity: value === 'speaking' ? 'talking' : value === 'listening' ? 'listening' : 'idle', emotion: face,
     outputAnalyser: liveSession?.outputAnalyser ?? null, inputAnalyser: liveSession?.inputAnalyser ?? null });
 }
 function liveTranscription(role: 'user' | 'model', text: string) {
+  markActivity();
+  if (role === 'user') { userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; }
+  // A finished user sentence (FRIDAY starts answering) sets the tone for the reply.
+  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption); }
   if (!liveCaption || liveCaption.role !== role) {
     append(role, ''); liveCaption = { role, body: el('messages').lastElementChild!.querySelector('p')! };
   }
@@ -192,6 +244,8 @@ app.innerHTML = `
         <label class="check"><input id="guardian-on" type="checkbox"> Only wake for my voice</label>
         <div class="row"><button id="guardian-record" type="button">Record my voice</button><button id="guardian-delete" type="button">Delete my voice</button></div>
         <p id="guardian-note" class="muted"></p></div>
+      <div class="card"><b>Conversation</b><small>If you go quiet for about 45 seconds during a Live call with FRIDAY on screen, she asks once whether you need anything else, then waits at least 10 minutes before asking again.</small>
+        <label class="check"><input id="idle-checkin" type="checkbox"> Check in when I go quiet</label></div>
       <div class="card"><b>Calls &amp; driving</b><small>Uses the phone's own voice, so it works without a Live call. Needs Notification access. You can also say "driving mode on".</small>
         <label class="check"><input id="announce-calls" type="checkbox"> Say who is calling when the phone rings</label>
         <label class="check"><input id="driving-mode" type="checkbox"> Driving mode: read out new messages, short replies</label>
@@ -526,10 +580,14 @@ el('voice').onclick = () => {
   if (busy) { notice('Stop the current text reply before starting Live voice.'); return; }
   if (navigator.onLine === false) { notice('No internet connection. Connect to the internet and try again.'); return; }
   bridge.stopSpeech(); liveCaption = null;
+  emotions.reset(); userSpokeThisCall = false; spokeSinceCheckin = true; checkinPending = false; heardUserSinceReply = false; lastActivityAt = Date.now();
   liveSession = new MyraaAudioSession({
+    onUserSpeech: userSpeech,
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
     onStateChange: liveState, onTranscription: liveTranscription,
-    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } void runMobileAction(name, args).then(result => { notice(result.message); appendAction(String((args as any)?.action || ''), result); callback(result); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
+    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void runMobileAction(name, args).then(result => { markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
+      // Gemini gets the tone to use and what is open/playing now, so follow-ups like "volume kam karo" or "Quran wali video chalao" need no extra questions.
+      callback({ ...result, tone, tone_hint: TONE_HINT[tone], context: { current_app: convo.currentApp || 'unknown', now_playing: convo.media || 'nothing known', last_action: action } }); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
     onError: message => {
       stopVoice();
       // Google refused this Live model's quota while starting: try the next model once each, then give up.
@@ -577,6 +635,8 @@ el('camera-preview').onclick = () => { cameraFacing = cameraFacing === 'environm
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = async () => { if (button.dataset.go === 'memory' && !(await unlockFor('memory'))) return; if (button.dataset.go === 'security') renderSecurity(); settingsPage(button.dataset.go!); };
 el('settings-back').onclick = () => settingsPage('menu');
 el('save-advanced').onclick = () => el('save').click();
+el<HTMLInputElement>('idle-checkin').checked = idleCheckinOn();
+el('idle-checkin').onchange = () => { try { localStorage.setItem(IDLE_KEY, el<HTMLInputElement>('idle-checkin').checked ? 'on' : 'off'); } catch { /* setting stays for this session */ } };
 el('announce-calls').onchange = () => setAnnounce({ announceCalls: el<HTMLInputElement>('announce-calls').checked });
 el('driving-mode').onchange = () => setAnnounce({ drivingMode: el<HTMLInputElement>('driving-mode').checked });
 el('driving-read').onchange = () => setAnnounce({ drivingReadText: el<HTMLInputElement>('driving-read').checked });
