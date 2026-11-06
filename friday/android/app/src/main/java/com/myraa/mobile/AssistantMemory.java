@@ -94,6 +94,14 @@ final class AssistantMemory {
     prefs.edit().putString("routines",all.toString()).apply();
     return PhoneControls.result("done","Deleted the "+key+" routine.");
   }
+  JSONObject renameRoutine(String from,String to){
+    String a=routineKey(from),b=routineKey(to);JSONObject all=routines();JSONArray steps=all.optJSONArray(a);
+    if(steps==null)return PhoneControls.result("not_found","I don't have a routine called "+a+".");
+    if(all.has(b)&&!a.equals(b))return PhoneControls.result("exists","A routine called "+b+" already exists. Delete it first or pick another name.");
+    all.remove(a);try{all.put(b,steps);}catch(JSONException ignored){}
+    prefs.edit().putString("routines",all.toString()).apply();
+    return PhoneControls.result("done","Renamed the "+a+" routine to "+b+".");
+  }
   JSONArray routineNames(){JSONArray out=new JSONArray();Iterator<String> it=routines().keys();while(it.hasNext())out.put(it.next());return out;}
   JSONObject listRoutines(){
     JSONObject all=routines(),v=PhoneControls.result("done",all.length()==0?"No routines yet. Tell me the steps and a name to save one.":"Here are your routines.");

@@ -124,7 +124,14 @@ public class PhoneController extends AccessibilityService {
       case "power_menu":action=GLOBAL_ACTION_POWER_DIALOG;break;
       case "lock_screen":if(Build.VERSION.SDK_INT<28)return PhoneControls.result("unavailable","This Android version cannot lock the screen from apps.");action=GLOBAL_ACTION_LOCK_SCREEN;break;
       case "screenshot":if(Build.VERSION.SDK_INT<28)return PhoneControls.result("unavailable","This Android version cannot take screenshots from apps.");action=GLOBAL_ACTION_TAKE_SCREENSHOT;break;
-      default:throw new IllegalArgumentException("Say back, home, recents, notifications, quick settings, power menu, lock screen or screenshot.");
+      case "last_app":{
+        // Recents twice quickly switches back to the previous app on most phones.
+        boolean first=performGlobalAction(GLOBAL_ACTION_RECENTS);
+        if(first)new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(()->performGlobalAction(GLOBAL_ACTION_RECENTS),450);
+        ControlLog.i("global last_app: "+(first?"done":"Android refused"));
+        return PhoneControls.result(first?"done":"failed",first?"Switching back to the last app. Check with read_screen if it matters.":"Android did not accept the switch.");
+      }
+      default:throw new IllegalArgumentException("Say back, home, recents, last app, notifications, quick settings, power menu, lock screen or screenshot.");
     }
     boolean ok=performGlobalAction(action);
     ControlLog.i("global "+what+": "+(ok?"done":"Android refused"));

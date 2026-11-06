@@ -6,6 +6,7 @@ import android.content.*;
 import android.content.pm.*;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.AlarmClock;
@@ -184,13 +185,15 @@ public final class MobileActions {
   }
   private JSONObject status(String status,String message){JSONObject value=new JSONObject();try{value.put("status",status).put("message",message);}catch(JSONException ignored){}return value;}
   private void finish(String id,String status,String message){finish(id,status(status,message));}
-  private void finish(String id,JSONObject value){if(completed.containsKey(id))return;completed.put(id,value);while(completed.size()>64)completed.remove(completed.keySet().iterator().next());result.complete(id,value);}
+  private final Map<String,String> running=new HashMap<>();
+  private void finish(String id,JSONObject value){if(completed.containsKey(id))return;Diagnostics.record(running.remove(id),value.optString("status"));completed.put(id,value);while(completed.size()>64)completed.remove(completed.keySet().iterator().next());result.complete(id,value);}
   public void execute(String id,String name,String raw){
     if(id==null||!id.matches("[A-Za-z0-9-]{1,80}"))return;
     if(completed.containsKey(id)){result.complete(id,completed.get(id));return;}
     if(!"mobile_action".equals(name)){finish(id,"unsupported","That mobile action is unavailable.");return;}
     try{
       JSONObject args=new JSONObject(raw);String action=args.optString("action");
+      if(running.size()>64)running.clear();running.put(id,action);
       ControlLog.i("command "+action+(args.has("app")?" app="+args.optString("app"):"")+(args.has("recipient")?" contact="+args.optString("recipient"):"")+(args.has("target")?" target="+args.optString("target"):"")+(args.has("control")?" control="+args.optString("control"):"")+(args.has("confirm_token")?" (confirmed)":"")+" control="+(PhoneController.get()!=null?"ready":PhoneController.enabled(activity)?"enabled, not connected":"off"));
       if("open_app".equals(action)){openApp(id,args.optString("app"));return;}
       if("search_youtube".equals(action)||"search_web".equals(action)){
@@ -223,7 +226,7 @@ public final class MobileActions {
       if("volume".equals(action)){finish(id,phone().volume(args.optString("stream","media"),args.optString("direction"),args.optInt("percent",-1)));return;}
       if("ringer_mode".equals(action)){finish(id,phone().ringer(args.optString("mode")));return;}
       if("brightness".equals(action)){finish(id,phone().brightness(args.optString("direction"),args.optInt("percent",-1)));return;}
-      if("battery".equals(action)){finish(id,phone().battery());return;}
+      if("battery".equals(action)){finish(id,Diagnostics.battery(activity));return;}
       if("navigate".equals(action)){finish(id,phone().navigate(args.optString("place"),args.optString("mode")));return;}
       if("read_notifications".equals(action)){finish(id,phone().notifications(args.optInt("limit",10)));return;}
       if("answer_call".equals(action)||"reject_call".equals(action)){boolean accept="answer_call".equals(action);withPermission(id,Manifest.permission.ANSWER_PHONE_CALLS,()->finish(id,phone().answerCall(accept)),()->finish(id,"permission_required","Phone permission was denied, so FRIDAY cannot answer or reject calls."));return;}
@@ -234,6 +237,7 @@ public final class MobileActions {
         if(!token.isEmpty()){smsConfirmed(id,token);return;}
         sms(id,args.optString("recipient"),args.optString("message"),args.optBoolean("confirm_on_screen"));return;
       }
+      if("open_settings".equals(action)&&args.optString("page").matches("(?i)app_?(notifications|info)")){appSettings(id,args.optString("app"),args.optString("page").toLowerCase(Locale.ROOT).contains("notif"));return;}
       if("open_settings".equals(action)){finish(id,phone().settings(args.optString("page")));return;}
       if("phone_control".equals(action)){String what=args.optString("control");control(id,c->finish(id,c.global(what)));return;}
       if("read_screen".equals(action)){control(id,c->finish(id,c.readScreen()));return;}
@@ -253,6 +257,16 @@ public final class MobileActions {
       if("run_routine".equals(action)){finish(id,memory().runRoutine(args.optString("name")));return;}
       if("list_routines".equals(action)){finish(id,memory().listRoutines());return;}
       if("delete_routine".equals(action)){finish(id,memory().deleteRoutine(args.optString("name")));return;}
+      if("reminder_skip".equals(action)){finish(id,CareReminders.skip(activity,args.optString("text")));return;}
+      if("health_check".equals(action)){SharedPreferences p=activity.getSharedPreferences(Announcer.PREFS,0);finish(id,Diagnostics.health(activity,p.contains("keyCipher"),p.getString("liveModel",MainActivity.DEFAULT_LIVE_MODEL)));return;}
+      if("network_status".equals(action)){finish(id,Diagnostics.network(activity));return;}
+      if("action_history".equals(action)){finish(id,Diagnostics.history(args.optInt("limit",10)));return;}
+      if("upcoming_events".equals(action)){finish(id,Briefing.upcoming(activity,args.optInt("days",7)));return;}
+      if("set_proactive".equals(action)){finish(id,Proactive.set(activity,args.optBoolean("on",true)));return;}
+      if("set_style".equals(action)){finish(id,setStyle(args.optString("style")));return;}
+      if("rename_routine".equals(action)){finish(id,memory().renameRoutine(args.optString("name"),args.optString("new_name")));return;}
+      if("clock".equals(action)){clock(id,args.optString("command"));return;}
+      if("copy_text".equals(action)){finish(id,copy(args.optString("text")));return;}
       if("sleep".equals(action)){JSONObject v=PhoneControls.result("sleeping","Going to sleep. Say \"Wake up FRIDAY\" when you need me.");v.put("sleep",true);finish(id,v);return;}
       if("make_document".equals(action)){
         Documents.Saved doc=Documents.save(activity,args.optString("title"),args.optString("text"),args.optString("format","pdf"));
@@ -572,13 +586,54 @@ public final class MobileActions {
     });
   }
   /** Translator and English-practice modes change FRIDAY's instructions, so the Live call reconnects. */
+  /** Opens one app's notification settings or app-info page. */
+  private void appSettings(String id,String app,boolean notifications){
+    String name=app==null?"":app.trim();
+    String pkg=name.isEmpty()||name.matches("(?i)friday|this app|is app")?activity.getPackageName():null;
+    if(pkg==null){Intent launch=launcher.app(name);if(launch!=null)pkg=launch.getComponent()!=null?launch.getComponent().getPackageName():launch.getPackage();}
+    if(pkg==null){finish(id,"not_installed","No installed app matches that name.");return;}
+    Intent intent=notifications?new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,pkg)
+      :new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+pkg));
+    boolean opened=launcher.open(intent);
+    finish(id,opened?"opened":"unavailable",opened?"Opened "+(name.isEmpty()?"FRIDAY":name)+(notifications?" notification settings.":" app info."):"That settings page isn't available on this phone.");
+  }
+  /** Speaking style on top of the persona: calm, funny, serious, technical, friendly, playful or normal. */
+  private JSONObject setStyle(String raw){
+    String style=raw==null?"":raw.trim().toLowerCase(Locale.ROOT);
+    if(!Arrays.asList("normal","calm","funny","serious","technical","friendly","playful").contains(style))throw new IllegalArgumentException("Say calm, funny, serious, technical, friendly, playful or normal style.");
+    activity.getSharedPreferences(Announcer.PREFS,0).edit().putString("talkStyle",style).apply();
+    ControlLog.i("style: "+style);
+    JSONObject v=status("done","normal".equals(style)?"Back to my normal style. The call reconnects in a moment.":"Style set to "+style+". The call reconnects in a moment.");
+    try{v.put("reconnect",true);}catch(JSONException ignored){}
+    return v;
+  }
+  /** Clock app controls Android allows: stop a ringing timer, show timers or alarms (to edit or delete them), dismiss the next alarm. */
+  private void clock(String id,String raw){
+    String cmd=raw==null?"":raw.trim().toLowerCase(Locale.ROOT);Intent intent;String done;
+    switch(cmd){
+      case "stop_timer":if(Build.VERSION.SDK_INT<28){finish(id,"unavailable","This Android version can't stop timers from apps. Tap Stop on the timer.");return;}intent=new Intent(AlarmClock.ACTION_DISMISS_TIMER);done="Asked the clock to stop the ringing timer.";break;
+      case "show_timers":intent=new Intent(AlarmClock.ACTION_SHOW_TIMERS);done="Opened your timers. Pause, stop or delete them there.";break;
+      case "show_alarms":intent=new Intent(AlarmClock.ACTION_SHOW_ALARMS);done="Opened your alarms. To change or delete one, read the screen and tap it.";break;
+      case "dismiss_alarm":intent=new Intent(AlarmClock.ACTION_DISMISS_ALARM).putExtra(AlarmClock.EXTRA_ALARM_SEARCH_MODE,AlarmClock.ALARM_SEARCH_MODE_NEXT);done="Asked the clock to turn off the next alarm; it may ask you to confirm.";break;
+      default:throw new IllegalArgumentException("Say stop timer, show timers, show alarms or dismiss alarm.");
+    }
+    boolean opened=launcher.open(intent);finish(id,opened?"done":"unavailable",opened?done:"The clock app on this phone doesn't accept that.");
+  }
+  private JSONObject copy(String raw){
+    String text=raw==null?"":raw.trim();
+    if(text.isEmpty()||text.length()>2000)throw new IllegalArgumentException("Tell me what to copy.");
+    if(AssistantMemory.looksSecret(text))return status("refused","I don't copy passwords, PINs, OTPs or card numbers.");
+    android.content.ClipboardManager cb=activity.getSystemService(android.content.ClipboardManager.class);
+    cb.setPrimaryClip(android.content.ClipData.newPlainText("FRIDAY",text));
+    return status("done","Copied to the clipboard.");
+  }
   private JSONObject setMode(JSONObject args){
     String mode=args.optString("mode","normal").trim().toLowerCase(Locale.ROOT);
-    if(!Arrays.asList("normal","translator","english_practice").contains(mode))throw new IllegalArgumentException("Say translator mode, English practice or normal mode.");
+    if(!Arrays.asList("normal","translator","english_practice","developer").contains(mode))throw new IllegalArgumentException("Say translator mode, English practice, developer mode or normal mode.");
     String to=args.optString("language","English").trim();if(to.isEmpty()||to.length()>30||!to.matches("[\\p{L} ()-]+"))to="English";
     activity.getSharedPreferences("myraa.mobile.v1",0).edit().putString("chatMode",mode).putString("translateTo",to).apply();
     ControlLog.i("mode: "+mode);
-    JSONObject v=status("done","translator".equals(mode)?"Translator mode on: Urdu and "+to+". The call reconnects in a moment; say \"normal mode\" to stop.":"english_practice".equals(mode)?"English practice mode on. The call reconnects in a moment; say \"normal mode\" to stop.":"Back to normal mode. The call reconnects in a moment.");
+    JSONObject v=status("done","translator".equals(mode)?"Translator mode on: Urdu and "+to+". The call reconnects in a moment; say \"normal mode\" to stop.":"english_practice".equals(mode)?"English practice mode on. The call reconnects in a moment; say \"normal mode\" to stop.":"developer".equals(mode)?"Developer mode on: I'll help with code, logs, errors, APIs, databases and deployment. The call reconnects in a moment; say \"normal mode\" to stop.":"Back to normal mode. The call reconnects in a moment.");
     try{v.put("reconnect",true).put("mode",mode);}catch(JSONException ignored){}
     return v;
   }
