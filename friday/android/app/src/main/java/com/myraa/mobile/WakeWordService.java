@@ -168,7 +168,14 @@ public final class WakeWordService extends Service {
   private boolean check(Bundle results){
     ArrayList<String> heard=results==null?null:results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
     if(heard==null)return false;
-    for(String h:heard)if(matches(h)){woke();return true;}
+    // Low recognizer confidence (often TV, music or someone far away) is ignored; unknown confidence (0 or missing) is kept as before.
+    float[] conf=results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+    for(int i=0;i<heard.size();i++){
+      if(!matches(heard.get(i)))continue;
+      float c=conf!=null&&i<conf.length?conf[i]:0f;
+      if(c>0f&&c<0.2f){ControlLog.i("wake: phrase ignored, low confidence");continue;}
+      woke();return true;
+    }
     return false;
   }
   private void woke(){
