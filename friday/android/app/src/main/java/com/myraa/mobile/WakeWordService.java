@@ -104,13 +104,13 @@ public final class WakeWordService extends Service {
   }
   /** Settings changed (Guardian, listen when locked): the running listener picks them up. */
   static void refresh(Context c){
-    if(running){try{c.startService(new Intent(c,WakeWordService.class).setAction(REFRESH));}catch(RuntimeException ignored){}}
+    if(running){try{c.startService(new Intent(c,WakeWordService.class).setAction(REFRESH));}catch(RuntimeException e){ControlLog.i("wake: settings refresh not delivered ("+e.getClass().getSimpleName()+")");}}
     else ensure(c);
   }
   /** A Live call needs the microphone: pause while it runs, resume after. */
   static void livePaused(Context c,boolean paused){
     livePaused=paused;
-    if(running){try{c.startService(new Intent(c,WakeWordService.class).setAction(paused?PAUSE:RESUME));}catch(RuntimeException ignored){}}
+    if(running){try{c.startService(new Intent(c,WakeWordService.class).setAction(paused?PAUSE:RESUME));}catch(RuntimeException e){ControlLog.i("wake: "+(paused?"pause":"resume")+" not delivered ("+e.getClass().getSimpleName()+")");}}
   }
   static boolean matches(String heard){
     if(heard==null)return false;
@@ -179,10 +179,16 @@ public final class WakeWordService extends Service {
   }
   private void listenSoon(long delay){main.removeCallbacksAndMessages(null);main.postDelayed(this::listen,delay);}
   private void listen(){
-    if(!running||listening||livePaused||LiveVoiceService.running||!screenOk)return;
+    if(!running||listening||livePaused||!screenOk)return;
+    // The Live call is still closing (its service stops a moment after the resume): check again instead of staying silent.
+    if(LiveVoiceService.running){listenSoon(2000);return;}
     if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ControlLog.i("wake: microphone permission missing");stopSelf();return;}
     if(VoiceGuardian.recording){listenSoon(2000);return;}
     if(VoiceGuardian.active(this)){listenGuardian();return;}
+    // The phone's speech recognizer takes audio focus, so each restart paused the user's song or video.
+    // While other audio plays, wait instead (Voice Guardian above uses its own microphone and keeps listening).
+    if(otherAudioPlaying()){if(!musicWait){musicWait=true;ControlLog.i("wake: waiting while music or video plays");}listenSoon(2000);return;}
+    musicWait=false;
     if(recognizer==null){
       boolean local=onDevice&&Build.VERSION.SDK_INT>=31&&SpeechRecognizer.isOnDeviceRecognitionAvailable(this);
       if(!local)onDevice=false;
@@ -191,8 +197,13 @@ public final class WakeWordService extends Service {
     }
     Intent intent=recognizerIntent(this);
     if(onDevice)intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,true);
-    try{listening=true;recognizer.startListening(intent);}catch(RuntimeException e){listening=false;if(onDevice){onDevice=false;ControlLog.i("wake: offline recognizer unavailable, using the normal one");}recreate(2000);}
+    try{listening=true;recognizer.startListening(intent);main.postDelayed(stalled,RECOGNIZER_STALL_MS);}catch(RuntimeException e){listening=false;if(onDevice){onDevice=false;ControlLog.i("wake: offline recognizer unavailable, using the normal one");}recreate(2000);}
   }
+  private boolean musicWait;
+  /** Some phones' recognizers stop calling back: if a session gives no result or error in time, start a fresh one. */
+  private static final long RECOGNIZER_STALL_MS=25_000;
+  private final Runnable stalled=()->{if(running&&listening&&recognizer!=null){ControlLog.i("wake: recognizer stopped responding, restarting it");recreate(500);}};
+  private boolean otherAudioPlaying(){android.media.AudioManager audio=getSystemService(android.media.AudioManager.class);return audio!=null&&audio.isMusicActive();}
   private void halt(){main.removeCallbacksAndMessages(null);stopGuardian();if(recognizer!=null&&listening){try{recognizer.cancel();}catch(RuntimeException ignored){}}listening=false;}
   /** Voice Guardian: our own microphone loop; each burst of speech is compared with the user's saved wake phrase. */
   private void listenGuardian(){
@@ -218,7 +229,7 @@ public final class WakeWordService extends Service {
         guardian=null;listening=false;
         if(woke){woke();return;}
         if(bad){failures++;listenSoon(Math.min(60_000,1000L*(1L<<Math.min(failures,6))));}
-        else if(guardianRun)listenSoon(500);
+        else{failures=0;if(guardianRun)listenSoon(500);}
       });
     },"friday-guardian");
     guardian=me[0];guardian.start();

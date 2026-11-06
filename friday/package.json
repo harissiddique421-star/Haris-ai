@@ -37,7 +37,7 @@
     "build:android": "pwsh -NoProfile -File scripts/build-android.ps1",
     "audit:models": "node --import tsx scripts/inventory-models.ts",
     "import:character": "tsx tools/import-character.ts",
-    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts",
+    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts tests/emotion.test.ts tests/agents.test.ts tests/recovery.test.ts",
     "test:activation": "node --import tsx --test tests/activation.test.ts",
     "activation": "node scripts/friday-activation.mjs"
   },
@@ -65,6 +65,7 @@
     "electron": "^43.1.0",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
+    "javascript-obfuscator": "^4.1.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",

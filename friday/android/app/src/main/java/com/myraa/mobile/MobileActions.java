@@ -5,6 +5,7 @@ import android.app.*;
 import android.content.*;
 import android.content.pm.*;
 import android.database.Cursor;
+import android.location.Location;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -34,6 +35,11 @@ public final class MobileActions {
     boolean needsPermission(); List<Recipient> find(String name);
     /** WhatsApp accounts synced into Android Contacts for this mimetype (chat, voice call or video call). */
     default List<WaContact> findWhatsApp(String name,String mimetype){return Collections.emptyList();}
+    /** Close but not certain saved names (did you mean), from the name given and from the user's own words. */
+    default List<Recipient> suggest(String name,String heard){return Collections.emptyList();}
+    default List<WaContact> suggestWhatsApp(String name,String heard,String mimetype){return Collections.emptyList();}
+    /** The saved name for a phone number (any of its 03xx / +92 / 0092 forms), or null. */
+    default String nameFor(String phone){return null;}
   }
   /** One WhatsApp contact row: the Data row id WhatsApp itself registered, so opening it reaches exactly that chat/call. */
   public static final class WaContact {
@@ -57,6 +63,7 @@ public final class MobileActions {
   private final Handler main=new Handler(Looper.getMainLooper());
   private final SecureRandom random=new SecureRandom();
   private Runnable pending,pendingDenied;
+  private String heard="";
   private String pendingId,pendingPermission;
   private AlertDialog chooser,confirmDialog;
   private String chooserId,confirmId;
@@ -146,11 +153,50 @@ public final class MobileActions {
           }
         }
         List<Recipient> exact=new ArrayList<>();for(Recipient r:found)if(normalize(r.name).equals(normalize(name)))exact.add(r);
-        return exact.isEmpty()?found:exact;
+        if(!exact.isEmpty())return exact;
+        // Not one exact name: keep only confident matches, and if the plain search found none, check every saved contact
+        // (word order, extra spaces, Roman Urdu spelling) before saying the contact isn't there.
+        List<Recipient> sure=confident(name,found);
+        return sure.isEmpty()?confident(name,allPhones()):sure;
       }
+      private List<Recipient> phoneCache;private long phoneCacheAt;
+      private List<Recipient> allPhones(){
+        long now=System.currentTimeMillis();
+        if(phoneCache!=null&&now-phoneCacheAt<60_000)return phoneCache;
+        List<Recipient> all=new ArrayList<>();Set<String> seen=new HashSet<>();
+        try(Cursor c=activity.getContentResolver().query(Phone.CONTENT_URI,new String[]{Phone.DISPLAY_NAME,Phone.NUMBER,Phone.NORMALIZED_NUMBER},null,null,null)){
+          if(c!=null)while(c.moveToNext()&&all.size()<5000){
+            String n=c.getString(0);if(n==null||n.trim().isEmpty())continue;
+            String raw=c.getString(2);if(raw==null||raw.isEmpty())raw=c.getString(1);
+            String phone=international(raw,activity);if(phone!=null&&seen.add(n+"|"+phone))all.add(new Recipient(n,phone));
+          }
+        }catch(RuntimeException e){ControlLog.i("contacts: could not read the contact list");}
+        phoneCache=all;phoneCacheAt=now;return all;
+      }
+      private List<Recipient> confident(String name,List<Recipient> from){
+        List<String> names=new ArrayList<>();for(Recipient r:from)names.add(r.name);
+        List<double[]> ranked=ContactMatcher.rank(name,names,ContactMatcher.HIGH);
+        List<Recipient> out=new ArrayList<>();Set<String> seen=new HashSet<>();
+        for(double[] r:ranked)if(r[1]>=ranked.get(0)[1]-0.03&&out.size()<8){Recipient x=from.get((int)r[0]);if(seen.add(x.phone))out.add(x);}
+        return out;
+      }
+      public List<Recipient> suggest(String name,String heard){
+        List<Recipient> all=allPhones(),out=new ArrayList<>();Set<String> seen=new HashSet<>();
+        List<String> names=new ArrayList<>();for(Recipient r:all)names.add(r.name);
+        for(double[] r:ContactMatcher.rank(name,names,ContactMatcher.MEDIUM)){if(out.size()>=3)break;Recipient x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        // The model may have misheard the name; the user's own words often still have it.
+        if(heard!=null&&!heard.trim().isEmpty())for(String piece:ContactMatcher.pieces(heard)){
+          if(out.size()>=3)break;
+          for(double[] r:ContactMatcher.rank(piece,names,0.9)){if(out.size()>=3)break;Recipient x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        }
+        return out;
+      }
+      public String nameFor(String phone){for(Recipient r:allPhones())if(ContactMatcher.sameNumber(r.phone,phone))return r.name;return null;}
       public List<WaContact> findWhatsApp(String name,String mimetype){
         List<WaContact> found=new ArrayList<>();Set<String> seen=new HashSet<>();
         boolean number=name.trim().matches("\\+?[0-9 ()-]{8,}");String digits=name.replaceAll("[^0-9]","");
+        // A local number (03xx…) is stored by WhatsApp with the country code.
+        if(number){String intl=international(name,activity);if(intl!=null)digits=intl;}
         String escaped=name.trim().replace("\\","\\\\").replace("%","\\%").replace("_","\\_");
         String where=ContactsContract.Data.MIMETYPE+"=? AND "+(number?ContactsContract.Data.DATA1+" LIKE ?":ContactsContract.Data.DISPLAY_NAME+" LIKE ? ESCAPE '\\'");
         try(Cursor c=activity.getContentResolver().query(ContactsContract.Data.CONTENT_URI,new String[]{ContactsContract.Data._ID,ContactsContract.Data.DISPLAY_NAME,ContactsContract.Data.DATA1},where,new String[]{mimetype,number?digits+"@%":"%"+escaped+"%"},ContactsContract.Data.DISPLAY_NAME+" ASC")){
@@ -161,7 +207,40 @@ public final class MobileActions {
           }
         }
         List<WaContact> exact=new ArrayList<>();for(WaContact r:found)if(normalize(r.name).equals(normalize(name)))exact.add(r);
-        return exact.isEmpty()?found:exact;
+        if(!exact.isEmpty()||number)return exact.isEmpty()?found:exact;
+        List<WaContact> sure=confidentWa(name,found);
+        return sure.isEmpty()?confidentWa(name,allWhatsApp(mimetype)):sure;
+      }
+      private final Map<String,List<WaContact>> waCache=new HashMap<>();private final Map<String,Long> waCacheAt=new HashMap<>();
+      private List<WaContact> allWhatsApp(String mimetype){
+        long now=System.currentTimeMillis();Long at=waCacheAt.get(mimetype);
+        if(at!=null&&now-at<60_000)return waCache.get(mimetype);
+        List<WaContact> all=new ArrayList<>();Set<String> seen=new HashSet<>();
+        try(Cursor c=activity.getContentResolver().query(ContactsContract.Data.CONTENT_URI,new String[]{ContactsContract.Data._ID,ContactsContract.Data.DISPLAY_NAME,ContactsContract.Data.DATA1},ContactsContract.Data.MIMETYPE+"=?",new String[]{mimetype},null)){
+          if(c!=null)while(c.moveToNext()&&all.size()<5000){
+            String jid=c.getString(2),n=c.getString(1);if(jid==null||n==null)continue;String phone=jid.contains("@")?jid.substring(0,jid.indexOf('@')):jid.replaceAll("[^0-9]","");
+            if(!phone.matches("[1-9][0-9]{7,14}")||!seen.add(phone))continue;
+            all.add(new WaContact(n,phone,mimetype,c.getLong(0)));
+          }
+        }catch(RuntimeException e){ControlLog.i("contacts: could not read WhatsApp contacts");}
+        waCache.put(mimetype,all);waCacheAt.put(mimetype,now);return all;
+      }
+      private List<WaContact> confidentWa(String name,List<WaContact> from){
+        List<String> names=new ArrayList<>();for(WaContact r:from)names.add(r.name);
+        List<double[]> ranked=ContactMatcher.rank(name,names,ContactMatcher.HIGH);
+        List<WaContact> out=new ArrayList<>();
+        for(double[] r:ranked)if(r[1]>=ranked.get(0)[1]-0.03&&out.size()<8)out.add(from.get((int)r[0]));
+        return out;
+      }
+      public List<WaContact> suggestWhatsApp(String name,String heard,String mimetype){
+        List<WaContact> all=allWhatsApp(mimetype),out=new ArrayList<>();Set<String> seen=new HashSet<>();
+        List<String> names=new ArrayList<>();for(WaContact r:all)names.add(r.name);
+        for(double[] r:ContactMatcher.rank(name,names,ContactMatcher.MEDIUM)){if(out.size()>=3)break;WaContact x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        if(heard!=null&&!heard.trim().isEmpty())for(String piece:ContactMatcher.pieces(heard)){
+          if(out.size()>=3)break;
+          for(double[] r:ContactMatcher.rank(piece,names,0.9)){if(out.size()>=3)break;WaContact x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        }
+        return out;
       }
     });
   }
@@ -193,6 +272,8 @@ public final class MobileActions {
     if(!"mobile_action".equals(name)){finish(id,"unsupported","That mobile action is unavailable.");return;}
     try{
       JSONObject args=new JSONObject(raw);String action=args.optString("action");
+      // What the user actually said (kept on the phone), to find a contact name the model may have misheard.
+      heard=args.optString("heard","");if(heard.length()>300)heard=heard.substring(0,300);
       if(running.size()>64)running.clear();running.put(id,action);
       String section="set_mode".equals(action)&&"developer".equals(args.optString("mode"))?"developer":("list_memories".equals(action)||"forget".equals(action))?"memory":null;
       if(section!=null&&FridayPattern.needsUnlock(activity,section)){finish(id,"locked","This is protected by your FRIDAY pattern. Open FRIDAY and unlock it with the pattern first.");return;}
@@ -292,7 +373,12 @@ public final class MobileActions {
       if("set_driving_mode".equals(action)||"set_call_announce".equals(action)){finish(id,announceSetting("set_driving_mode".equals(action),args));return;}
       if("open_dialer".equals(action)){boolean opened=launcher.open(new Intent(Intent.ACTION_DIAL));finish(id,opened?"opened":"unavailable",opened?"Dialer opened.":"No dialer app on this phone.");return;}
       if("tap".equals(action)){tap(id,args);return;}
-      finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
+      if("prayer_times".equals(action)||"qibla".equals(action)){boolean q="qibla".equals(action);withPlace(id,action,args.optString("city","").trim(),()->finish(id,q?Prayer.qibla(activity):Prayer.today(activity)));return;}
+      if("prayer_reminders".equals(action)){prayerReminders(id,args.optBoolean("on",true),args.optInt("in_minutes",10),args.optString("city","").trim());return;}
+      if("emergency_contact".equals(action)){emergencyContact(id,args.optString("command","").trim(),args.optString("recipient","").trim());return;}
+      if("emergency".equals(action)){String token=args.optString("confirm_token");if(!token.isEmpty()){emergencyConfirmed(id,token);return;}emergency(id,args.optBoolean("confirm_on_screen"));return;}
+      if("reply_message".equals(action)){String token=args.optString("confirm_token");if(!token.isEmpty()){replyConfirmed(id,token);return;}reply(id,args.optString("recipient","").trim(),args.optString("message","").trim(),args.optString("app","").trim(),args.optBoolean("confirm_on_screen"));return;}
+      finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, namaz times and Qibla, emergency SOS, replying to message notifications, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){
@@ -312,21 +398,38 @@ public final class MobileActions {
   private void resolve(String id,String recipient,Then then){
     if(recipient.trim().isEmpty()||recipient.length()>100){finish(id,"invalid","Tell me who it is for.");return;}
     if(recipient.trim().matches("\\+?[0-9 ()-]+")){
-      String phone=recipient.replaceAll("[ ()+-]","");if(phone.startsWith("00"))phone=phone.substring(2);boolean international=recipient.trim().startsWith("+")||recipient.trim().startsWith("00")||phone.length()>=11;if(!international||!phone.matches("[1-9][0-9]{7,14}")){finish(id,"invalid","Include the country code in the recipient phone number, for example +91.");return;}
-      then.with(new Recipient(recipient.trim(),phone));return;
+      String phone=recipient.replaceAll("[ ()+-]","");if(phone.startsWith("00"))phone=phone.substring(2);
+      // A local number such as 03001234567: add the country code the phone is in.
+      if(phone.startsWith("0")){String intl=international(recipient,activity);if(intl!=null)phone=intl;}
+      boolean international=phone.matches("[1-9][0-9]{10,14}")||recipient.trim().startsWith("+")||recipient.trim().startsWith("00")||phone.length()>=11;if(!international||!phone.matches("[1-9][0-9]{7,14}")){finish(id,"invalid","Include the country code in the recipient phone number, for example +91.");return;}
+      String saved=null;
+      if(!contacts.needsPermission()||activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED)saved=contacts.nameFor(phone);
+      then.with(new Recipient(saved!=null?saved:recipient.trim(),phone));return;
     }
     if(contacts.needsPermission()&&activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){
       if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
       pendingId=id;pendingPermission=Manifest.permission.READ_CONTACTS;pendingDenied=null;pending=()->resolve(id,recipient,then);activity.requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},CONTACTS_REQUEST);return;
     }
     List<Recipient> matches=contacts.find(recipient.trim());
-    if(matches.isEmpty()){finish(id,"not_found","No matching contact with a usable phone number was found. Give the full saved name or an international phone number.");return;}
-    boolean exact=matches.size()==1&&normalize(matches.get(0).name).equals(normalize(recipient));
+    if(matches.isEmpty()){
+      List<Recipient> close=contacts.suggest(recipient.trim(),heard);
+      ControlLog.i("contact \""+recipient.trim()+"\": no confident match, "+close.size()+" close");
+      if(!close.isEmpty()){List<String> names=new ArrayList<>();for(Recipient r:close)names.add(r.name);didYouMean(id,recipient.trim(),names);return;}
+      finish(id,"not_found","I checked all saved contacts and none is named "+recipient.trim()+". Tell the user that in one short line, and ask them to say the name again or give the number.");return;
+    }
+    boolean exact=matches.size()==1&&(normalize(matches.get(0).name).equals(normalize(recipient))||ContactMatcher.score(recipient,matches.get(0).name)>=ContactMatcher.HIGH);
     if(exact){then.with(matches.get(0));return;}
     if(chooser!=null){finish(id,"busy","Choose the recipient from the current list first.");return;}
     String[] labels=new String[matches.size()];for(int i=0;i<labels.length;i++)labels[i]=matches.get(i).name+" · +"+matches.get(i).phone;
     chooserId=id;chooser=new AlertDialog.Builder(activity).setTitle("Which "+recipient+"?").setItems(labels,(d,index)->{chooser=null;chooserId=null;then.with(matches.get(index));})
       .setNegativeButton("Cancel",(d,w)->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).setOnCancelListener(d->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).show();
+  }
+  /** A close but uncertain contact: the user picks or repeats the name; FRIDAY never picks one by herself. */
+  private void didYouMean(String id,String asked,List<String> names){
+    StringBuilder list=new StringBuilder();for(int i=0;i<names.size();i++){if(i>0)list.append(i==names.size()-1?" or ":", ");list.append(names.get(i));}
+    JSONObject value=status("did_you_mean","No saved contact is exactly \""+asked+"\". Closest saved: "+list+". Ask the user in one short line whether they mean "+(names.size()==1?"this contact":"one of these")+" (for example \"Kya aap "+names.get(0)+" ki baat kar rahe hain?\") or to say the name again. Only after they confirm, call mobile_action again with recipient set to that exact saved name. Never choose one yourself.");
+    try{value.put("candidates",new JSONArray(names));}catch(JSONException ignored){}
+    finish(id,value);
   }
   private String token(String kind,Recipient person,String text){
     long now=System.currentTimeMillis();confirmations.values().removeIf(c->c.until<now);
@@ -758,6 +861,10 @@ public final class MobileActions {
     if(matches.isEmpty()){
       if(allowPhoneFallback){resolve(id,recipient,person->then.with(new WaContact(person.name,person.phone,mimetype,-1)));return;}
       boolean phoneOnly=!recipient.trim().matches("\\+?[0-9 ()-]+")&&!contacts.find(recipient.trim()).isEmpty();
+      if(!phoneOnly&&!recipient.trim().matches("\\+?[0-9 ()-]+")){
+        List<WaContact> close=contacts.suggestWhatsApp(recipient.trim(),heard,mimetype);
+        if(!close.isEmpty()){List<String> names=new ArrayList<>();for(WaContact r:close)names.add(r.name);didYouMean(id,recipient.trim(),names);return;}
+      }
       finish(id,"not_found",phoneOnly?recipient.trim()+" is in your phone contacts, but WhatsApp has no account synced for them, so I can't place a WhatsApp call. Open WhatsApp once so it syncs contacts, or check they use WhatsApp.":"I couldn't find a WhatsApp contact called "+recipient.trim()+". Say the full saved name.");return;
     }
     boolean exact=matches.size()==1;
@@ -806,6 +913,118 @@ public final class MobileActions {
       ControlLog.i("open_contact "+person.name+": "+(opened?"opened":"no contacts app"));
       finish(id,opened?"opened":"unavailable",opened?"Opened "+person.name+"'s contact.":"No contacts app could open it.");
     });
+  }
+
+  // ---- Namaz times, reminders and Qibla ----
+  /** Location for prayer times: the city the user names, the saved place, or the phone's location (asked once). */
+  private void withPlace(String id,String action,String city,Runnable then){
+    if(city.length()>100){finish(id,"invalid","Say the city name, for example Lahore.");return;}
+    if(!city.isEmpty()){
+      new Thread(()->{double[] p=Prayer.geocode(activity,city);main.post(()->{
+        if(p==null){finish(id,"not_found","I couldn't find "+city+" (finding a city needs internet once). Ask the user to say the city again, for example Lahore or Karachi.");return;}
+        Prayer.savePlace(activity,p[0],p[1],city);Prayer.scheduleNext(activity);ControlLog.i("prayer: place set from a city name");then.run();
+      });},"friday-geocode").start();
+      return;
+    }
+    // A place the user named stays until they name another; a place from the phone's location follows the phone.
+    boolean named=!Prayer.prefs(activity).getString("place","").isEmpty();
+    if(Prayer.hasPlace(activity)&&(named||!Sos.granted(activity))){then.run();return;}
+    withLocation(id,()->{
+      Location l=Prayer.lastKnown(activity);
+      if(l!=null){Prayer.savePlace(activity,l.getLatitude(),l.getLongitude(),"");Prayer.scheduleNext(activity);}
+      if(!Prayer.hasPlace(activity)){finish(id,"needs_city","I don't know where the user is (location is off or not known yet). Ask which city they are in, then call "+action+" again with city.");return;}
+      then.run();
+    });
+  }
+  /** Asks for location once (precise or approximate, the user picks); then always continues, with or without it. */
+  private void withLocation(String id,Runnable then){
+    if(Sos.granted(activity)){then.run();return;}
+    if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
+    pendingId=id;pendingPermission=Manifest.permission.ACCESS_COARSE_LOCATION;pending=then;pendingDenied=then;
+    activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},CONTACTS_REQUEST);
+  }
+  private void prayerReminders(String id,boolean on,int before,String city){
+    if(!on){finish(id,Prayer.reminders(activity,false,before));return;}
+    withPlace(id,"prayer_reminders",city,()->{
+      if(Build.VERSION.SDK_INT>=33)withPermission(id,Manifest.permission.POST_NOTIFICATIONS,()->finish(id,Prayer.reminders(activity,true,before)),
+        ()->{Prayer.reminders(activity,false,before);finish(id,"permission_required","Notifications are off for FRIDAY, so namaz reminders can't be shown. Allow notifications in Settings > Permissions, then ask again.");});
+      else finish(id,Prayer.reminders(activity,true,before));
+    });
+  }
+
+  // ---- Emergency (SOS) ----
+  private void emergencyContact(String id,String command,String recipient){
+    String cmd=command.isEmpty()?(recipient.isEmpty()?"list":"add"):command.toLowerCase(Locale.ROOT);
+    List<Recipient> saved=Sos.contacts(activity);
+    if("list".equals(cmd)){finish(id,"done",saved.isEmpty()?"No emergency contacts are saved yet. Ask the user who should get the emergency message (up to "+Sos.MAX+" family members).":"Emergency contacts: "+Sos.names(saved)+".");return;}
+    if("remove".equals(cmd)){
+      if(recipient.isEmpty()){finish(id,"invalid","Say which emergency contact to remove.");return;}
+      String removed=Sos.remove(activity,recipient);
+      ControlLog.i("sos: emergency contact "+(removed==null?"not found":"removed"));
+      finish(id,removed==null?"not_found":"done",removed==null?(saved.isEmpty()?"There are no emergency contacts.":"None of the emergency contacts ("+Sos.names(saved)+") is "+recipient+"."):removed+" is no longer an emergency contact.");return;
+    }
+    if(!"add".equals(cmd)){finish(id,"invalid","Say add, remove or list for emergency contacts.");return;}
+    if(saved.size()>=Sos.MAX){finish(id,"invalid","There are already "+Sos.MAX+" emergency contacts ("+Sos.names(saved)+"). Remove one first.");return;}
+    resolve(id,recipient,person->{
+      String why=Sos.add(activity,person);if(why!=null){finish(id,"invalid",why);return;}
+      ControlLog.i("sos: emergency contact added");
+      String done=person.name+" (+"+person.phone+") is now an emergency contact. Say \"FRIDAY emergency\" when you need help; I will ask once, then send them an SMS with your location.";
+      // Ask for SMS and location now, so a real emergency never waits on permission screens.
+      withPermission(id,Manifest.permission.SEND_SMS,()->withLocation(id,()->finish(id,"done",done+(Sos.granted(activity)?"":" Location is off for FRIDAY, so the message will go without your location until you allow it."))),
+        ()->finish(id,"done",done+" SMS permission was denied, so emergency messages can't be sent until you allow SMS for FRIDAY in Settings > Permissions."));
+    });
+  }
+  private void emergency(String id,boolean onScreen){
+    List<Recipient> list=Sos.contacts(activity);
+    if(list.isEmpty()){finish(id,"needs_setup","No emergency contacts are saved, so nothing was sent. If the user is in danger, tell them to call for help now (in Pakistan 15 for police, 1122 for rescue) and offer to open the dialer. Later they can add family members with \"Ammi ko emergency contact bana do\".");return;}
+    String names=Sos.names(list);
+    if(onScreen){confirmOnScreen(id,"Send emergency message?","To: "+names+"\n\nAn SMS saying you need help, with your location.",()->sendEmergency(id));return;}
+    JSONObject value=status("needs_confirmation","Send an emergency SMS with your location to "+names+"? Ask the user exactly this in one short line and wait for a clear yes (haan, yes, bhejo). Only after a yes, call emergency again with the confirm_token. If they say no or it was a mistake, do nothing.");
+    try{value.put("confirm_token",token("sos",new Recipient(names,""),null)).put("recipients",names);}catch(JSONException ignored){}
+    finish(id,value);
+  }
+  private void emergencyConfirmed(String id,String token){
+    if(take("sos",token)==null){finish(id,"invalid","That confirmation expired or was already used. Ask the user again whether to send the emergency message.");return;}
+    sendEmergency(id);
+  }
+  private void sendEmergency(String id){
+    List<Recipient> list=Sos.contacts(activity);
+    if(list.isEmpty()){finish(id,"needs_setup","No emergency contacts are saved, so nothing was sent.");return;}
+    withPermission(id,Manifest.permission.SEND_SMS,()->Sos.locate(activity,loc->{
+      String text=Sos.message(loc);List<String> sent=new ArrayList<>(),failed=new ArrayList<>();
+      for(Recipient r:list){try{phone().sms(r.phone,text,r.name);sent.add(r.name);}catch(RuntimeException e){failed.add(r.name);}}
+      ControlLog.i("sos: sms to "+sent.size()+" of "+list.size()+(loc==null?", without location":", with location"));
+      if(sent.isEmpty()){finish(id,"failed","The emergency SMS could not be sent (no signal or SMS blocked). Tell the user to call for help directly (15 police, 1122 rescue in Pakistan) and offer to call "+list.get(0).name+".");return;}
+      finish(id,"sent","The phone sent the emergency SMS to "+String.join(", ",sent)+(loc==null?" without a location (the phone did not know it)":" with your location")+"."+(failed.isEmpty()?"":" It could not send to "+String.join(", ",failed)+".")+" Say this in one short calm line and offer to call "+list.get(0).name+" now.");
+    }),()->finish(id,"permission_required","SMS permission was denied, so the emergency message was not sent. Tell the user to call for help directly (15 police, 1122 rescue in Pakistan) and offer to call "+list.get(0).name+"."));
+  }
+
+  // ---- Replying to a message notification ----
+  private void reply(String id,String who,String text,String app,boolean onScreen){
+    if(text.isEmpty()||text.length()>1000){finish(id,"invalid","Tell me what to reply.");return;}
+    if(!NotificationReader.enabled(activity)){finish(id,"permission_required","Replying needs Notification access for FRIDAY. Turn it on in Settings > Permissions; then FRIDAY can answer new messages. Nothing was sent.");return;}
+    NotificationReader.ReplyTarget t=NotificationReader.findReply(who,app);
+    if(t==null){
+      List<String> senders=NotificationReader.replySenders();
+      if(!who.isEmpty()){List<String> close=new ArrayList<>();for(String s:senders)if(ContactMatcher.score(who,s)>=ContactMatcher.MEDIUM)close.add(s);if(!close.isEmpty()){didYouMean(id,who,close);return;}}
+      finish(id,"not_found",senders.isEmpty()?"There is no recent message FRIDAY can reply to (it needs a message notification from the last hour with a Reply button). Nothing was sent. Offer to send it as a new WhatsApp message instead.":"No recent message from "+who+". FRIDAY can reply to: "+String.join(", ",senders)+". Nothing was sent; ask the user which one, or offer a new WhatsApp message.");return;
+    }
+    if(onScreen){String key=t.key;confirmOnScreen(id,"Send reply?","To: "+t.sender+" ("+t.app+")\n\n"+text,()->sendReply(id,key,text));return;}
+    JSONObject value=status("needs_confirmation","Reply to "+t.sender+" on "+t.app+": \""+text+"\"? Ask the user this exact question and wait for a clear yes. Only after they say yes, call reply_message again with the confirm_token. If they say no or change anything, do not reuse the token.");
+    try{value.put("confirm_token",token("reply",new Recipient(t.sender,t.key),text)).put("recipient_name",t.sender).put("app",t.app).put("message_text",text);}catch(JSONException ignored){}
+    finish(id,value);
+  }
+  private void replyConfirmed(String id,String token){
+    Confirmation c=take("reply",token);
+    if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again with who to reply to and the message.");return;}
+    sendReply(id,c.phone,c.text);
+  }
+  private void sendReply(String id,String key,String text){
+    NotificationReader.ReplyTarget t=NotificationReader.replyByKey(key);
+    if(t==null){finish(id,"unavailable","That message notification is gone, so FRIDAY can't reply through it. Nothing was sent. Offer to send it as a new WhatsApp message instead.");return;}
+    boolean ok=NotificationReader.sendReply(activity,t,text);
+    ControlLog.i("reply: "+(ok?"handed to ":"could not reach ")+t.app);
+    finish(id,ok?"sent":"failed",ok?"Reply sent to "+t.sender+" through the "+t.app+" notification's Reply button.":t.app+" no longer accepts a reply from that notification. Nothing was sent. Offer to send it as a new WhatsApp message instead.");
   }
 
   public void permissionResult(){

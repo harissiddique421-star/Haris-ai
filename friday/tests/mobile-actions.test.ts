@@ -162,3 +162,11 @@ test('health, network, history, clock, styles and modes parse locally', () => {
   assert.deepEqual(parseMobileAction('normal mode'),{action:'set_mode',mode:'normal'});
   assert.equal(parseMobileAction('history of Pakistan'),null);
 });
+test('namaz times, qibla and emergency parse locally; unclear words never trigger SOS', () => {
+  for (const s of ['namaz times', 'Namaz ka waqt', 'agli namaz kab hai?', 'prayer times today', 'aaj namaz ke auqat batao'])
+    assert.deepEqual(parseMobileAction(s), { action: 'prayer_times' }, s);
+  for (const s of ['qibla kis taraf hai?', 'Qibla direction', 'which way is the qibla']) assert.deepEqual(parseMobileAction(s), { action: 'qibla' }, s);
+  for (const s of ['FRIDAY emergency', 'SOS', 'emergency message bhejo']) assert.deepEqual(parseMobileAction(s), { action: 'emergency' }, s);
+  assert.deepEqual(parseMobileAction('emergency contacts'), { action: 'emergency_contact', command: 'list' });
+  for (const s of ['help me', 'what is an emergency', 'emergency room near me', 'sos meaning']) assert.notEqual(parseMobileAction(s)?.action, 'emergency', s);
+});
