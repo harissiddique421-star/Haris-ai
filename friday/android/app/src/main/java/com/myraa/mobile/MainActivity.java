@@ -41,7 +41,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class MainActivity extends Activity {
   private static final String ORIGIN = "https://appassets.androidplatform.net";
   private static final String KEY_ALIAS = "myraa.mobile.gemini.v1";
-  private static final int MICROPHONE_REQUEST = 77, CAMERA_REQUEST = 78, SCREEN_REQUEST = 79, WAKE_MIC_REQUEST = 83, BACKUP_EXPORT = 81, BACKUP_IMPORT = 82;
+  private static final int MICROPHONE_REQUEST = 77, CAMERA_REQUEST = 78, SCREEN_REQUEST = 79, WAKE_MIC_REQUEST = 83, BACKUP_EXPORT = 81, BACKUP_IMPORT = 82, DEVICE_AUTH = 84;
+  private String deviceAuthPurpose = "unlock";
+  private android.speech.SpeechRecognizer testRecognizer;
   static volatile boolean visible;
   private volatile boolean pendingWake;
   private AssistantMemory memory;
@@ -135,7 +137,8 @@ public class MainActivity extends Activity {
   private JSONObject wakeState(){
     boolean fullScreen=Build.VERSION.SDK_INT<34||getSystemService(NotificationManager.class).canUseFullScreenIntent();
     return json("on",WakeWordService.wanted(this),"running",WakeWordService.running,"available",android.speech.SpeechRecognizer.isRecognitionAvailable(this)||VoiceGuardian.active(this),
-      "locked",WakeWordService.whenLocked(this),"guardian",VoiceGuardian.wanted(this),"enrolled",VoiceGuardian.enrolled(this),"recording",VoiceGuardian.recording,"fullScreen",fullScreen||Settings.canDrawOverlays(this));
+      "locked",WakeWordService.whenLocked(this),"guardian",VoiceGuardian.wanted(this),"enrolled",VoiceGuardian.enrolled(this),"recording",VoiceGuardian.recording,"fullScreen",fullScreen||Settings.canDrawOverlays(this),
+      "status",WakeWordService.status(this),"sensitivity",WakeWordService.sensitivity(this),"nameOnly",WakeWordService.nameOnly(this),"openFromBackground",Settings.canDrawOverlays(this));
   }
   private void guardianEvent(String status,int step,String message){emit(json("type","guardian","status",status,"step",step,"message",message,"wake",wakeState()));}
 
@@ -288,7 +291,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.23", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.24", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -456,6 +459,23 @@ public class MainActivity extends Activity {
       WakeWordService.livePaused(MainActivity.this, true);
       VoiceGuardian.record(MainActivity.this, (status, step, message) -> runOnUiThread(() -> guardianEvent(status, step, message)), () -> runOnUiThread(() -> { WakeWordService.livePaused(MainActivity.this, false); WakeWordService.refresh(MainActivity.this); guardianEvent("done", 0, ""); }));
     }); }
+    // ---- wake word options and test
+    @JavascriptInterface public void wakeOptions(String raw) { runOnUiThread(() -> {
+      try { JSONObject in = new JSONObject(raw == null ? "{}" : raw);
+        if (in.has("sensitivity")) WakeWordService.setSensitivity(MainActivity.this, in.optString("sensitivity"));
+        if (in.has("nameOnly")) WakeWordService.setNameOnly(MainActivity.this, in.optBoolean("nameOnly"));
+      } catch (JSONException ignored) {}
+      emit(json("type", "assistant", "assistant", memory.state(), "announce", Announcer.state(MainActivity.this), "wake", wakeState()));
+    }); }
+    @JavascriptInterface public void wakeTest() { runOnUiThread(MainActivity.this::runWakeTest); }
+    // ---- FRIDAY Pattern
+    @JavascriptInterface public String patternState() { return FridayPattern.state(MainActivity.this).toString(); }
+    @JavascriptInterface public String patternSave(String first, String second) { return FridayPattern.save(MainActivity.this, first, second).toString(); }
+    @JavascriptInterface public String patternVerify(String attempt) { return FridayPattern.verify(MainActivity.this, attempt).toString(); }
+    @JavascriptInterface public String patternOptions(String raw) { try { return FridayPattern.options(MainActivity.this, new JSONObject(raw == null ? "{}" : raw)).toString(); } catch (JSONException e) { return "{\"ok\":false,\"message\":\"Invalid options.\"}"; } }
+    @JavascriptInterface public String patternRemove() { return FridayPattern.remove(MainActivity.this).toString(); }
+    @JavascriptInterface public void patternDevice(String purpose) { runOnUiThread(() -> deviceAuth("reset".equals(purpose) ? "reset" : "unlock")); }
+    @JavascriptInterface public void haptic() { runOnUiThread(() -> { try { web.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); } catch (RuntimeException ignored) {} }); }
     @JavascriptInterface public void guardianDelete() { runOnUiThread(() -> { VoiceGuardian.delete(MainActivity.this); WakeWordService.refresh(MainActivity.this); guardianEvent("deleted", 0, "Your saved voice is deleted. The wake word now works for any voice."); }); }
     @JavascriptInterface public void exportBackup() { runOnUiThread(() -> {
       try { startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json").putExtra(Intent.EXTRA_TITLE, "FRIDAY-backup.json"), BACKUP_EXPORT); }
@@ -622,6 +642,7 @@ public class MainActivity extends Activity {
   }
   @Override protected void onActivityResult(int request,int result,Intent data){
     super.onActivityResult(request,result,data);
+    if(request==DEVICE_AUTH){deviceAuthDone(result==RESULT_OK,result==RESULT_OK?"":"Cancelled.");return;}
     if(request==BACKUP_EXPORT||request==BACKUP_IMPORT){
       if(result!=RESULT_OK||data==null||data.getData()==null){backupResult("cancelled","Backup cancelled.");return;}
       Uri uri=data.getData();
@@ -667,7 +688,84 @@ public class MainActivity extends Activity {
     if(web!=null){web.onResume();web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:true,backgroundLive:"+allowBackgroundLive+"}}))",null);}
     if(permissionsCenter!=null)emit(json("type","permissions","permissions",permissionsCenter.state()));
   }
-  @Override protected void onStop(){super.onStop();if(!allowBackgroundLive&&pendingLiveId==null){cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false}}))",null);}}
+  /** The phone's own fingerprint, face or PIN, through Android's official prompt. FRIDAY never sees the credential. */
+  private void deviceAuth(String purpose){
+    deviceAuthPurpose=purpose;
+    if(!FridayPattern.deviceSecure(this)){deviceAuthDone(false,"This phone has no screen lock, so it can't confirm it's you. Set one in Android Settings > Security.");return;}
+    if(Build.VERSION.SDK_INT>=30){
+      android.hardware.biometrics.BiometricPrompt prompt=new android.hardware.biometrics.BiometricPrompt.Builder(this)
+        .setTitle("reset".equals(purpose)?"Reset FRIDAY pattern":"Unlock FRIDAY").setSubtitle("Use your fingerprint, face or phone lock")
+        .setAllowedAuthenticators(android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK|android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL).build();
+      prompt.authenticate(new android.os.CancellationSignal(),getMainExecutor(),new android.hardware.biometrics.BiometricPrompt.AuthenticationCallback(){
+        @Override public void onAuthenticationSucceeded(android.hardware.biometrics.BiometricPrompt.AuthenticationResult r){deviceAuthDone(true,"");}
+        @Override public void onAuthenticationError(int code,CharSequence msg){deviceAuthDone(false,msg==null?"Cancelled.":msg.toString());}
+      });
+      return;
+    }
+    android.app.KeyguardManager k=getSystemService(android.app.KeyguardManager.class);
+    Intent confirm=k==null?null:k.createConfirmDeviceCredentialIntent("reset".equals(purpose)?"Reset FRIDAY pattern":"Unlock FRIDAY","Use your phone lock");
+    if(confirm==null){deviceAuthDone(false,"This phone can't confirm it's you.");return;}
+    try{startActivityForResult(confirm,DEVICE_AUTH);}catch(RuntimeException e){deviceAuthDone(false,"The phone lock screen couldn't be opened.");}
+  }
+  private void deviceAuthDone(boolean ok,String message){
+    String purpose=deviceAuthPurpose;String msg=message;
+    if(ok){FridayPattern.unlockedByDevice(this);if("reset".equals(purpose)){msg=FridayPattern.remove(this).optString("message");}else msg="Unlocked.";}
+    emit(json("type","pattern-auth","ok",ok,"purpose",purpose,"message",msg,"pattern",FridayPattern.state(this)));
+  }
+  /** Listens once with the same rules as the wake-word service and reports what happened. Heard words are shown, never stored. */
+  private void runWakeTest(){
+    if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){emit(json("type","wake-test","status","done","detected",false,"microphone",false,"service",WakeWordService.status(this),"message","Microphone permission is missing. Allow it in Settings > Permissions."));return;}
+    WakeWordService.livePaused(this,true);
+    emit(json("type","wake-test","status","listening","message","Say \"Wake up FRIDAY\" now…"));
+    if(VoiceGuardian.active(this)){
+      new Thread(()->{
+        android.media.AudioRecord r=null;short[] u=null;String problem=null;
+        try{Thread.sleep(600);r=VoiceGuardian.open();r.startRecording();u=VoiceGuardian.nextUtterance(r,()->false,8000);}
+        catch(InterruptedException e){Thread.currentThread().interrupt();}catch(RuntimeException e){problem="The microphone is busy. Close other apps using it and try again.";}
+        finally{if(r!=null){try{r.stop();}catch(RuntimeException ignored){}r.release();}}
+        double[] sc=u==null?null:VoiceGuardian.score(this,u);
+        final boolean ok=sc!=null&&sc[0]<=1&&sc[1]<=1;final String why=problem;final short[] heard=u;
+        runOnUiThread(()->{
+          WakeWordService.livePaused(this,false);
+          emit(json("type","wake-test","status","done","detected",ok,"microphone",true,"service",WakeWordService.status(this),
+            "guardian",heard==null?"nothing heard":ok?"your voice matched":"not matched",
+            "confidence",sc==null?-1:Math.max(0,Math.round(100*(1-Math.max(sc[0],sc[1])/2))),
+            "message",why!=null?why:heard==null?"Nothing was heard. Speak a little closer.":ok?"Detected: phrase and your voice matched.":"Not detected: the phrase or voice didn't match well enough. Try again in a quieter place, or record your voice again."));
+        });
+      },"friday-wake-test").start();
+      return;
+    }
+    web.postDelayed(()->{
+      if(testRecognizer!=null){try{testRecognizer.destroy();}catch(RuntimeException ignored){}}
+      testRecognizer=android.speech.SpeechRecognizer.createSpeechRecognizer(this);
+      testRecognizer.setRecognitionListener(new android.speech.RecognitionListener(){
+        public void onReadyForSpeech(Bundle b){} public void onBeginningOfSpeech(){} public void onRmsChanged(float v){} public void onBufferReceived(byte[] b){} public void onEndOfSpeech(){} public void onEvent(int t,Bundle b){} public void onPartialResults(Bundle b){}
+        public void onResults(Bundle b){
+          java.util.ArrayList<String> heard=b==null?null:b.getStringArrayList(android.speech.SpeechRecognizer.RESULTS_RECOGNITION);float[] conf=b==null?null:b.getFloatArray(android.speech.SpeechRecognizer.CONFIDENCE_SCORES);
+          String top=heard==null||heard.isEmpty()?"":heard.get(0);boolean detected=false;float best=-1;
+          if(heard!=null)for(int i=0;i<heard.size();i++){
+            boolean full=WakeWordService.matches(heard.get(i)),alone=!full&&WakeWordService.nameOnly(MainActivity.this)&&WakeWordService.nameAlone(heard.get(i));
+            float c=conf!=null&&i<conf.length?conf[i]:0f;
+            if((full||alone)&&!((c>0f||alone)&&c<WakeWordService.minConfidence(MainActivity.this,alone))){detected=true;best=c;break;}
+            if(i==0)best=c;
+          }
+          finishTest(detected,top,best,null);
+        }
+        public void onError(int error){finishTest(false,"",-1,error==android.speech.SpeechRecognizer.ERROR_NO_MATCH||error==android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT?"Nothing clear was heard.":error==android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS?"Microphone permission is missing.":"The speech recognizer had a problem (error "+error+").");}
+      });
+      Intent intent=new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE,prefs.getString("language","hi-IN")).putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS,3).putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE,true);
+      try{testRecognizer.startListening(intent);}catch(RuntimeException e){finishTest(false,"",-1,"The speech recognizer couldn't start.");}
+    },700);
+  }
+  private void finishTest(boolean detected,String heard,float confidence,String problem){
+    if(testRecognizer!=null){try{testRecognizer.destroy();}catch(RuntimeException ignored){}testRecognizer=null;}
+    WakeWordService.livePaused(this,false);
+    String shown=heard==null?"":heard.length()>80?heard.substring(0,80):heard;
+    emit(json("type","wake-test","status","done","detected",detected,"heard",shown,"confidence",confidence<=0?-1:Math.round(confidence*100),"microphone",true,"guardian","off","service",WakeWordService.status(this),
+      "message",problem!=null?problem:detected?"Detected.":shown.isEmpty()?"Nothing clear was heard.":"Not detected. Say it clearly: Wake up FRIDAY."));
+  }
+  @Override protected void onStop(){super.onStop();FridayPattern.lock();if(!allowBackgroundLive&&pendingLiveId==null){cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false}}))",null);}}
   @Override protected void onDestroy() {
     pendingUiAction=null;if(mobileActions!=null)mobileActions.close();try{unregisterReceiver(stopLiveReceiver);}catch(IllegalArgumentException ignored){}
     cancelLive(); liveNetwork.shutdownNow();

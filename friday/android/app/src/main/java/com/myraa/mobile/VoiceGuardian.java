@@ -195,15 +195,20 @@ final class VoiceGuardian {
     return null;
   }
   /** True when the burst is the wake phrase in the saved voice. Logs only the scores. */
-  static boolean matches(Context c,short[] pcm){
-    Voice v=load(c);if(v==null)return false;
+  static boolean matches(Context c,short[] pcm){double[] r=score(c,pcm);return r!=null&&r[0]<=1&&r[1]<=1;}
+  /** Sensitivity: low = stricter (fewer false wakes), high = more forgiving. */
+  static double factor(Context c){String s=WakeWordService.sensitivity(c);return "low".equals(s)?0.85:"high".equals(s)?1.2:1.0;}
+  /** {phrase distance / limit, voice distance / limit}; both at or under 1 is a match. Null without a saved voice. */
+  static double[] score(Context c,short[] pcm){
+    Voice v=load(c);if(v==null)return null;
     Features f=features(pcm);
     double[] d=new double[v.templates.length];for(int i=0;i<d.length;i++)d[i]=dtw(f.frames,v.templates[i]);
     Arrays.sort(d);double phrase=d.length>1?(d[0]+d[1])/2:d[0],voice=distance(f.colour,v.colour);
-    boolean ok=phrase<=v.limit&&voice<=v.colourLimit;
+    double k=factor(c);
+    boolean ok=phrase<=v.limit*k&&voice<=v.colourLimit*k;
     if(!Double.isInfinite(phrase)&&phrase<=v.limit*1.6)
       ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.1f/%.1f)",phrase,v.limit,voice,v.colourLimit));
-    return ok;
+    return new double[]{phrase/(v.limit*k),voice/(v.colourLimit*k)};
   }
   private static void save(Context c,Voice v) throws IOException,JSONException {
     JSONObject o=new JSONObject().put("version",1).put("limit",v.limit).put("colourLimit",v.colourLimit).put("colour",pack(new float[][]{v.colour}));
