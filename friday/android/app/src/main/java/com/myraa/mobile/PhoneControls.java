@@ -118,6 +118,30 @@ final class PhoneControls {
     }catch(SecurityException e){return result("permission_required","Answering calls needs the Phone permission for FRIDAY.");}
   }
 
+  /** Stops the ringing sound (and FRIDAY's announcement); the call keeps ringing silently until answered or rejected. */
+  JSONObject silenceCall(){
+    String caller=NotificationReader.ringingCaller();
+    NotificationReader.quietAnnouncement();
+    if(caller==null)return result(NotificationReader.enabled(activity)?"unavailable":"permission_required",NotificationReader.enabled(activity)?"No call is ringing right now.":"FRIDAY needs Notification access to know about calls (Settings > Permissions).");
+    try{activity.getSystemService(TelecomManager.class).silenceRinger();return result("done","The ringing is silenced. The call is still there: say answer or reject.");}catch(SecurityException ignored){}
+    try{
+      activity.getSystemService(AudioManager.class).adjustStreamVolume(AudioManager.STREAM_RING,AudioManager.ADJUST_MUTE,0);
+      NotificationReader.unmuteRingAfterCall=true;
+      return result("done","The ringing is silenced. The sound comes back after this call. Say answer or reject.");
+    }catch(RuntimeException e){return result("unavailable","Android didn't let FRIDAY silence the ringer. Press a volume button to silence it.");}
+  }
+  /** Who is calling right now: the saved contact name, or the number when it is not saved. */
+  JSONObject whoIsCalling(){
+    if(!NotificationReader.enabled(activity))return result("permission_required","FRIDAY needs Notification access to know who is calling (Settings > Permissions).");
+    String caller=NotificationReader.ringingCaller();
+    if(caller==null)return result("done","No call is ringing right now.");
+    JSONObject v;
+    if(caller.isEmpty())v=result("done","An unknown number is calling you.");
+    else if(CallerName.looksLikeNumber(caller))v=result("done","An unknown number is calling you: "+caller+". Say the number, then ask whether to pick up or reject.");
+    else v=result("done",caller+" is calling you. Say it in one short line and ask whether to pick up or reject.");
+    try{v.put("caller",caller).put("saved_contact",!caller.isEmpty()&&!CallerName.looksLikeNumber(caller));}catch(JSONException ignored){}
+    return v;
+  }
   JSONObject notifications(int limit){
     if(!NotificationReader.enabled(activity)){
       open(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS));

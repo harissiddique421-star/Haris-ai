@@ -13,15 +13,20 @@ import java.util.*;
  * dialer's call notification carries the caller's display name.
  */
 public final class NotificationReader extends NotificationListenerService {
-  public interface IncomingCall { void ringing(String caller); default void message(String app,String from,String text){} }
+  public interface IncomingCall { void ringing(String caller,boolean again); default void message(String app,String from,String text){} }
   private static final ArrayDeque<JSONObject> recent=new ArrayDeque<>();
   private static volatile IncomingCall callListener;
   private static String lastCallKey;
+  private static volatile NotificationReader instance;
+  /** The call ringing now (contact name when saved, otherwise the number), kept in memory only. */
+  private static volatile String ringingCaller;
+  private static String lastCaller;private static long lastCallerAt;
+  static volatile boolean unmuteRingAfterCall;
   private Announcer announcer;
 
   public static void setCallListener(IncomingCall listener){callListener=listener;}
-  @Override public void onListenerConnected(){if(announcer==null)announcer=new Announcer(this);}
-  @Override public void onListenerDisconnected(){if(announcer!=null)announcer.shutdown();announcer=null;}
+  @Override public void onListenerConnected(){instance=this;if(announcer==null)announcer=new Announcer(this);}
+  @Override public void onListenerDisconnected(){if(instance==this)instance=null;if(announcer!=null)announcer.shutdown();announcer=null;}
   @Override public void onDestroy(){if(announcer!=null)announcer.shutdown();announcer=null;super.onDestroy();}
   private Announcer announcer(){if(announcer==null)announcer=new Announcer(this);return announcer;}
   public static boolean enabled(Context context){
@@ -44,10 +49,15 @@ public final class NotificationReader extends NotificationListenerService {
     if(Notification.CATEGORY_CALL.equals(n.category)&&title!=null){
       String key=sbn.getKey();IncomingCall listener=callListener;
       if(!key.equals(lastCallKey)&&(n.flags&Notification.FLAG_ONGOING_EVENT)!=0&&n.fullScreenIntent!=null){
-        lastCallKey=key;
+        lastCallKey=key;instance=this;
+        String caller=CallerName.resolve(this,CallerName.pick(title,text));
+        long now=System.currentTimeMillis();
+        boolean again=!caller.isEmpty()&&caller.equalsIgnoreCase(lastCaller)&&now-lastCallerAt<15*60_000L;
+        lastCaller=caller;lastCallerAt=now;ringingCaller=caller.isEmpty()?"":caller;
+        ControlLog.i("call: ringing, "+(caller.isEmpty()?"no caller id":CallerName.isNumber(caller)?"number not in contacts":"saved contact")+(again?", again":""));
         // A Live call says who is calling itself; otherwise the phone's own voice announces it.
-        if(listener!=null)listener.ringing(title.toString());else announcer().ringing(key,title.toString());
-      }else if(key.equals(lastCallKey)&&n.fullScreenIntent==null)announcer().callEnded(key);
+        if(listener!=null)listener.ringing(caller,again);else announcer().ringing(key,caller,again);
+      }else if(key.equals(lastCallKey)&&n.fullScreenIntent==null){announcer().callEnded(key);callOver();}
       return;
     }
     if((n.flags&Notification.FLAG_ONGOING_EVENT)!=0||(n.flags&Notification.FLAG_GROUP_SUMMARY)!=0||(title==null&&text==null))return;
@@ -63,6 +73,15 @@ public final class NotificationReader extends NotificationListenerService {
       else announcer().message(this,sbn.getPackageName(),n,app,title,text);
     }
   }
-  @Override public void onNotificationRemoved(StatusBarNotification sbn){if(sbn!=null&&sbn.getKey().equals(lastCallKey)){if(announcer!=null)announcer.callEnded(lastCallKey);lastCallKey=null;}}
+  @Override public void onNotificationRemoved(StatusBarNotification sbn){if(sbn!=null&&sbn.getKey().equals(lastCallKey)){if(announcer!=null)announcer.callEnded(lastCallKey);lastCallKey=null;callOver();}}
+  /** Answered, rejected or missed: forget the ringing caller and give the ringer its sound back. */
+  private void callOver(){
+    ringingCaller=null;
+    if(unmuteRingAfterCall){unmuteRingAfterCall=false;try{getSystemService(android.media.AudioManager.class).adjustStreamVolume(android.media.AudioManager.STREAM_RING,android.media.AudioManager.ADJUST_UNMUTE,0);}catch(RuntimeException ignored){}}
+  }
+  /** Who is calling right now, or null when nothing is ringing. Empty means no caller ID. */
+  static String ringingCaller(){return ringingCaller;}
+  /** Stops FRIDAY's own spoken announcement of the ringing call. */
+  static void quietAnnouncement(){NotificationReader r=instance;String key=lastCallKey;if(r!=null&&r.announcer!=null&&key!=null)r.announcer.callEnded(key);}
   private static String clip(CharSequence value,int max){if(value==null)return "";String s=value.toString();return s.length()>max?s.substring(0,max)+"…":s;}
 }

@@ -24,7 +24,7 @@ final class Announcer {
   private final Handler main=new Handler(Looper.getMainLooper());
   private TextToSpeech tts;private boolean ready;
   private final ArrayDeque<String> waiting=new ArrayDeque<>();
-  private String ringingKey;private int rings;
+  private String ringingKey;
   private static final LinkedHashMap<String,Long> spoken=new LinkedHashMap<>();
 
   Announcer(Context context){this.context=context.getApplicationContext();}
@@ -61,6 +61,7 @@ final class Announcer {
         tts=new TextToSpeech(context,status->main.post(()->{
           ready=status==TextToSpeech.SUCCESS;
           if(ready){
+            tts.setSpeechRate(0.95f);
             tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
             Locale l=Locale.forLanguageTag(prefs(context).getString("language","hi-IN"));
             int r=tts.setLanguage(l);if((r==TextToSpeech.LANG_MISSING_DATA||r==TextToSpeech.LANG_NOT_SUPPORTED)&&l.getLanguage().equals("ur"))r=tts.setLanguage(Locale.forLanguageTag("hi-IN"));if(r==TextToSpeech.LANG_MISSING_DATA||r==TextToSpeech.LANG_NOT_SUPPORTED)tts.setLanguage(Locale.ENGLISH);
@@ -82,18 +83,25 @@ final class Announcer {
   void stop(){main.post(()->{ringingKey=null;main.removeCallbacksAndMessages(null);if(tts!=null&&ready)tts.stop();});}
   void shutdown(){main.post(()->{main.removeCallbacksAndMessages(null);if(tts!=null)tts.shutdown();tts=null;ready=false;});}
 
-  /** A call is ringing and no Live call is handling it: say who is calling, up to three times. */
-  void ringing(String key,String caller){
+  /** A call is ringing and no Live call is handling it: say who is calling, once per call. */
+  void ringing(String key,String caller,boolean again){
     if(!announceCalls(context)&&!driving(context))return;
     AudioManager audio=context.getSystemService(AudioManager.class);
     if(audio!=null&&audio.getRingerMode()!=AudioManager.RINGER_MODE_NORMAL&&!driving(context)){ControlLog.i("announce: call skipped, phone is silent/vibrate");return;}
-    String name=clean(caller,60);if(name.isEmpty())name=hindi()?"Unknown number":"an unknown number";
-    String line=hindi()?name+" ki call aa rahi hai":"Call from "+name;
+    String line=callLine(caller,again,hindi(),new Random().nextInt(5)==0);
     main.post(()->{
-      ringingKey=key;rings=0;ControlLog.i("announce: incoming call");
-      Runnable again=new Runnable(){public void run(){if(!key.equals(ringingKey)||rings>=3)return;rings++;speak(line,true);main.postDelayed(this,6000);}};
-      main.postDelayed(again,1200);
+      ringingKey=key;ControlLog.i("announce: incoming call");
+      main.postDelayed(()->{if(key.equals(ringingKey))speak(line,true);},1200);
     });
+  }
+  /** One short, natural line: the saved name when there is one, otherwise the number read digit by digit. */
+  static String callLine(String caller,boolean again,boolean hindi,boolean friendly){
+    String name=clean(caller,60);boolean number=CallerName.looksLikeNumber(name);
+    if(name.isEmpty())return hindi?"Unknown number ki call aa rahi hai":"Call from an unknown number";
+    if(number){String digits=CallerName.speakable(name);return hindi?digits+" ki call"+(again?" phir se":"")+" aa rahi hai":"Call from "+digits+(again?", again.":".");}
+    if(again)return hindi?name+" phir se call kar rahe hain":name+" is calling again.";
+    if(friendly)return hindi?"Hey, "+name+" ki call aa rahi hai":"Hey, "+name+" is calling you.";
+    return hindi?name+" ki call aa rahi hai":name+" is calling you.";
   }
   void callEnded(String key){main.post(()->{if(key.equals(ringingKey)){ringingKey=null;if(tts!=null&&ready)tts.stop();}});}
 

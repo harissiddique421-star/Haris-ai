@@ -136,3 +136,15 @@ test('briefing, reminders, meeting mode, modes and resume parse locally', () => 
   assert.deepEqual(parseMobileAction('wahin se chalao'),{action:'resume_video'});
   assert.equal(parseMobileAction('done'),null);
 });
+
+test('incoming call questions and controls parse locally', () => {
+  assert.deepEqual(parseMobileAction('Who is calling?'),{action:'who_is_calling'});
+  assert.deepEqual(parseMobileAction("who's calling me"),{action:'who_is_calling'});
+  assert.deepEqual(parseMobileAction('What number is calling?'),{action:'who_is_calling'});
+  assert.deepEqual(parseMobileAction('kaun call kar raha hai'),{action:'who_is_calling'});
+  assert.deepEqual(parseMobileAction('who called?'),{action:'missed_calls'});
+  assert.deepEqual(parseMobileAction('Silence the call'),{action:'silence_call'});
+  assert.deepEqual(parseMobileAction('Answer the call.'),{action:'answer_call'});
+  assert.deepEqual(parseMobileAction('Reject the call'),{action:'reject_call'});
+  assert.deepEqual(parseMobileAction('mute'),{action:'volume',direction:'mute'});
+});

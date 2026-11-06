@@ -184,6 +184,8 @@ export class MyraaAudioSession {
   private lastVoiceAt = 0;
   private outputSpeechStartedAt = 0;
   private readonly voiceThreshold = 0.02;
+  /** Slowly follows the room's background level (TV, fan, music) so steady noise is not taken as the user starting to speak. */
+  private noiseFloor = 0.005;
   private readonly voiceStartFrames = 2;
   private readonly voiceStopDelayMs = 500;
   private readonly bargeInGuardMs = 700;
@@ -359,6 +361,9 @@ export class MyraaAudioSession {
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: true,
+              channelCount: 1,
+              // Chrome/WebView voice isolation where the phone supports it; ignored elsewhere.
+              ...({ voiceIsolation: true } as Record<string, boolean>),
             }
           });
 
@@ -379,13 +384,18 @@ export class MyraaAudioSession {
           this.inputAnalyser.fftSize = 256;
           
           this.micSourceNode = this.inputAudioCtx.createMediaStreamSource(this.micStream);
-          this.micSourceNode.connect(this.inputAnalyser);
+          // Cut low rumble (fans, traffic, AC hum) below the human voice before it reaches Gemini.
+          const voiceBand = this.inputAudioCtx.createBiquadFilter();
+          voiceBand.type = "highpass";
+          voiceBand.frequency.value = 85;
+          this.micSourceNode.connect(voiceBand);
+          voiceBand.connect(this.inputAnalyser);
 
           // Stream input PCM 16-bit to WS
           // A smaller buffer cuts microphone-to-live-stream latency while
           // remaining stable on ordinary Windows audio devices.
           this.micProcessorNode = this.inputAudioCtx.createScriptProcessor(1024, 1, 1);
-          this.micSourceNode.connect(this.micProcessorNode);
+          voiceBand.connect(this.micProcessorNode);
           this.micProcessorNode.connect(this.inputAudioCtx.destination);
 
           this.micProcessorNode.onaudioprocess = (e) => {
@@ -577,7 +587,7 @@ export class MyraaAudioSession {
           this.bargeInVoiceThreshold,
           Math.min(0.1, outputRms * 0.32 + 0.012),
         )
-      : this.voiceThreshold;
+      : Math.max(this.voiceThreshold, Math.min(0.06, this.noiseFloor * 2.2));
     const requiredFrames = myraaOutputActive ? this.bargeInStartFrames : this.voiceStartFrames;
 
     if (rms >= threshold) {
@@ -596,6 +606,7 @@ export class MyraaAudioSession {
     }
 
     this.voiceFrames = 0;
+    if (!myraaOutputActive && !this.userSpeaking) this.noiseFloor = this.noiseFloor * 0.98 + rms * 0.02;
     if (this.userSpeaking && timestamp - this.lastVoiceAt >= this.voiceStopDelayMs) {
       this.userSpeaking = false;
       this.emitConversationEvent("user_stopped_speaking", rms);
