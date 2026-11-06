@@ -72,7 +72,7 @@ export class EmotionEngine {
 
   /** The result of a phone action. */
   fromAction(action: string, status: string): Emotion {
-    if (status === 'needs_confirmation' || status === 'choose') return this.set('focused');
+    if (status === 'needs_confirmation' || status === 'choose' || status === 'needs_user') return this.set('focused');
     if (status === 'permission_required') return this.set('serious');
     if (status === 'unverified' || status === 'draft_opened') return this.set('thoughtful');
     if (status === 'cancelled') return this.set('calm');
