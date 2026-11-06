@@ -71,6 +71,8 @@ final class VoiceGuardian {
     if(r.getState()!=AudioRecord.STATE_INITIALIZED){r.release();throw new IllegalStateException("microphone busy");}
     // The phone's own noise suppression (where it has one) takes the edge off fans, traffic and TV.
     try{if(android.media.audiofx.NoiseSuppressor.isAvailable()){android.media.audiofx.NoiseSuppressor ns=android.media.audiofx.NoiseSuppressor.create(r.getAudioSessionId());if(ns!=null)ns.setEnabled(true);}}catch(RuntimeException ignored){}
+    // The phone's automatic gain (where it has one) lifts a voice from across the room. The voice match ignores loudness.
+    try{if(android.media.audiofx.AutomaticGainControl.isAvailable()){android.media.audiofx.AutomaticGainControl agc=android.media.audiofx.AutomaticGainControl.create(r.getAudioSessionId());if(agc!=null)agc.setEnabled(true);}}catch(RuntimeException ignored){}
     return r;
   }
   interface Stop { boolean now(); }
@@ -90,7 +92,8 @@ final class VoiceGuardian {
       while(got<HOP){int n=r.read(hop,got,HOP-got);if(n<=0){return null;}got+=n;}
       if(stop.now())return null;
       double e=rms(hop);short[] copy=hop.clone();
-      boolean voiced=e>Math.max(floor*3.0,200);
+      // A quieter, farther voice still counts as speech when it stands clearly above the room's own level.
+      boolean voiced=e>Math.max(floor*2.5,120);
       if(!inSpeech){
         if(System.currentTimeMillis()>deadline)return null;
         before.add(copy);if(before.size()>pre)before.poll();
