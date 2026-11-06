@@ -199,6 +199,8 @@ export class MyraaAudioSession {
   private onToolCall: (name: string, args: any, callback: (result: any) => void) => void;
   private onError: (error: string) => void;
   private onMemorySync?: (memories: any[]) => void;
+  /** Local voice activity: the user started (true) or stopped (false) speaking. */
+  private onUserSpeech?: (speaking: boolean) => void;
   private onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
   
   private connection?: AudioConnection;
@@ -237,8 +239,10 @@ export class MyraaAudioSession {
     onError: (error: string) => void;
     onMemorySync?: (memories: any[]) => void;
     onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
+    onUserSpeech?: (speaking: boolean) => void;
     connection?: AudioConnection;
   }) {
+    this.onUserSpeech = handlers.onUserSpeech;
     this.connection = handlers.connection;
     this.onStateChange = handlers.onStateChange;
     this.onTranscription = handlers.onTranscription;
@@ -771,6 +775,7 @@ export class MyraaAudioSession {
         }
         this.micRestarts = 0;
         this.emitConversationEvent("user_started_speaking", rms);
+        this.onUserSpeech?.(true);
       }
       return !myraaOutputActive || this.userSpeaking;
     }
@@ -782,6 +787,7 @@ export class MyraaAudioSession {
       this.userSpeaking = false;
       this.timings.lastSpeechEndAt = Date.now();
       this.emitConversationEvent("user_stopped_speaking", rms);
+      this.onUserSpeech?.(false);
     }
     return !myraaOutputActive || this.userSpeaking;
   }
