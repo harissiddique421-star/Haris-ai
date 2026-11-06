@@ -1,14 +1,18 @@
 import type { AudioSocket } from '../lib/audio';
 import { MOBILE_TOOL } from './actions';
 
-export interface MobileLiveBridge { startLive(id: string): void; endLive(): void; }
+export interface MobileLiveBridge { startLive(id: string): void; endLive(): void; reconnectLive?(id: string): void; }
 
 /**
  * Session resumption: Google sends a handle during the call; an automatic reconnect (session ending,
  * dropped connection) passes it back so the conversation carries on. A call the user starts is fresh.
  * Turned off for good if Google ever refuses the setting, so calls still start.
  */
-export const liveResume = { handle: '', resuming: false, off: (() => { try { return localStorage.getItem('friday.resumeOff') === '1'; } catch { return false; } })() };
+/**
+ * handoff: an automatic reconnect is replacing this connection, so closing it must not end the phone's
+ * call service (which keeps FRIDAY running while she is in the background); the next connection reuses it.
+ */
+export const liveResume = { handle: '', resuming: false, handoff: false, off: (() => { try { return localStorage.getItem('friday.resumeOff') === '1'; } catch { return false; } })() };
 /** Adapt the native short-lived token and Gemini Live protocol to the PC audio engine. */
 export class MobileLiveTransport implements AudioSocket {
   readyState = 0;
@@ -26,7 +30,8 @@ export class MobileLiveTransport implements AudioSocket {
   constructor(private bridge: MobileLiveBridge) {
     window.addEventListener('myraa:mobile-live', this.nativeEvent);
     this.timeout = setTimeout(() => this.fail(navigator.onLine === false ? 'No internet connection. Connect to the internet and try again.' : 'Live voice timed out while connecting. Your network may be slow; check your connection and Live model access.'), 20000);
-    bridge.startLive(this.id);
+    if (liveResume.handoff && bridge.reconnectLive) bridge.reconnectLive(this.id); else bridge.startLive(this.id);
+    liveResume.handoff = false;
   }
   private packet(value: unknown) { if (this.readyState !== 3) this.onmessage?.({ data: JSON.stringify(value) }); }
   private fail(message: string) { this.packet({ type: 'error', error: message }); this.close(); }
@@ -116,6 +121,6 @@ export class MobileLiveTransport implements AudioSocket {
     this.readyState = 3; this.ready = false; clearTimeout(this.timeout);
     window.removeEventListener('myraa:mobile-live', this.nativeEvent);
     if (this.socket) { this.socket.onopen = null; this.socket.onmessage = null; this.socket.onclose = null; this.socket.onerror = null; this.socket.close(); this.socket = null; }
-    this.bridge.endLive();
+    if (!liveResume.handoff) this.bridge.endLive();
   }
 }

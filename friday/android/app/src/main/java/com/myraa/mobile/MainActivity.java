@@ -277,7 +277,11 @@ public class MainActivity extends Activity {
   private static String conversationPrompt() {
     return "\nTONE: every mobile_action result carries tone and tone_hint (one of happy, excited, calm, curious, concerned, serious, surprised, playful, confident, thoughtful, focused, apologetic). Let it shape your wording, delivery, speed and length, and also pick a fitting tone yourself from the user's words: patient and step by step when they are frustrated, careful when they are worried, clear and quick when it is urgent, light when they joke. Examples of the feel: done -> \"Done. Ho gaya.\"; unexpected -> \"Hmm, ye expected nahi tha. Ek second, dobara check karti hoon.\"; error -> \"Oops, yahan problem aa gayi. Main check karti hoon.\"; frustrated user -> \"Samajh gayi. Chalo step by step karte hain.\". Use such phrases sparingly, never in every sentence, never exaggerate, and never claim real human feelings."
       + "\nFOLLOW-UPS: each result's context says the current app, what is playing and the last action. Resolve short follow-ups from it and from the conversation without asking again: after YouTube is open, \"Quran wali video chalao\" means search_youtube with query Quran; \"volume kam karo\" or \"isay band karo\" refers to what is playing now; \"usko bhi bhejo\" refers to the last recipient. Ask only when the reference is truly unclear, and for risky actions (messages, calls, deleting, paying, security settings) still read back and confirm as before."
-      + "\nLENGTH: simple question -> one short answer; action -> confirm in a few words after the real result; complex request -> a fuller answer. For a multi-step task say at most one short status line (\"Ek second, check karti hoon.\", \"Almost done.\") instead of narrating every step, and never reveal hidden reasoning. A [Phone] message saying the user has been quiet: say one short line asking if they need anything else, then stay silent if they do not answer. A result with status needs_user means the request came from the phone, not the user: ask the user what they want and act only on their clear answer.";
+      + "\nLENGTH: simple question -> one short answer; action -> confirm in a few words after the real result; complex request -> a fuller answer. For a multi-step task say at most one short status line (\"Ek second, check karti hoon.\", \"Almost done.\") instead of narrating every step, and never reveal hidden reasoning. A [Phone] message saying the user has been quiet: say one short line asking if they need anything else, then stay silent if they do not answer. A result with status needs_user means the request came from the phone, not the user: ask the user what they want and act only on their clear answer."
+      + "\nNAMES: people's names (often Pakistani, such as Talha Anjum, Usman, Ayesha) must be kept exactly as heard. Never turn a name into an ordinary word (Talha is a name, not kal or tal). For recipient, pass only the person's name as said, without ko, bhai, sahab or the command words. If the name was unclear, ask the user to say it again instead of guessing. A result with status did_you_mean lists the closest saved contacts: ask the user which one they mean, and use that exact saved name only after they confirm."
+      + "\nGREETING: a [Phone] message saying FRIDAY was just started asks for one short opening line. Say only that line (2 to 6 words, in the user's language, fitting your persona and the given tone), vary it every time, then listen. If the user is already speaking, say nothing and listen to them."
+      + "\nSHORT FOLLOW-UPS: aur? / phir? continue the last topic; kal ka? or aur kal ka? repeats the last question for tomorrow (for weather: tomorrow's weather); isko bhi karo / usko bhi bhejo repeat the last action for the new item or person (with the same confirmation); haan or nahi answers your last question; ruk jao, stop or cancel stops what you are doing and you stay quiet; dobara bolo repeats your last answer."
+      + "\nSTATUS LINES: only before a step that takes a while (a web search, reading the screen, documents, several phone steps) say one short line such as \"Ek second, check karti hoon.\" or \"Let me check.\". Skip it for quick actions like the torch, volume, alarms or opening an app.";
   }
   private static String featurePrompt() {
     return "\nMorning briefing: when the user says good morning, subah ki briefing or what's my day, call briefing and follow its message. Missed calls: missed_calls. Care reminders: for medicine, bills or anything that repeats or needs a follow-up, use care_reminder with text, hour, minute, kind (medicine, bill or general), repeat (daily, weekly, monthly or none), day for monthly bills (day of month) or weekly reminders (1 Monday to 7 Sunday); it asks the user done? and reminds again if there is no answer. When the user says they took it or paid (le li, kar diya, done), call reminder_done. list_reminders and delete_reminder manage them. Use set_reminder only for a simple one-time clock reminder. Meeting mode: meeting_mode with on true, optional in_minutes and message; it sets vibrate and auto-replies once to people who message; on false turns it off and lists who messaged. Modes: set_mode with mode translator (and language, the other person's language), english_practice or normal; the call reconnects. Resume: when the user wants to continue the Quran, a story, lecture or video from where they stopped (wahin se, jahan chhora tha), call resume_video.";
@@ -300,7 +304,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.30", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.31", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -370,14 +374,32 @@ public class MainActivity extends Activity {
     }
     @JavascriptInterface public void startLive(String id) {
       if (id == null || !id.matches("[A-Za-z0-9-]{1,80}")) return;
+      runOnUiThread(() -> startLiveNow(id));
+    }
+    /**
+     * An automatic reconnect of a running call (Google ended the session or the connection dropped): keep the
+     * call's foreground service and the paused wake word as they are and only fetch a new session, so this also
+     * works while FRIDAY is in the background. Without a running call service it is a normal start.
+     */
+    @JavascriptInterface public void reconnectLive(String id) {
+      if (id == null || !id.matches("[A-Za-z0-9-]{1,80}")) return;
       runOnUiThread(() -> {
+        if (!LiveVoiceService.running || !allowBackgroundLive) { startLiveNow(id); return; }
+        ControlLog.i("live: reconnecting inside the running call service" + (foreground ? "" : " (in background)"));
+        pendingLiveId = null; final int mine = liveGeneration.incrementAndGet();
+        HttpsURLConnection connection = liveConnection; liveConnection = null; if (connection != null) connection.disconnect();
+        fetchLiveToken(id, mine);
+      });
+    }
+    private void startLiveNow(String id) {
+      {
         cancelLive();
         if (!foreground) { emit(json("type", "live-error", "id", id, "message", "Open FRIDAY to start live voice.")); return; }
         ArrayList<String> needed=new ArrayList<>();
         if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)needed.add(Manifest.permission.RECORD_AUDIO);
         if(Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)needed.add(Manifest.permission.POST_NOTIFICATIONS);
         if(!needed.isEmpty()){pendingLiveId=id;requestPermissions(needed.toArray(new String[0]),MICROPHONE_REQUEST);}else provisionLive(id);
-      });
+      }
     }
     @JavascriptInterface public void mobileAction(String id,String name,String args) {
       if(args==null||args.length()>10000)return;
@@ -461,6 +483,20 @@ public class MainActivity extends Activity {
       return next;
     }
     @JavascriptInterface public String liveModel() { return prefs.getString("liveModel", DEFAULT_LIVE_MODEL); }
+    /** One line for Settings diagnostics: what keeps FRIDAY running in the background and what could stop it. No audio, no words. */
+    @JavascriptInterface public String lifecycleStatus() {
+      Context c = MainActivity.this; StringBuilder out = new StringBuilder();
+      out.append("call service ").append(LiveVoiceService.running ? "on" : "off").append(allowBackgroundLive ? " (background allowed)" : "");
+      out.append(" · wake listener ").append(WakeWordService.status(c));
+      out.append(" · mic ").append(c.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ? "allowed" : "NOT allowed");
+      out.append(" · notifications ").append(Build.VERSION.SDK_INT < 33 || c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED ? "allowed" : "BLOCKED");
+      out.append(" · contacts ").append(c.checkSelfPermission(Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED ? "allowed" : "not allowed");
+      try { android.os.PowerManager p = getSystemService(android.os.PowerManager.class); out.append(" · battery ").append(p != null && p.isIgnoringBatteryOptimizations(getPackageName()) ? "unrestricted" : "OPTIMIZED (Android may stop FRIDAY)"); } catch (RuntimeException e) { out.append(" · battery unknown"); }
+      try { android.media.AudioManager a = getSystemService(android.media.AudioManager.class); out.append(" · other audio ").append(a != null && a.isMusicActive() ? "playing" : "none").append(a != null && a.getMode() == android.media.AudioManager.MODE_IN_CALL ? " · phone call active" : ""); } catch (RuntimeException e) { /* optional */ }
+      try { android.net.ConnectivityManager cm = getSystemService(android.net.ConnectivityManager.class); android.net.NetworkCapabilities caps = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
+        out.append(" · internet ").append(caps != null && caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED) ? "working" : "not working"); } catch (RuntimeException e) { out.append(" · internet unknown"); }
+      return out.toString();
+    }
     @JavascriptInterface public boolean consumeWake() { if (keyguardLocked()) return false; boolean w = pendingWake; pendingWake = false; return w; }
     @JavascriptInterface public void guardianRecord() { runOnUiThread(() -> {
       if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST); guardianEvent("error", 0, "Allow the microphone, then tap Record my voice again."); return; }
@@ -626,8 +662,13 @@ public class MainActivity extends Activity {
       public void message(String app,String from,String text){emit(json("type","incoming-message","app",app,"from",from,"text",text));}
     });
     if(foreground&&(Build.VERSION.SDK_INT<33||checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED)){
-      try{startForegroundService(new Intent(this,LiveVoiceService.class));allowBackgroundLive=true;}catch(RuntimeException e){allowBackgroundLive=false;ControlLog.i("live: background call service not started ("+e.getClass().getSimpleName()+")");}
+      try{startForegroundService(new Intent(this,LiveVoiceService.class));allowBackgroundLive=true;ControlLog.i("live: call service started");}catch(RuntimeException e){allowBackgroundLive=false;ControlLog.i("live: background call service not started ("+e.getClass().getSimpleName()+")");}
     }
+    else ControlLog.i("live: no call service (notifications "+(Build.VERSION.SDK_INT<33||checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED?"allowed":"blocked")+"), the call ends if FRIDAY leaves the screen");
+    fetchLiveToken(id, mine);
+  }
+  /** Gets a short-lived Live token off the main thread and hands it to the page with the session settings. */
+  private void fetchLiveToken(String id, int mine) {
     liveNetwork.execute(() -> {
       try {
         String key = readKey(); if (key.isEmpty()) throw new IOException("Missing key");
@@ -636,7 +677,10 @@ public class MainActivity extends Activity {
           else liveConnection = connection;
         });
         runOnUiThread(() -> {
-          if (liveGeneration.get() != mine || !foreground) return;
+          if (liveGeneration.get() != mine) return;
+          // The user left FRIDAY while the call was connecting. With the call service running the call continues
+          // in the background (before, the token was dropped here and the call silently timed out).
+          if (!foreground && !LiveVoiceService.running) { ControlLog.i("live: FRIDAY left the screen before the call connected"); emit(json("type", "live-error", "id", id, "message", "Open FRIDAY to start live voice.")); return; }
           String model = prefs.getString("liveModel", DEFAULT_LIVE_MODEL);
           if (!model.matches("[A-Za-z0-9._-]{1,100}")) model = DEFAULT_LIVE_MODEL;
           emit(json("type", "live-token", "id", id, "token", token, "model", model, "voice", memory.voice(),
@@ -689,6 +733,7 @@ public class MainActivity extends Activity {
   }
   @Override protected void onPause() {
     foreground=false;visible=false;super.onPause();boolean keep=allowBackgroundLive;
+    if(LiveVoiceService.running||pendingLiveId!=null)ControlLog.i("app: left the screen, call "+(keep?"keeps running":"ends (no call service)"));
     if(web!=null){web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false,backgroundLive:"+keep+",permissionPrompt:"+(pendingLiveId!=null)+"}}))",null);if(!keep)web.onPause();}
     if(pendingLiveId==null&&!keep)cancelLive();if(tts!=null)tts.stop();
   }
