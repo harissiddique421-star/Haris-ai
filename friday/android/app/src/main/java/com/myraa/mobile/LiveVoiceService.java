@@ -70,7 +70,7 @@ public final class LiveVoiceService extends Service {
       layout.gravity=Gravity.TOP|Gravity.START;
       SharedPreferences p=getSharedPreferences("friday.companion",MODE_PRIVATE);
       int screenW=getResources().getDisplayMetrics().widthPixels;
-      layout.x=p.getInt("x",screenW-(int)(110*d));layout.y=p.getInt("y",(int)(90*d));
+      layout.x=p.getInt("x",screenW-(int)(150*d));layout.y=p.getInt("y",(int)(90*d));
       dragging(face,p);
       windows.addView(chip,layout);overlayVisible=true;self=this;
       chip.setVisibility(MainActivity.visible?View.GONE:View.VISIBLE);
