@@ -2,6 +2,7 @@ import './mobile.css';
 import { MyraaAudioSession, type LiveState } from '../lib/audio';
 import { MobileLiveTransport } from './LiveTransport';
 import { parseMobileAction, type MobileAction } from './actions';
+import { drawPattern, patternMessage, closePattern } from './pattern';
 import fridayLogo from '../../branding/friday-icon-small.png';
 import fridayCore from '../../branding/friday-icon.png';
 import { CharacterSystem } from '../character/core/CharacterSystem';
@@ -10,7 +11,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; guardianRecord?(): void; guardianDelete?(): void; exportBackup?(): void; importBackup?(): void; }
+interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -157,7 +158,7 @@ app.innerHTML = `
     <div class="settings-page" data-page="menu">
       <p class="group">ACCOUNT</p><div class="menu"><button data-go="personal"><b>Personal</b><small>Your name, Gemini key, models, language</small></button></div>
       <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button></div>
-      <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button></div>
+      <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button><button data-go="security"><b>Security</b><small>FRIDAY Pattern, fingerprint or phone lock</small></button></div>
       <p class="group">SYSTEM</p><div class="menu"><button data-go="advanced"><b>Advanced</b><small>Graphics, read aloud, history, diagnostics</small></button></div>
     </div>
     <div class="settings-page" data-page="personal" hidden>
@@ -175,7 +176,11 @@ app.innerHTML = `
         <label class="check"><input id="wake-word" type="checkbox"> Listen for the wake word</label>
         <label class="check"><input id="wake-locked" type="checkbox"> Also listen when the phone is locked or the screen is off</label>
         <small>Locked phone: FRIDAY turns the screen on, then you unlock with fingerprint, face or PIN before it does anything. Uses noticeably more battery.</small>
-        <p id="wake-note" class="muted"></p></div>
+        <label>Wake sensitivity<select id="wake-sensitivity"><option value="low">Low · fewer false wakes (TV, music)</option><option value="balanced">Balanced</option><option value="high">High · wakes more easily</option></select></label>
+        <label class="check"><input id="wake-name-only" type="checkbox"> Also wake when I say just "FRIDAY" (needs a clear, confident match)</label>
+        <p class="wake-status">Wake word: <b id="wake-status">Off</b></p>
+        <p id="wake-note" class="muted"></p>
+        <div class="row"><button id="wake-test" type="button">Test wake word</button></div><p id="wake-test-result" class="muted" role="status" aria-live="polite"></p></div>
       <div class="card"><b>Voice Guardian</b><small>FRIDAY wakes only for your voice. Record "Wake up FRIDAY" three times in a quiet place; FRIDAY compares on the phone and keeps only a voice summary, never the audio. It is a basic check: a recording of your voice could pass, so the phone's own lock stays on.</small>
         <label class="check"><input id="guardian-on" type="checkbox"> Only wake for my voice</label>
         <div class="row"><button id="guardian-record" type="button">Record my voice</button><button id="guardian-delete" type="button">Delete my voice</button></div>
@@ -196,6 +201,19 @@ app.innerHTML = `
       <div class="card"><b>Memory</b><small>Stays on this phone. Say "remember that…" or add one here. FRIDAY never saves passwords, PINs or OTPs.</small><div class="row"><input id="memory-new" maxlength="300" placeholder="e.g. My sister's name is Sara"><button id="memory-add">Add</button></div><ul id="memory-list" class="memory-list"></ul></div>
     </div>
     <div class="settings-page" data-page="permissions" hidden><p class="muted">FRIDAY needs these to do things for you. Allow only what you want.</p><div id="permission-list" class="permission-list"></div><div class="row"><button id="health-check" type="button">Run FRIDAY health check</button></div></div>
+    <div class="settings-page" data-page="security" hidden>
+      <div class="card"><b>FRIDAY Pattern</b><small>Locks FRIDAY's own screens with a 3x3 pattern. It does not unlock your phone and FRIDAY never sees your phone's PIN or pattern. The pattern is kept only as a protected code made with a key in your phone's secure hardware.</small>
+        <p id="pattern-status" class="muted"></p>
+        <div class="row"><button id="pattern-create" type="button">Create pattern</button><button id="pattern-test" type="button">Test pattern</button></div>
+        <div class="row"><button id="pattern-disable" type="button">Turn off and delete</button><button id="pattern-reset" type="button">Forgot? Reset with phone lock</button></div>
+        <label>Unlock with<select id="pattern-mode"><option value="pattern">Pattern only</option><option value="biometric_pattern">Fingerprint/face or pattern</option><option value="device">Phone lock (fingerprint, face or PIN)</option></select></label>
+        <small>Ask for the pattern when opening:</small>
+        <label class="check"><input type="checkbox" data-protect="app"> The whole app (chat and history)</label>
+        <label class="check"><input type="checkbox" data-protect="settings"> Settings and API key</label>
+        <label class="check"><input type="checkbox" data-protect="memory"> Memory and routines</label>
+        <label class="check"><input type="checkbox" data-protect="developer"> Developer mode</label>
+        <p id="pattern-note" class="muted" role="status" aria-live="polite"></p></div>
+    </div>
     <div class="settings-page" data-page="advanced" hidden>
       <label>Graphics<select id="quality"><option value="low">Low · save battery</option><option value="balanced">Medium · balanced</option><option value="high">High · sharper</option></select></label>
       <label class="check"><input id="spoken" type="checkbox"> Read text replies with Android voice</label>
@@ -289,7 +307,11 @@ function renderWake() {
   el('guardian-record').textContent = w.enrolled ? 'Record again' : 'Record my voice';
   el('guardian-delete').hidden = !w.enrolled;
   if (!guardianBusy) el('guardian-note').textContent = w.enrolled ? (w.guardian ? 'On: FRIDAY wakes only for your voice.' : 'Your voice is saved. Turn it on above.') : 'No voice recorded yet.';
-  el('wake-note').textContent = w.locked && w.fullScreen === false ? 'To turn the screen on when locked, allow "Wake up on the lock screen" in Permissions.' : w.available === false ? 'This phone has no speech recognizer. Install or update the Google app to use the wake word.' : w.on && !w.running ? 'Starting… if it does not start, allow the microphone for FRIDAY.' : w.on ? 'Listening while your phone is unlocked.' : '';
+  const statusNames: Record<string, string> = { active: 'Active', paused: 'Paused', permission_required: 'Permission required', battery_restricted: 'Battery restricted', unavailable: 'Unavailable', stopped: 'Stopped', off: 'Off' };
+  el('wake-status').textContent = statusNames[String(w.status || (w.on ? (w.running ? 'active' : 'stopped') : 'off'))] || 'Off';
+  el<HTMLSelectElement>('wake-sensitivity').value = String(w.sensitivity || 'balanced');
+  el<HTMLInputElement>('wake-name-only').checked = !!w.nameOnly;
+  el('wake-note').textContent = w.status === 'battery_restricted' ? 'Android may stop the wake word in the background. Allow "Battery: no optimization" in Permissions.' : w.status === 'permission_required' ? 'Allow the Microphone and App notifications for FRIDAY in Permissions.' : w.on && w.openFromBackground === false ? 'To open FRIDAY by voice while you use other apps, allow "Display over other apps" in Permissions. Without it you get a "Tap to talk" alert.' : w.locked && w.fullScreen === false ? 'To turn the screen on when locked, allow "Wake up on the lock screen" in Permissions.' : w.available === false ? 'This phone has no speech recognizer. Install or update the Google app to use the wake word.' : w.on && !w.running ? 'Starting… if it does not start, allow the microphone for FRIDAY.' : w.on ? 'Listening while your phone is unlocked.' : '';
   const email = el<HTMLInputElement>('user-email'); if (document.activeElement !== email) email.value = state.assistant?.email || '';
 }
 function setAnnounce(change: Record<string, boolean>) { bridge?.setAssistant?.(JSON.stringify(change)); }
@@ -338,7 +360,7 @@ function renderPermissions() {
     card.append(text, action); list.append(card);
   }
 }
-const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', advanced: 'Advanced' };
+const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', security: 'Security', advanced: 'Advanced' };
 function settingsPage(page: string) {
   for (const section of document.querySelectorAll<HTMLElement>('.settings-page')) section.hidden = section.dataset.page !== page;
   el('settings-title').textContent = pageTitles[page] || 'Settings'; el('settings-back').toggleAttribute('hidden', page === 'menu');
@@ -411,7 +433,9 @@ window.MyraaEvents = event => {
     if (event.status === 'enrolled' || event.status === 'deleted' || event.status === 'error') notice(event.message);
     return;
   }
-  if (event.type === 'wake') { if (bridge?.consumeWake?.()) wakeUp(); return; }
+  if (event.type === 'pattern-auth') { const waiter = authWaiter; authWaiter = null; waiter?.(!!event.ok, String(event.message || '')); renderSecurity(); return; }
+  if (event.type === 'wake-test') { renderWakeTest(event); return; }
+  if (event.type === 'wake') { if (bridge?.consumeWake?.()) void wakeUp(); return; }
   if (event.type === 'backup') {
     if (event.assistant) state.assistant = event.assistant; if (event.announce) state.announce = event.announce; if (event.wake) state.wake = event.wake;
     renderAssistant(); notice(event.message || ''); return;
@@ -516,7 +540,9 @@ el('sit').onclick = () => { system?.frameFullBody(); system?.sit({ seat: 'chair'
 el('stand').onclick = () => { system?.stand(); if (!fullBody) { system?.stage.clearPan(); system?.setCameraFocus(null); } };
 el('view').onclick = () => { fullBody = !fullBody; if (fullBody) system?.frameFullBody(); else { system?.stage.clearPan(); system?.setCameraFocus(null); } el('view').textContent = fullBody ? 'Portrait' : 'Full body'; };
 el('happy').onclick = () => { system?.setFrameInput({ emotion: 'happy' }); setTimeout(() => system?.setFrameInput({ emotion: 'idle' }), 3000); };
-el('settings').onclick = () => {
+el('settings').onclick = async () => {
+  if (!(await unlockFor('settings'))) return;
+  renderSecurity();
   stopVoice(); refreshState(); refreshSettings(); settingsPage('menu'); el<HTMLDialogElement>('settings-panel').showModal();
   let control = '';
   try { const state = JSON.parse(bridge?.getState() || '{}'); const status = state.controlStatus || {}; control = `\n\nPhone control: ${status.ready ? 'READY (connected)' : status.enabled ? 'switch on, not connected yet' : 'off'}\n${(state.controlLog || []).slice(-25).join('\n')}`; } catch { /* diagnostics only */ }
@@ -540,7 +566,7 @@ el('android-settings').onclick = () => bridge?.openSettings();
 el('camera').onclick = () => { if (cameraStream) { stopCamera(); notice('Camera off.'); } else if (bridge?.requestCamera) bridge.requestCamera(); else void startCamera(); };
 el('screen').onclick = () => { if (screenSharing) bridge?.stopScreenShare?.(); else if (!liveActive()) notice('Start a Live call first, then share your screen.'); else bridge?.startScreenShare?.(); };
 el('camera-preview').onclick = () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; stopCamera(); bridge?.requestCamera ? bridge.requestCamera() : void startCamera(); };
-for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = () => settingsPage(button.dataset.go!);
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = async () => { if (button.dataset.go === 'memory' && !(await unlockFor('memory'))) return; if (button.dataset.go === 'security') renderSecurity(); settingsPage(button.dataset.go!); };
 el('settings-back').onclick = () => settingsPage('menu');
 el('save-advanced').onclick = () => el('save').click();
 el('announce-calls').onchange = () => setAnnounce({ announceCalls: el<HTMLInputElement>('announce-calls').checked });
@@ -556,6 +582,102 @@ el('guardian-on').onchange = () => bridge?.setAssistant?.(JSON.stringify({ guard
 el('guardian-record').onclick = () => { guardianBusy = true; el('guardian-note').textContent = 'Get ready…'; el<HTMLButtonElement>('guardian-record').disabled = true; bridge?.guardianRecord?.(); };
 el('guardian-delete').onclick = () => { if (confirm('Delete your saved voice?')) bridge?.guardianDelete?.(); };
 el('wake-word').onchange = () => bridge?.setAssistant?.(JSON.stringify({ wakeWord: el<HTMLInputElement>('wake-word').checked }));
+el('wake-sensitivity').onchange = () => bridge?.wakeOptions?.(JSON.stringify({ sensitivity: el<HTMLSelectElement>('wake-sensitivity').value }));
+el('wake-name-only').onchange = () => bridge?.wakeOptions?.(JSON.stringify({ nameOnly: el<HTMLInputElement>('wake-name-only').checked }));
+el('wake-test').onclick = () => { el('wake-test-result').textContent = 'Starting the test…'; el<HTMLButtonElement>('wake-test').disabled = true; bridge?.wakeTest?.(); };
+function renderWakeTest(event: any) {
+  if (event.status === 'listening') { el('wake-test-result').textContent = String(event.message || 'Say "Wake up FRIDAY" now…'); return; }
+  el<HTMLButtonElement>('wake-test').disabled = false;
+  const statusNames: Record<string, string> = { active: 'Active', paused: 'Paused', permission_required: 'Permission required', battery_restricted: 'Battery restricted', unavailable: 'Unavailable', stopped: 'Stopped', off: 'Off' };
+  const parts = [event.detected ? '✓ Detected' : '✗ Not detected'];
+  if (typeof event.confidence === 'number' && event.confidence >= 0) parts.push(`confidence ${event.confidence}%`);
+  if (event.guardian && event.guardian !== 'off') parts.push(`voice: ${event.guardian}`);
+  parts.push(`microphone: ${event.microphone ? 'OK' : 'not allowed'}`, `service: ${statusNames[String(event.service)] || String(event.service || '')}`);
+  if (event.heard) parts.push(`heard: "${String(event.heard).slice(0, 80)}"`);
+  el('wake-test-result').textContent = parts.join(' · ') + (event.message ? `. ${event.message}` : '');
+  refreshState();
+}
+
+// ---- FRIDAY Pattern
+type PatternState = { set: boolean; enabled: boolean; mode: string; protect: string[]; unlocked: boolean; wait: number; deviceSecure: boolean; biometric: boolean };
+function patternState(): PatternState | null { try { return bridge?.patternState ? JSON.parse(bridge.patternState()) as PatternState : null; } catch { return null; } }
+let authWaiter: ((ok: boolean, message: string) => void) | null = null;
+function deviceAuth(purpose: 'unlock' | 'reset'): Promise<{ ok: boolean; message: string }> {
+  return new Promise(resolve => { authWaiter = (ok, message) => resolve({ ok, message }); bridge?.patternDevice?.(purpose); });
+}
+const haptic = () => bridge?.haptic?.();
+/** Asks for the FRIDAY pattern (or the phone's own lock) before a protected section opens. force asks even when the section is not protected. */
+async function unlockFor(section: string, force = false): Promise<boolean> {
+  const p = patternState(); if (!p || !p.set || !p.enabled || p.unlocked) return true;
+  if (!force && !p.protect.includes(section) && !p.protect.includes('app')) return true;
+  if (p.mode === 'device') { const r = await deviceAuth('unlock'); if (!r.ok && r.message) notice(r.message); return r.ok; }
+  let message = p.wait > 0 ? `Too many tries. Wait ${p.wait} seconds.` : 'Draw your FRIDAY pattern.', bad = p.wait > 0;
+  for (;;) {
+    let viaDevice = false;
+    const actions = p.mode === 'biometric_pattern' && p.deviceSecure ? [{ label: 'Use fingerprint / phone lock', run: () => { viaDevice = true; closePattern(); } }] : [];
+    const pending = drawPattern({ title: 'Unlock FRIDAY', message, actions, haptic });
+    if (bad) patternMessage(message, 'error');
+    const drawn = await pending;
+    if (viaDevice) { const r = await deviceAuth('unlock'); if (r.ok) return true; message = r.message || 'Not unlocked.'; bad = true; continue; }
+    if (drawn === null || !bridge?.patternVerify) return false;
+    const r = JSON.parse(bridge.patternVerify(drawn));
+    if (r.ok) return true;
+    message = String(r.message || 'Incorrect pattern.'); bad = true;
+  }
+}
+async function createPattern() {
+  const p = patternState(); if (!p || !bridge?.patternSave) return;
+  if (p.set && p.enabled && !p.unlocked && !(await unlockFor('settings', true))) return;
+  let message = 'Connect at least 4 dots.';
+  for (;;) {
+    const first = await drawPattern({ title: 'Create your FRIDAY pattern', message, haptic });
+    if (first === null) return;
+    if (first.length < 4) { message = 'Too short. Connect at least 4 dots.'; continue; }
+    const second = await drawPattern({ title: 'Draw the same pattern again', message: 'Confirm your pattern.', haptic });
+    if (second === null) return;
+    const r = JSON.parse(bridge.patternSave(first, second));
+    if (r.ok) { el('pattern-note').textContent = String(r.message); notice(String(r.message)); renderSecurity(); return; }
+    message = String(r.message || 'The patterns didn\'t match. Try again.');
+  }
+}
+async function setPatternOptions(options: Record<string, unknown>) {
+  if (!bridge?.patternOptions) return;
+  let r = JSON.parse(bridge.patternOptions(JSON.stringify(options)));
+  if (!r.ok && /unlock friday first/i.test(String(r.message)) && await unlockFor('settings', true)) r = JSON.parse(bridge.patternOptions(JSON.stringify(options)));
+  el('pattern-note').textContent = r.ok ? '' : String(r.message || ''); renderSecurity();
+}
+function renderSecurity() {
+  const p = patternState(); if (!p) { el('pattern-status').textContent = 'Available in the Android app.'; return; }
+  el('pattern-status').textContent = !p.set ? 'No pattern yet.' : p.enabled ? `Pattern is on${p.wait > 0 ? ` · locked for ${p.wait} s after wrong tries` : ''}.` : 'Pattern is saved but off.';
+  el('pattern-create').textContent = p.set ? 'Change pattern' : 'Create pattern';
+  for (const id of ['pattern-test', 'pattern-disable']) el<HTMLButtonElement>(id).disabled = !p.set;
+  el<HTMLButtonElement>('pattern-reset').disabled = !p.set || !p.deviceSecure;
+  el<HTMLSelectElement>('pattern-mode').value = p.mode; el<HTMLSelectElement>('pattern-mode').disabled = !p.set;
+  for (const box of document.querySelectorAll<HTMLInputElement>('[data-protect]')) { box.checked = p.protect.includes(box.dataset.protect!); box.disabled = !p.set; }
+}
+el('pattern-create').onclick = () => void createPattern();
+el('pattern-test').onclick = async () => {
+  const drawn = await drawPattern({ title: 'Test your pattern', message: 'Draw your FRIDAY pattern.', haptic });
+  if (drawn === null || !bridge?.patternVerify) return;
+  const r = JSON.parse(bridge.patternVerify(drawn)); el('pattern-note').textContent = r.ok ? '✓ Correct pattern.' : String(r.message || 'Incorrect pattern.'); renderSecurity();
+};
+el('pattern-disable').onclick = async () => {
+  if (!(await unlockFor('settings', true)) || !bridge?.patternRemove) return;
+  const r = JSON.parse(bridge.patternRemove()); el('pattern-note').textContent = String(r.message || ''); renderSecurity();
+};
+el('pattern-reset').onclick = async () => { const r = await deviceAuth('reset'); el('pattern-note').textContent = r.message || (r.ok ? 'Pattern deleted.' : 'Not confirmed.'); renderSecurity(); };
+el('pattern-mode').onchange = () => void setPatternOptions({ mode: el<HTMLSelectElement>('pattern-mode').value });
+for (const box of document.querySelectorAll<HTMLInputElement>('[data-protect]')) box.onchange = () => void setPatternOptions({ protect: [...document.querySelectorAll<HTMLInputElement>('[data-protect]')].filter(b => b.checked).map(b => b.dataset.protect) });
+/** "Whole app" protection: cover FRIDAY until the pattern (or phone lock) is given. */
+let appGatePending: Promise<boolean> | null = null;
+function appGate(): Promise<boolean> {
+  const p = patternState(); if (!p || !p.set || !p.enabled || p.unlocked || !p.protect.includes('app')) { document.body.classList.remove('app-locked'); return Promise.resolve(true); }
+  if (appGatePending) return appGatePending;
+  document.body.classList.add('app-locked');
+  appGatePending = unlockFor('app').then(ok => { if (ok) document.body.classList.remove('app-locked'); return ok; }).finally(() => { appGatePending = null; });
+  return appGatePending;
+}
+document.addEventListener('click', event => { if (document.body.classList.contains('app-locked') && !(event.target as HTMLElement).closest('.pattern-dialog')) { event.preventDefault(); event.stopPropagation(); void appGate(); } }, true);
 el('user-email').onchange = () => bridge?.setAssistant?.(JSON.stringify({ email: el<HTMLInputElement>('user-email').value.trim() }));
 el('backup-export').onclick = () => bridge?.exportBackup?.();
 el('backup-import').onclick = () => bridge?.importBackup?.();
@@ -583,13 +705,15 @@ window.addEventListener('myraa:stop-live', () => { stopVoice(); notice('Live cal
 window.addEventListener('pagehide', () => { stopVoice(); generation++; system?.dispose(); bridge?.cancel(); });
 window.__mobileDiagnostics = () => system?.diagnostics;
 /** The wake phrase opened FRIDAY: start a Live call unless one is already running. */
-function wakeUp() {
+async function wakeUp() {
+  if (!(await appGate())) return;
   const dialog = el<HTMLDialogElement>('settings-panel'); if (dialog.open) dialog.close();
   showView('home');
   if (liveActive()) { listeningMinimized = false; showListening(true); return; }
   notice('Yes? Starting FRIDAY Live…'); setTimeout(() => { if (!liveActive()) el('voice').click(); }, 500);
 }
-if (bridge?.consumeWake?.()) setTimeout(wakeUp, 1600);
+if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 1600); else setTimeout(() => void appGate(), 1500);
+window.addEventListener('myraa:lifecycle', event => { if ((event as CustomEvent).detail?.active) setTimeout(() => void appGate(), 300); });
 renderHistory(); refreshSettings(); void loadAvatar();
 el('boot-version').textContent = 'v' + (state.version || '1.0');
 el('connection-pill').textContent = state.keyConfigured ? 'Ready' : 'Setup';

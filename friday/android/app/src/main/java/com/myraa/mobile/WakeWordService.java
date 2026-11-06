@@ -6,6 +6,7 @@ import android.content.*;
 import android.content.pm.*;
 import android.media.AudioRecord;
 import android.os.*;
+import android.provider.Settings;
 import android.speech.*;
 import java.util.*;
 import java.util.regex.Pattern;
@@ -29,7 +30,7 @@ public final class WakeWordService extends Service {
     "(wake\\s*up|wakeup|hey|hay|hi|ok|okay|वेक\\s*अप|हे|उठो|uth\\s*jao|utho|ویک\\s*اپ|ہے|ہیلو|اٹھو|اٹھ\\s*جاؤ)\\s*,?\\s*(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)"
     +"|(friday|fri day|freddy|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)\\s*,?\\s*(wake\\s*up|wakeup|wake|वेक\\s*अप|वेक|उठो|uth\\s*jao|utho|ویک\\s*اپ|ویک|اٹھو|اٹھ\\s*جاؤ)");
   public static volatile boolean running;
-  private static volatile boolean livePaused;
+  private static volatile boolean livePaused,screenAllowed=true;
   private final Handler main=new Handler(Looper.getMainLooper());
   /** Separate from main so listenSoon/halt never drop a wake or its follow-up checks. */
   private final Handler results=new Handler(Looper.getMainLooper());
@@ -43,6 +44,43 @@ public final class WakeWordService extends Service {
   // ---- settings and control from the app
   static boolean wanted(Context c){return c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getBoolean("wakeWord",false);}
   static void setWanted(Context c,boolean on){c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).edit().putBoolean("wakeWord",on).apply();}
+  /** low = fewer false wakes (stricter), balanced, high = wakes more easily. */
+  static String sensitivity(Context c){String s=c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getString("wakeSensitivity","balanced");return Arrays.asList("low","balanced","high").contains(s)?s:"balanced";}
+  static void setSensitivity(Context c,String s){c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).edit().putString("wakeSensitivity",Arrays.asList("low","balanced","high").contains(s)?s:"balanced").apply();}
+  /** Optional: just saying "FRIDAY" wakes it (needs a clear, confident match). */
+  static boolean nameOnly(Context c){return c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getBoolean("wakeNameOnly",false);}
+  static void setNameOnly(Context c,boolean on){c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).edit().putBoolean("wakeNameOnly",on).apply();}
+  /** Lowest recognizer confidence accepted (when the recognizer reports one). */
+  static float minConfidence(Context c,boolean nameOnlyMatch){String s=sensitivity(c);float base="low".equals(s)?0.5f:"high".equals(s)?0.05f:0.2f;return nameOnlyMatch?Math.max(base,0.6f):base;}
+  /** One word for the settings screen: active, paused, permission_required, battery_restricted, unavailable, stopped or off. */
+  static String status(Context c){
+    if(!wanted(c))return "off";
+    if(c.checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED)return "permission_required";
+    if(Build.VERSION.SDK_INT>=33&&c.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED)return "permission_required";
+    if(!VoiceGuardian.active(c)&&!SpeechRecognizer.isRecognitionAvailable(c))return "unavailable";
+    if(!running)return "stopped";
+    if(livePaused||LiveVoiceService.running||!screenAllowed)return "paused";
+    PowerManager p=c.getSystemService(PowerManager.class);
+    if(p!=null&&!p.isIgnoringBatteryOptimizations(c.getPackageName()))return "battery_restricted";
+    return "active";
+  }
+  /** After a restart or update: Android 14+ does not let a microphone service start from the boot broadcast, so ask for one tap instead. */
+  static void afterBoot(Context c){
+    if(!wanted(c))return;
+    if(Build.VERSION.SDK_INT<34&&c.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED){
+      try{c.startForegroundService(new Intent(c,WakeWordService.class));ControlLog.i("wake: started after restart");return;}
+      catch(RuntimeException e){ControlLog.i("wake: start after restart refused ("+e.getClass().getSimpleName()+")");}
+    }
+    tapToStart(c,"Phone restarted","Tap once to turn \"Wake up FRIDAY\" back on. Android needs one tap after a restart.");
+  }
+  /** When Android won't let the microphone listener start by itself: one notification, one tap opens FRIDAY and starts it. */
+  static void tapToStart(Context c,String title,String text){
+    NotificationManager m=c.getSystemService(NotificationManager.class);
+    m.createNotificationChannel(new NotificationChannel("wake_tap","FRIDAY wake word alerts",NotificationManager.IMPORTANCE_HIGH));
+    PendingIntent open=PendingIntent.getActivity(c,6,new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+    try{m.notify(45,new Notification.Builder(c,"wake_tap").setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle(title).setContentText(text)
+      .setStyle(new Notification.BigTextStyle().bigText(text)).setContentIntent(open).setAutoCancel(true).build());}catch(SecurityException ignored){}
+  }
   static boolean whenLocked(Context c){return c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getBoolean("wakeLocked",false);}
   static void setWhenLocked(Context c,boolean on){c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).edit().putBoolean("wakeLocked",on).apply();}
   /** Starts the listener if the user turned it on. Only call while FRIDAY is on screen: Android does not let a microphone service start from the background. */
@@ -65,19 +103,31 @@ public final class WakeWordService extends Service {
   }
   static boolean matches(String heard){
     if(heard==null)return false;
-    String s=heard.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{M}\\s]"," ").replaceAll("\\s+"," ").trim();
+    String s=clean(heard);
     return NAME.matcher(s).find()&&WAKE_PHRASE.matcher(s).find();
   }
+  /** Just the name on its own ("FRIDAY", "hey FRIDAY" is already a full phrase), nothing else in the sentence. */
+  static boolean nameAlone(String heard){
+    if(heard==null)return false;
+    return clean(heard).matches("(friday|fri day|फ्राइडे|फ्राईडे|फ्रायडे|فرائیڈے|فرائڈے|فرائی ڈے)");
+  }
+  private static String clean(String heard){return heard.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{M}\\s]"," ").replaceAll("\\s+"," ").trim();}
 
   @Override public IBinder onBind(Intent intent){return null;}
   @Override public int onStartCommand(Intent intent,int flags,int startId){
     String action=intent==null?null:intent.getAction();
-    if(STOP.equals(action)){stopSelf();return START_NOT_STICKY;}
+    if(STOP.equals(action)){if(intent!=null&&intent.getBooleanExtra("user",false))setWanted(this,false);stopSelf();return START_NOT_STICKY;}
+    if(!wanted(this)||checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){stopSelf();return START_NOT_STICKY;}
     if(!running){
       Notification n=notification();
       try{
         if(Build.VERSION.SDK_INT>=30)startForeground(43,n,ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);else startForeground(43,n);
-      }catch(RuntimeException e){ControlLog.i("wake: foreground start refused");stopSelf();return START_NOT_STICKY;}
+      }catch(RuntimeException e){
+        // Restarted by Android in the background, where a microphone service may not start: ask for one tap.
+        ControlLog.i("wake: foreground start refused");
+        if(intent==null)tapToStart(this,"\"Wake up FRIDAY\" stopped","Android closed FRIDAY in the background. Tap once to start listening again.");
+        stopSelf();return START_NOT_STICKY;
+      }
       running=true;
       screen=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent i){screenOk=allowedNow();ControlLog.i("wake: "+(screenOk?"listening":"phone locked, paused"));if(screenOk)listenSoon(400);else halt();}};
       IntentFilter filter=new IntentFilter(Intent.ACTION_SCREEN_OFF);filter.addAction(Intent.ACTION_USER_PRESENT);filter.addAction(Intent.ACTION_SCREEN_ON);
@@ -89,13 +139,14 @@ public final class WakeWordService extends Service {
     if(REFRESH.equals(action)){halt();applySettings();getSystemService(NotificationManager.class).notify(43,notification());screenOk=allowedNow();}
     if(PAUSE.equals(action)){livePaused=true;halt();}
     else{if(RESUME.equals(action))livePaused=false;listenSoon(RESUME.equals(action)?1500:300);}
-    return START_NOT_STICKY;
+    // If Android kills FRIDAY to save memory, it restarts this light listener (not the AI) when it can.
+    return START_STICKY;
   }
   private Notification notification(){
     NotificationManager manager=getSystemService(NotificationManager.class);
     manager.createNotificationChannel(new NotificationChannel("wake_word","FRIDAY wake word",NotificationManager.IMPORTANCE_MIN));
     PendingIntent open=PendingIntent.getActivity(this,3,new Intent(this,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-    PendingIntent stop=PendingIntent.getService(this,4,new Intent(this,WakeWordService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+    PendingIntent stop=PendingIntent.getService(this,4,new Intent(this,WakeWordService.class).setAction(STOP).putExtra("user",true),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
     String who=VoiceGuardian.active(this)?"Only your voice (Voice Guardian). ":"";
     String when=whenLocked(this)?"Also with the screen off; unlock is still needed.":"Only while your phone is unlocked.";
     return new Notification.Builder(this,"wake_word").setSmallIcon(android.R.drawable.ic_btn_speak_now)
@@ -110,7 +161,7 @@ public final class WakeWordService extends Service {
     else if(!need&&cpu!=null){if(cpu.isHeld())cpu.release();cpu=null;}
     if(VoiceGuardian.active(this)&&recognizer!=null){try{recognizer.destroy();}catch(RuntimeException ignored){}recognizer=null;}
   }
-  private boolean allowedNow(){return whenLocked(this)||unlocked();}
+  private boolean allowedNow(){boolean ok=whenLocked(this)||unlocked();screenAllowed=ok;return ok;}
   private boolean unlocked(){
     PowerManager power=getSystemService(PowerManager.class);KeyguardManager keyguard=getSystemService(KeyguardManager.class);
     return power!=null&&power.isInteractive()&&(keyguard==null||!keyguard.isKeyguardLocked());
@@ -165,21 +216,28 @@ public final class WakeWordService extends Service {
   }
   private void stopGuardian(){guardianRun=false;AudioRecord mic=guardianMic;if(mic!=null){try{mic.stop();}catch(RuntimeException ignored){}}}
   private void recreate(long delay){if(recognizer!=null){try{recognizer.destroy();}catch(RuntimeException ignored){}recognizer=null;}listening=false;listenSoon(delay);}
-  private boolean check(Bundle results){
+  private boolean check(Bundle results){return check(results,false);}
+  private boolean check(Bundle results,boolean finalResult){
     ArrayList<String> heard=results==null?null:results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
     if(heard==null)return false;
     // Low recognizer confidence (often TV, music or someone far away) is ignored; unknown confidence (0 or missing) is kept as before.
     float[] conf=results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
+    boolean name=nameOnly(this);
     for(int i=0;i<heard.size();i++){
-      if(!matches(heard.get(i)))continue;
+      boolean full=matches(heard.get(i)),alone=!full&&name&&finalResult&&nameAlone(heard.get(i));
+      if(!full&&!alone)continue;
       float c=conf!=null&&i<conf.length?conf[i]:0f;
-      if(c>0f&&c<0.2f){ControlLog.i("wake: phrase ignored, low confidence");continue;}
+      // Unknown confidence (0) is accepted for the full phrase, but "FRIDAY" alone needs a reported, high confidence.
+      if((c>0f||alone)&&c<minConfidence(this,alone)){ControlLog.i("wake: phrase ignored, low confidence");continue;}
       woke();return true;
     }
     return false;
   }
   private void woke(){
     halt();livePaused=true;failures=0;ControlLog.i("wake: wake phrase heard");
+    chime();
+    boolean canOpen=MainActivity.visible||Settings.canDrawOverlays(this)||!unlocked();
+    if(!canOpen)ControlLog.i("wake: Android blocks opening from the background without \"Display over other apps\"");
     Intent open=new Intent(this,MainActivity.class).setAction(WAKE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);
     boolean locked=!unlocked();
     if(locked)lockScreenAlert(open);
@@ -194,6 +252,11 @@ public final class WakeWordService extends Service {
     }},1500);
     // Locked phone: if FRIDAY never came up (unlock cancelled), go back to listening.
     if(locked)results.postDelayed(()->{if(!MainActivity.visible&&!LiveVoiceService.running){livePaused=false;listenSoon(500);}},30_000);
+  }
+  /** A short, quiet tone and buzz so the user knows FRIDAY heard them, even before the screen opens. */
+  private void chime(){
+    try{android.media.ToneGenerator t=new android.media.ToneGenerator(android.media.AudioManager.STREAM_NOTIFICATION,60);t.startTone(android.media.ToneGenerator.TONE_PROP_ACK,180);results.postDelayed(t::release,400);}catch(RuntimeException ignored){}
+    try{Vibrator v=getSystemService(Vibrator.class);if(v!=null&&v.hasVibrator())v.vibrate(VibrationEffect.createOneShot(40,VibrationEffect.DEFAULT_AMPLITUDE));}catch(RuntimeException ignored){}
   }
   /** Locked phone: a full-screen alert turns the screen on and shows FRIDAY, which then asks for the phone's unlock. */
   private void lockScreenAlert(Intent open){
@@ -211,7 +274,7 @@ public final class WakeWordService extends Service {
     public void onEndOfSpeech(){}
     public void onEvent(int t,Bundle b){}
     public void onPartialResults(Bundle b){if(listening)check(b);}
-    public void onResults(Bundle b){listening=false;failures=0;if(!check(b))listenSoon(200);}
+    public void onResults(Bundle b){listening=false;failures=0;if(!check(b,true))listenSoon(200);}
     public void onError(int error){
       listening=false;
       switch(error){

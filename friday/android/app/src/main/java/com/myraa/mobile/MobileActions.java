@@ -194,6 +194,8 @@ public final class MobileActions {
     try{
       JSONObject args=new JSONObject(raw);String action=args.optString("action");
       if(running.size()>64)running.clear();running.put(id,action);
+      String section="set_mode".equals(action)&&"developer".equals(args.optString("mode"))?"developer":("list_memories".equals(action)||"forget".equals(action))?"memory":null;
+      if(section!=null&&FridayPattern.needsUnlock(activity,section)){finish(id,"locked","This is protected by your FRIDAY pattern. Open FRIDAY and unlock it with the pattern first.");return;}
       ControlLog.i("command "+action+(args.has("app")?" app="+args.optString("app"):"")+(args.has("recipient")?" contact="+args.optString("recipient"):"")+(args.has("target")?" target="+args.optString("target"):"")+(args.has("control")?" control="+args.optString("control"):"")+(args.has("confirm_token")?" (confirmed)":"")+" control="+(PhoneController.get()!=null?"ready":PhoneController.enabled(activity)?"enabled, not connected":"off"));
       if("open_app".equals(action)){openApp(id,args.optString("app"));return;}
       if("search_youtube".equals(action)||"search_web".equals(action)){
