@@ -28,6 +28,43 @@ exit code. Output: `artifacts/android/MYRAA-Mobile-1.0.0-rc.1-private.apk`.
 Local debug signing material stays in ignored `android/local-debug.keystore`.
 This is a development signature, not a public release identity.
 
+## Per-phone activation
+
+Every phone needs its own activation key before FRIDAY opens. On first launch the
+app shows only an activation screen with this phone's **Device ID** (Android's
+per-app device ID, which stays the same after reinstalling). A key is the owner's
+ECDSA P-256 signature over that Device ID: it works on that one phone only, and
+only the owner's private key can make one. The APK contains just the public key.
+
+One-time setup (owner, on a PC with Node):
+
+```powershell
+node scripts/friday-activation.mjs init
+```
+
+This saves the **private key** to `%USERPROFILE%\.friday-activation\owner-private.pem`
+(back it up; never commit or share it) and writes the public key to
+`android/activation-public-key.txt`. Commit that public file; the build scripts
+refuse to build without it. Then rebuild the APK.
+
+Make a key for a phone (the person sends you the Device ID from its screen):
+
+```powershell
+node scripts/friday-activation.mjs key A1B2-C3D4-E5F6-0718 --name "Ammi ka phone"
+```
+
+Send the printed key back; they paste it and tap Activate. Issued keys are
+logged in `.friday-activation\issued-keys.txt`.
+
+From a phone instead of a PC: add the contents of `owner-private.pem` as the
+repository secret `FRIDAY_ACTIVATION_PRIVATE_KEY`, then run the **FRIDAY
+activation key** workflow from GitHub Actions with the Device ID. The key appears
+in the run summary (safe: it works only on that phone).
+
+If the private key is lost, no new phones can be activated: run `init --force`,
+commit the new public key, rebuild, and give every phone a new key. Instrumented
+tests launch `MainActivity`, so activate the test phone first.
+
 ## Installation and privacy
 
 ```powershell

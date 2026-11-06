@@ -30,3 +30,7 @@ android/*.keystore
 artifacts/
 # Owner-provided model/video assets have independent redistribution restrictions.
 /assets/
+
+# FRIDAY activation: the owner private key must never be committed.
+owner-private.pem
+.friday-activation/

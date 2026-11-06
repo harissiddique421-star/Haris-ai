@@ -77,8 +77,11 @@ public class MainActivity extends Activity {
   /** Tried in order when Google refuses a Live call with a quota error while starting. The voice (Aoede etc.) is the same on all of them. */
   static final String[] LIVE_MODELS = { DEFAULT_LIVE_MODEL, "gemini-2.5-flash-native-audio-preview-12-2025", OLD_LIVE_MODEL };
 
+  /** True while this phone has no valid activation key: only the activation screen runs. */
+  private boolean activationLocked;
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
+    if (!Activation.isActivated(this)) { activationLocked = true; Activation.showGate(this, this::recreate); return; }
     prefs = getSharedPreferences("myraa.mobile.v1", MODE_PRIVATE);
     Proactive.schedule(this);
     // The old preview Live model now fails with a quota error on free keys: move saved settings to the current model once.
@@ -108,6 +111,7 @@ public class MainActivity extends Activity {
   }
   @Override protected void onNewIntent(Intent intent){
     super.onNewIntent(intent);setIntent(intent);
+    if(activationLocked)return;
     if(WakeWordService.WAKE.equals(intent.getAction())){pendingWake=true;wakeWindow(intent);}
   }
   /** Woken on a locked phone: show over the lock screen and turn the screen on, then ask for the phone's own unlock. */
@@ -682,11 +686,13 @@ public class MainActivity extends Activity {
     }
   }
   @Override protected void onPause() {
+    if(activationLocked){super.onPause();return;}
     foreground=false;visible=false;super.onPause();boolean keep=allowBackgroundLive;
     if(web!=null){web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false,backgroundLive:"+keep+",permissionPrompt:"+(pendingLiveId!=null)+"}}))",null);if(!keep)web.onPause();}
     if(pendingLiveId==null&&!keep)cancelLive();if(tts!=null)tts.stop();
   }
   @Override protected void onResume() {
+    if(activationLocked){super.onResume();return;}
     foreground=true;visible=true;super.onResume();WakeWordService.ensure(this);if(pendingWake)emit(json("type","wake"));if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
     if(web!=null){web.onResume();web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:true,backgroundLive:"+allowBackgroundLive+"}}))",null);}
     if(permissionsCenter!=null)emit(json("type","permissions","permissions",permissionsCenter.state()));
@@ -767,8 +773,9 @@ public class MainActivity extends Activity {
     emit(json("type","wake-test","status","done","detected",detected,"heard",shown,"confidence",confidence<=0?-1:Math.round(confidence*100),"microphone",true,"guardian","off","service",WakeWordService.status(this),
       "message",problem!=null?problem:detected?"Detected.":shown.isEmpty()?"Nothing clear was heard.":"Not detected. Say it clearly: Wake up FRIDAY."));
   }
-  @Override protected void onStop(){super.onStop();FridayPattern.lock();if(!allowBackgroundLive&&pendingLiveId==null){cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false}}))",null);}}
+  @Override protected void onStop(){super.onStop();if(activationLocked)return;FridayPattern.lock();if(!allowBackgroundLive&&pendingLiveId==null){cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false}}))",null);}}
   @Override protected void onDestroy() {
+    if(activationLocked){super.onDestroy();return;}
     pendingUiAction=null;if(mobileActions!=null)mobileActions.close();try{unregisterReceiver(stopLiveReceiver);}catch(IllegalArgumentException ignored){}
     cancelLive(); liveNetwork.shutdownNow();
     synchronized (settingsLock) { settingsGeneration.incrementAndGet(); if (settingsConnection != null) settingsConnection.disconnect(); }

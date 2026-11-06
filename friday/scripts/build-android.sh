@@ -12,6 +12,10 @@ npx vite build --config vite.mobile.config.ts
 ASSETS=android/app/src/main/assets
 if [ -d assets/characters/evelyn ]; then mkdir -p "$ASSETS/characters"; cp -r assets/characters/evelyn "$ASSETS/characters/"; else echo "NOTE: character model not in source (licence forbids redistribution); APK has no 3D character." >&2; fi
 node --import tsx scripts/export-mobile-personality.ts
+# Per-phone activation: the owner's PUBLIC key goes into the APK (the private key never does).
+PUB=android/activation-public-key.txt
+if [ ! -s "$PUB" ]; then echo "Missing $PUB. The owner must run 'node scripts/friday-activation.mjs init' once and commit that file (it is the public key, safe to commit)." >&2; exit 1; fi
+cp "$PUB" "$ASSETS/activation_public_key.txt"
 OUT=android/app/build/ci; rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/res/drawable"
 javac -encoding UTF-8 -source 8 -target 8 -classpath "$JAR" -d "$OUT/classes" $(find android/app/src/main/java -name '*.java')
 (cd "$OUT/classes" && jar --create --file ../classes.jar .)

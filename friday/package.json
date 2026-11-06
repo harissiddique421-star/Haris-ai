@@ -33,11 +33,13 @@
     "test:companion": "node --import tsx --test tests/companion.test.ts",
     "test:locomotion": "node --import tsx --test tests/footContact.test.ts",
     "test:desktop-transport": "node --import tsx --test tests/desktopTransport.test.ts",
-    "test": "npm run lint && npm run test:agent && npm run test:characters && npm run test:physics && npm run test:companion && npm run test:locomotion && npm run test:desktop-transport && npm run test:v2 && npm run test:cognition && npm run test:api-hub && npm run test:screen-vision && npm run test:real-browser && npm run test:mobile-actions && npm run test:python",
+    "test": "npm run lint && npm run test:agent && npm run test:characters && npm run test:physics && npm run test:companion && npm run test:locomotion && npm run test:desktop-transport && npm run test:v2 && npm run test:cognition && npm run test:api-hub && npm run test:screen-vision && npm run test:real-browser && npm run test:mobile-actions && npm run test:activation && npm run test:python",
     "build:android": "pwsh -NoProfile -File scripts/build-android.ps1",
     "audit:models": "node --import tsx scripts/inventory-models.ts",
     "import:character": "tsx tools/import-character.ts",
-    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts"
+    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts",
+    "test:activation": "node --import tsx --test tests/activation.test.ts",
+    "activation": "node scripts/friday-activation.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
