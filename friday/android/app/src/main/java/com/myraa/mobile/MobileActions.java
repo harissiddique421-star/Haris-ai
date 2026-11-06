@@ -34,6 +34,11 @@ public final class MobileActions {
     boolean needsPermission(); List<Recipient> find(String name);
     /** WhatsApp accounts synced into Android Contacts for this mimetype (chat, voice call or video call). */
     default List<WaContact> findWhatsApp(String name,String mimetype){return Collections.emptyList();}
+    /** Close but not certain saved names (did you mean), from the name given and from the user's own words. */
+    default List<Recipient> suggest(String name,String heard){return Collections.emptyList();}
+    default List<WaContact> suggestWhatsApp(String name,String heard,String mimetype){return Collections.emptyList();}
+    /** The saved name for a phone number (any of its 03xx / +92 / 0092 forms), or null. */
+    default String nameFor(String phone){return null;}
   }
   /** One WhatsApp contact row: the Data row id WhatsApp itself registered, so opening it reaches exactly that chat/call. */
   public static final class WaContact {
@@ -57,6 +62,7 @@ public final class MobileActions {
   private final Handler main=new Handler(Looper.getMainLooper());
   private final SecureRandom random=new SecureRandom();
   private Runnable pending,pendingDenied;
+  private String heard="";
   private String pendingId,pendingPermission;
   private AlertDialog chooser,confirmDialog;
   private String chooserId,confirmId;
@@ -146,11 +152,50 @@ public final class MobileActions {
           }
         }
         List<Recipient> exact=new ArrayList<>();for(Recipient r:found)if(normalize(r.name).equals(normalize(name)))exact.add(r);
-        return exact.isEmpty()?found:exact;
+        if(!exact.isEmpty())return exact;
+        // Not one exact name: keep only confident matches, and if the plain search found none, check every saved contact
+        // (word order, extra spaces, Roman Urdu spelling) before saying the contact isn't there.
+        List<Recipient> sure=confident(name,found);
+        return sure.isEmpty()?confident(name,allPhones()):sure;
       }
+      private List<Recipient> phoneCache;private long phoneCacheAt;
+      private List<Recipient> allPhones(){
+        long now=System.currentTimeMillis();
+        if(phoneCache!=null&&now-phoneCacheAt<60_000)return phoneCache;
+        List<Recipient> all=new ArrayList<>();Set<String> seen=new HashSet<>();
+        try(Cursor c=activity.getContentResolver().query(Phone.CONTENT_URI,new String[]{Phone.DISPLAY_NAME,Phone.NUMBER,Phone.NORMALIZED_NUMBER},null,null,null)){
+          if(c!=null)while(c.moveToNext()&&all.size()<5000){
+            String n=c.getString(0);if(n==null||n.trim().isEmpty())continue;
+            String raw=c.getString(2);if(raw==null||raw.isEmpty())raw=c.getString(1);
+            String phone=international(raw,activity);if(phone!=null&&seen.add(n+"|"+phone))all.add(new Recipient(n,phone));
+          }
+        }catch(RuntimeException e){ControlLog.i("contacts: could not read the contact list");}
+        phoneCache=all;phoneCacheAt=now;return all;
+      }
+      private List<Recipient> confident(String name,List<Recipient> from){
+        List<String> names=new ArrayList<>();for(Recipient r:from)names.add(r.name);
+        List<double[]> ranked=ContactMatcher.rank(name,names,ContactMatcher.HIGH);
+        List<Recipient> out=new ArrayList<>();Set<String> seen=new HashSet<>();
+        for(double[] r:ranked)if(r[1]>=ranked.get(0)[1]-0.03&&out.size()<8){Recipient x=from.get((int)r[0]);if(seen.add(x.phone))out.add(x);}
+        return out;
+      }
+      public List<Recipient> suggest(String name,String heard){
+        List<Recipient> all=allPhones(),out=new ArrayList<>();Set<String> seen=new HashSet<>();
+        List<String> names=new ArrayList<>();for(Recipient r:all)names.add(r.name);
+        for(double[] r:ContactMatcher.rank(name,names,ContactMatcher.MEDIUM)){if(out.size()>=3)break;Recipient x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        // The model may have misheard the name; the user's own words often still have it.
+        if(heard!=null&&!heard.trim().isEmpty())for(String piece:ContactMatcher.pieces(heard)){
+          if(out.size()>=3)break;
+          for(double[] r:ContactMatcher.rank(piece,names,0.9)){if(out.size()>=3)break;Recipient x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        }
+        return out;
+      }
+      public String nameFor(String phone){for(Recipient r:allPhones())if(ContactMatcher.sameNumber(r.phone,phone))return r.name;return null;}
       public List<WaContact> findWhatsApp(String name,String mimetype){
         List<WaContact> found=new ArrayList<>();Set<String> seen=new HashSet<>();
         boolean number=name.trim().matches("\\+?[0-9 ()-]{8,}");String digits=name.replaceAll("[^0-9]","");
+        // A local number (03xx…) is stored by WhatsApp with the country code.
+        if(number){String intl=international(name,activity);if(intl!=null)digits=intl;}
         String escaped=name.trim().replace("\\","\\\\").replace("%","\\%").replace("_","\\_");
         String where=ContactsContract.Data.MIMETYPE+"=? AND "+(number?ContactsContract.Data.DATA1+" LIKE ?":ContactsContract.Data.DISPLAY_NAME+" LIKE ? ESCAPE '\\'");
         try(Cursor c=activity.getContentResolver().query(ContactsContract.Data.CONTENT_URI,new String[]{ContactsContract.Data._ID,ContactsContract.Data.DISPLAY_NAME,ContactsContract.Data.DATA1},where,new String[]{mimetype,number?digits+"@%":"%"+escaped+"%"},ContactsContract.Data.DISPLAY_NAME+" ASC")){
@@ -161,7 +206,40 @@ public final class MobileActions {
           }
         }
         List<WaContact> exact=new ArrayList<>();for(WaContact r:found)if(normalize(r.name).equals(normalize(name)))exact.add(r);
-        return exact.isEmpty()?found:exact;
+        if(!exact.isEmpty()||number)return exact.isEmpty()?found:exact;
+        List<WaContact> sure=confidentWa(name,found);
+        return sure.isEmpty()?confidentWa(name,allWhatsApp(mimetype)):sure;
+      }
+      private final Map<String,List<WaContact>> waCache=new HashMap<>();private final Map<String,Long> waCacheAt=new HashMap<>();
+      private List<WaContact> allWhatsApp(String mimetype){
+        long now=System.currentTimeMillis();Long at=waCacheAt.get(mimetype);
+        if(at!=null&&now-at<60_000)return waCache.get(mimetype);
+        List<WaContact> all=new ArrayList<>();Set<String> seen=new HashSet<>();
+        try(Cursor c=activity.getContentResolver().query(ContactsContract.Data.CONTENT_URI,new String[]{ContactsContract.Data._ID,ContactsContract.Data.DISPLAY_NAME,ContactsContract.Data.DATA1},ContactsContract.Data.MIMETYPE+"=?",new String[]{mimetype},null)){
+          if(c!=null)while(c.moveToNext()&&all.size()<5000){
+            String jid=c.getString(2),n=c.getString(1);if(jid==null||n==null)continue;String phone=jid.contains("@")?jid.substring(0,jid.indexOf('@')):jid.replaceAll("[^0-9]","");
+            if(!phone.matches("[1-9][0-9]{7,14}")||!seen.add(phone))continue;
+            all.add(new WaContact(n,phone,mimetype,c.getLong(0)));
+          }
+        }catch(RuntimeException e){ControlLog.i("contacts: could not read WhatsApp contacts");}
+        waCache.put(mimetype,all);waCacheAt.put(mimetype,now);return all;
+      }
+      private List<WaContact> confidentWa(String name,List<WaContact> from){
+        List<String> names=new ArrayList<>();for(WaContact r:from)names.add(r.name);
+        List<double[]> ranked=ContactMatcher.rank(name,names,ContactMatcher.HIGH);
+        List<WaContact> out=new ArrayList<>();
+        for(double[] r:ranked)if(r[1]>=ranked.get(0)[1]-0.03&&out.size()<8)out.add(from.get((int)r[0]));
+        return out;
+      }
+      public List<WaContact> suggestWhatsApp(String name,String heard,String mimetype){
+        List<WaContact> all=allWhatsApp(mimetype),out=new ArrayList<>();Set<String> seen=new HashSet<>();
+        List<String> names=new ArrayList<>();for(WaContact r:all)names.add(r.name);
+        for(double[] r:ContactMatcher.rank(name,names,ContactMatcher.MEDIUM)){if(out.size()>=3)break;WaContact x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        if(heard!=null&&!heard.trim().isEmpty())for(String piece:ContactMatcher.pieces(heard)){
+          if(out.size()>=3)break;
+          for(double[] r:ContactMatcher.rank(piece,names,0.9)){if(out.size()>=3)break;WaContact x=all.get((int)r[0]);if(seen.add(normalize(x.name)))out.add(x);}
+        }
+        return out;
       }
     });
   }
@@ -193,6 +271,8 @@ public final class MobileActions {
     if(!"mobile_action".equals(name)){finish(id,"unsupported","That mobile action is unavailable.");return;}
     try{
       JSONObject args=new JSONObject(raw);String action=args.optString("action");
+      // What the user actually said (kept on the phone), to find a contact name the model may have misheard.
+      heard=args.optString("heard","");if(heard.length()>300)heard=heard.substring(0,300);
       if(running.size()>64)running.clear();running.put(id,action);
       String section="set_mode".equals(action)&&"developer".equals(args.optString("mode"))?"developer":("list_memories".equals(action)||"forget".equals(action))?"memory":null;
       if(section!=null&&FridayPattern.needsUnlock(activity,section)){finish(id,"locked","This is protected by your FRIDAY pattern. Open FRIDAY and unlock it with the pattern first.");return;}
@@ -312,21 +392,38 @@ public final class MobileActions {
   private void resolve(String id,String recipient,Then then){
     if(recipient.trim().isEmpty()||recipient.length()>100){finish(id,"invalid","Tell me who it is for.");return;}
     if(recipient.trim().matches("\\+?[0-9 ()-]+")){
-      String phone=recipient.replaceAll("[ ()+-]","");if(phone.startsWith("00"))phone=phone.substring(2);boolean international=recipient.trim().startsWith("+")||recipient.trim().startsWith("00")||phone.length()>=11;if(!international||!phone.matches("[1-9][0-9]{7,14}")){finish(id,"invalid","Include the country code in the recipient phone number, for example +91.");return;}
-      then.with(new Recipient(recipient.trim(),phone));return;
+      String phone=recipient.replaceAll("[ ()+-]","");if(phone.startsWith("00"))phone=phone.substring(2);
+      // A local number such as 03001234567: add the country code the phone is in.
+      if(phone.startsWith("0")){String intl=international(recipient,activity);if(intl!=null)phone=intl;}
+      boolean international=phone.matches("[1-9][0-9]{10,14}")||recipient.trim().startsWith("+")||recipient.trim().startsWith("00")||phone.length()>=11;if(!international||!phone.matches("[1-9][0-9]{7,14}")){finish(id,"invalid","Include the country code in the recipient phone number, for example +91.");return;}
+      String saved=null;
+      if(!contacts.needsPermission()||activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED)saved=contacts.nameFor(phone);
+      then.with(new Recipient(saved!=null?saved:recipient.trim(),phone));return;
     }
     if(contacts.needsPermission()&&activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)!=PackageManager.PERMISSION_GRANTED){
       if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
       pendingId=id;pendingPermission=Manifest.permission.READ_CONTACTS;pendingDenied=null;pending=()->resolve(id,recipient,then);activity.requestPermissions(new String[]{Manifest.permission.READ_CONTACTS},CONTACTS_REQUEST);return;
     }
     List<Recipient> matches=contacts.find(recipient.trim());
-    if(matches.isEmpty()){finish(id,"not_found","No matching contact with a usable phone number was found. Give the full saved name or an international phone number.");return;}
-    boolean exact=matches.size()==1&&normalize(matches.get(0).name).equals(normalize(recipient));
+    if(matches.isEmpty()){
+      List<Recipient> close=contacts.suggest(recipient.trim(),heard);
+      ControlLog.i("contact \""+recipient.trim()+"\": no confident match, "+close.size()+" close");
+      if(!close.isEmpty()){List<String> names=new ArrayList<>();for(Recipient r:close)names.add(r.name);didYouMean(id,recipient.trim(),names);return;}
+      finish(id,"not_found","I checked all saved contacts and none is named "+recipient.trim()+". Tell the user that in one short line, and ask them to say the name again or give the number.");return;
+    }
+    boolean exact=matches.size()==1&&(normalize(matches.get(0).name).equals(normalize(recipient))||ContactMatcher.score(recipient,matches.get(0).name)>=ContactMatcher.HIGH);
     if(exact){then.with(matches.get(0));return;}
     if(chooser!=null){finish(id,"busy","Choose the recipient from the current list first.");return;}
     String[] labels=new String[matches.size()];for(int i=0;i<labels.length;i++)labels[i]=matches.get(i).name+" · +"+matches.get(i).phone;
     chooserId=id;chooser=new AlertDialog.Builder(activity).setTitle("Which "+recipient+"?").setItems(labels,(d,index)->{chooser=null;chooserId=null;then.with(matches.get(index));})
       .setNegativeButton("Cancel",(d,w)->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).setOnCancelListener(d->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).show();
+  }
+  /** A close but uncertain contact: the user picks or repeats the name; FRIDAY never picks one by herself. */
+  private void didYouMean(String id,String asked,List<String> names){
+    StringBuilder list=new StringBuilder();for(int i=0;i<names.size();i++){if(i>0)list.append(i==names.size()-1?" or ":", ");list.append(names.get(i));}
+    JSONObject value=status("did_you_mean","No saved contact is exactly \""+asked+"\". Closest saved: "+list+". Ask the user in one short line whether they mean "+(names.size()==1?"this contact":"one of these")+" (for example \"Kya aap "+names.get(0)+" ki baat kar rahe hain?\") or to say the name again. Only after they confirm, call mobile_action again with recipient set to that exact saved name. Never choose one yourself.");
+    try{value.put("candidates",new JSONArray(names));}catch(JSONException ignored){}
+    finish(id,value);
   }
   private String token(String kind,Recipient person,String text){
     long now=System.currentTimeMillis();confirmations.values().removeIf(c->c.until<now);
@@ -758,6 +855,10 @@ public final class MobileActions {
     if(matches.isEmpty()){
       if(allowPhoneFallback){resolve(id,recipient,person->then.with(new WaContact(person.name,person.phone,mimetype,-1)));return;}
       boolean phoneOnly=!recipient.trim().matches("\\+?[0-9 ()-]+")&&!contacts.find(recipient.trim()).isEmpty();
+      if(!phoneOnly&&!recipient.trim().matches("\\+?[0-9 ()-]+")){
+        List<WaContact> close=contacts.suggestWhatsApp(recipient.trim(),heard,mimetype);
+        if(!close.isEmpty()){List<String> names=new ArrayList<>();for(WaContact r:close)names.add(r.name);didYouMean(id,recipient.trim(),names);return;}
+      }
       finish(id,"not_found",phoneOnly?recipient.trim()+" is in your phone contacts, but WhatsApp has no account synced for them, so I can't place a WhatsApp call. Open WhatsApp once so it syncs contacts, or check they use WhatsApp.":"I couldn't find a WhatsApp contact called "+recipient.trim()+". Say the full saved name.");return;
     }
     boolean exact=matches.size()==1;

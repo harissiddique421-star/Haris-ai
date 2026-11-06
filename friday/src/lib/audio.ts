@@ -533,7 +533,9 @@ export class MyraaAudioSession {
           noiseSuppression: true,
           autoGainControl: true,
           channelCount: 1,
-          // No "voice isolation": on phones that have it, it removes a voice from a few steps away.
+          // Chrome/WebView voice isolation where the phone supports it (ignored elsewhere): it keeps TV, music and
+          // other people out of what Gemini hears, which keeps names and commands recognised correctly.
+          ...({ voiceIsolation: true } as Record<string, boolean>),
         }
       });
 

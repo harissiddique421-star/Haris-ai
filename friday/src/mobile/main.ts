@@ -14,7 +14,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; }
+interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -47,6 +47,8 @@ let screenSharing = false;
 const frameCanvas = document.createElement('canvas');
 /** Last Live call's timings (milliseconds only, no audio or words), for Settings diagnostics. */
 let lastVoiceTimings: MyraaAudioSession['timings'] | null = null;
+/** Background lifecycle state from Android (service, wake listener, permissions, battery, audio, network). No audio or words. */
+function lifecycleDiagnostics() { try { const line = bridge?.lifecycleStatus?.(); return line ? `\n\nBackground: ${line}` : ''; } catch { return ''; } }
 function voiceDiagnostics() {
   const t = liveSession?.timings || lastVoiceTimings; if (!t || !t.connectStartedAt) return '';
   const after = (at: number) => at ? `${at - t.connectStartedAt} ms` : 'not yet';
@@ -82,6 +84,37 @@ setInterval(() => {
   lastCheckinAt = now; checkinPending = true; spokeSinceCheckin = false; orchestrator.phonePrompted();
   liveSession.sendText('[Phone] The user has been quiet for about 45 seconds with FRIDAY open. Say one short, natural line in their language to check whether they need anything else (for example "Kuch aur karna hai?"). Do not repeat it. If they do not answer, stay silent.');
 }, 5000);
+// Opening line: after the wake phrase or the microphone button starts FRIDAY, she says one short line and listens.
+const GREET_KEY = 'friday.greet';
+function greetOn() { try { return localStorage.getItem(GREET_KEY) !== 'off'; } catch { return true; } }
+let callStartedBy: 'wake' | 'mic' | '' = '', wakeStarting = false, noGreeting = false, greetedAt = 0, greetFollowUpDone = false, userTalkingNow = false, greetCount = 0;
+const GREET_EXAMPLES = {
+  wake: ['Yes Haris, I\'m here. Kya karna hai?', 'Haan Haris, bolo.', 'Hey Haris, I\'m awake. Batao kya karna hai?', 'Yes Haris, I\'m listening.', 'Ji Haris, main yahin hoon.'],
+  mic: ['Haan, bolo.', 'I\'m listening.', 'Okay Haris, bolo.', 'Ji, batao.', 'Bolo Haris, kya karna hai?'],
+};
+/** Sent once, right after the call is ready, unless the user is already talking (their command comes first). */
+function sendGreeting() {
+  const by = callStartedBy; callStartedBy = '';
+  if (!by || !greetOn() || !liveSession || userTalkingNow || userSpokeThisCall) return;
+  const pool = GREET_EXAMPLES[by]; greetCount++;
+  const examples = [0, 1, 2].map(i => `"${pool[(greetCount + i) % pool.length]}"`).join(', ');
+  greetedAt = Date.now(); greetFollowUpDone = false; orchestrator.phonePrompted();
+  liveSession.sendText(`[Phone] FRIDAY was just started by ${by === 'wake' ? 'the wake phrase' : 'the user tapping the microphone, so keep it extra short'}. Say one short opening line in the user's language, like ${examples}, but in your own words and different from last time. Tone: ${TONE_HINT[emotions.emotion]}. Then stop and listen. If the user starts talking, stop and listen.`);
+}
+// If nobody answers the opening line, say one quiet line once, then stay silent (no repeats).
+setInterval(() => {
+  if (!greetedAt || greetFollowUpDone || userSpokeThisCall || !liveSession || liveSession.getState() !== 'listening' || document.hidden || !greetOn()) return;
+  if (Date.now() - greetedAt < 20_000 || Date.now() - lastActivityAt < 15_000) return;
+  greetFollowUpDone = true; orchestrator.phonePrompted();
+  liveSession.sendText('[Phone] The user has not said anything since your opening line. Say one very short, calm line such as "Main yahin hoon, jab bolo." and then stay silent until they speak.');
+}, 3000);
+/** Contact actions also get what the user actually said (stays on the phone), so a name the model misheard can still be found. */
+const CONTACT_ACTIONS = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'open_contact', 'email']);
+function withHeard(args: any) {
+  if (!args || typeof args !== 'object' || !CONTACT_ACTIONS.has(String(args.action || ''))) return args;
+  const said = (liveCaption?.role === 'user' ? liveCaption.body.textContent : lastUserCaption) || '';
+  return said.trim() ? { ...args, heard: said.trim().slice(-300) } : args;
+}
 function showThinking(on: boolean) {
   if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
   if (!liveSession || liveSession.getState() !== 'listening') return;
@@ -92,7 +125,7 @@ function showThinking(on: boolean) {
   if (on) thinkingTimer = setTimeout(() => showThinking(false), 6000);
 }
 function userSpeech(speaking: boolean) {
-  markActivity();
+  markActivity(); userTalkingNow = speaking;
   if (speaking) { if (thinkingTimer) showThinking(false); return; }
   if (heardUserSinceReply) showThinking(true);
 }
@@ -128,7 +161,7 @@ async function startCamera() {
   notice('Camera on. FRIDAY can see what the camera sees.'); updateVisionButtons();
 }
 function stopVision() { stopCamera(); if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; updateVisionButtons(); }
-function stopVoice() { stopVision(); backgroundLive = false; const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; cancelMobileActions(); } session?.disconnect(); bridge?.endLive(); }
+function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; cancelMobileActions(); } session?.disconnect(); if (!keepService) bridge?.endLive(); }
 /** Builds without the licensed 3D model show the FRIDAY core instead of an error. */
 function showCore() {
   el('avatar-status').textContent = '';
@@ -141,7 +174,7 @@ function liveState(value: LiveState) {
   if (value === 'speaking') { heardUserSinceReply = false; checkinPending = false; if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; } }
   queueMicrotask(() => { if (value === "disconnected") stopVision(); else updateVisionButtons(); });
   const active = value !== 'disconnected';
-  if (value === 'listening') { if (!liveUpSince) liveUpSince = Date.now(); notice('Live voice connected. Speak naturally.'); }
+  if (value === 'listening') { if (!liveUpSince) { liveUpSince = Date.now(); if (callStartedBy) setTimeout(sendGreeting, 400); } notice('Live voice connected. Speak naturally.'); }
   el('voice').setAttribute('aria-pressed', String(active));
   el('voice').querySelector('span')!.textContent = active ? 'Live' : 'AI';
   el('listen-state').textContent = value === 'connecting' ? 'CONNECTING…' : value === 'speaking' ? 'SPEAKING…' : value === 'listening' ? 'LISTENING…' : '';
@@ -248,7 +281,8 @@ app.innerHTML = `
         <div class="row"><button id="guardian-record" type="button">Record my voice</button><button id="guardian-delete" type="button">Delete my voice</button></div>
         <p id="guardian-note" class="muted"></p></div>
       <div class="card"><b>Conversation</b><small>If you go quiet for about 45 seconds during a Live call with FRIDAY on screen, she asks once whether you need anything else, then waits at least 10 minutes before asking again.</small>
-        <label class="check"><input id="idle-checkin" type="checkbox"> Check in when I go quiet</label></div>
+        <label class="check"><input id="idle-checkin" type="checkbox"> Check in when I go quiet</label>
+        <label class="check"><input id="greet-on-start" type="checkbox"> Say a short hello when FRIDAY starts listening</label></div>
       <div class="card"><b>Calls &amp; driving</b><small>Uses the phone's own voice, so it works without a Live call. Needs Notification access. You can also say "driving mode on".</small>
         <label class="check"><input id="announce-calls" type="checkbox"> Say who is calling when the phone rings</label>
         <label class="check"><input id="driving-mode" type="checkbox"> Driving mode: read out new messages, short replies</label>
@@ -576,39 +610,51 @@ el('health-check').onclick = () => { (el('settings-panel') as HTMLDialogElement)
 el('input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } });
 el('stop').onclick = () => { cancelMobileActions(); stopVoice(); bridge?.cancel(); bridge?.stopSpeech(); busy = false; requestId = ''; notice('Stopped.'); system?.stopBehaviour(); system?.setFrameInput({ activity: 'idle', emotion: 'idle' }); };
 let liveFallbacks = 0, liveReconnects = 0, liveUpSince = 0, autoRetry = false;
+/** Starts the replacement call; if it could not start, the kept call service is released so nothing keeps running. */
+function retryCall() { setTimeout(() => { el('voice').click(); if (!liveSession && liveResume.handoff) { liveResume.handoff = false; backgroundLive = false; bridge?.endLive(); } }, 900); }
 el('voice').onclick = () => {
   // A call the user starts is fresh; an automatic retry keeps its counters and may resume the conversation.
-  if (!autoRetry) { liveFallbacks = 0; liveReconnects = 0; liveResume.handle = ''; liveResume.resuming = false; }
-  autoRetry = false;
+  if (!autoRetry) { liveFallbacks = 0; liveReconnects = 0; liveResume.handle = ''; liveResume.resuming = false; liveResume.handoff = false; }
+  // Who started this call decides the opening line; an automatic reconnect continues without one.
+  const startedBy: 'wake' | 'mic' | '' = autoRetry || noGreeting ? '' : wakeStarting ? 'wake' : 'mic';
+  wakeStarting = false; noGreeting = false; autoRetry = false;
   if (liveSession && liveSession.getState() !== 'disconnected') { if (el('listening').hidden) { listeningMinimized = false; showListening(true); } else { stopVoice(); notice('Live voice ended.'); } return; }
   if (!bridge) { notice('Gemini Live voice runs inside the Android app.'); return; }
   if (!state.keyConfigured) { notice('Add a working Gemini key in Settings to start Live voice.'); return; }
   if (busy) { notice('Stop the current text reply before starting Live voice.'); return; }
   if (navigator.onLine === false) { notice('No internet connection. Connect to the internet and try again.'); return; }
   bridge.stopSpeech(); liveCaption = null;
-  emotions.reset(); userSpokeThisCall = false; spokeSinceCheckin = true; checkinPending = false; heardUserSinceReply = false; lastActivityAt = Date.now();
+  callStartedBy = startedBy; greetedAt = 0; greetFollowUpDone = false; userTalkingNow = false;
+  if (startedBy) emotions.reset();
+  userSpokeThisCall = false; spokeSinceCheckin = true; checkinPending = false; heardUserSinceReply = false; lastActivityAt = Date.now();
   const resuming = liveResume.resuming; liveUpSince = 0;
   liveSession = new MyraaAudioSession({
     onUserSpeech: userSpeech,
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
     onStateChange: liveState, onTranscription: liveTranscription,
-    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, args).then(result => { markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
+    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, withHeard(args)).then(result => { markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
       // Gemini gets the tone to use and what is open/playing now, so follow-ups like "volume kam karo" or "Quran wali video chalao" need no extra questions.
-      callback({ ...result, tone, tone_hint: TONE_HINT[tone], context: { current_app: convo.currentApp || 'unknown', now_playing: convo.media || 'nothing known', last_action: action } }); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
+      callback({ ...result, tone, tone_hint: TONE_HINT[tone], context: { current_app: convo.currentApp || 'unknown', now_playing: convo.media || 'nothing known', last_action: action } }); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => { noGreeting = true; el('voice').click(); }, 900); }, 3500); } }); },
     onError: message => {
-      stopVoice();
       // A call that ran for a minute counts as working, so a later drop gets its own reconnects.
       if (liveUpSince && Date.now() - liveUpSince > 60_000) liveReconnects = 0;
-      const recovery = liveRecovery(message, { fallbacks: liveFallbacks, reconnects: liveReconnects, online: navigator.onLine !== false, visible: document.visibilityState === 'visible', resuming });
+      const inBackground = backgroundLive;
+      const recovery = liveRecovery(message, { fallbacks: liveFallbacks, reconnects: liveReconnects, online: navigator.onLine !== false, visible: document.visibilityState === 'visible' || inBackground, resuming });
+      // Recovering keeps the phone's call service (and the paused wake word) running, so it also works in the background.
+      const handoff = recovery !== 'none' && !!bridge?.reconnectLive && (recovery === 'reconnect' || !!bridge?.nextLiveModel);
+      liveResume.handoff = handoff;
+      stopVoice(handoff);
+      if (handoff) backgroundLive = inBackground;
       // Google refused this Live model (out of quota or not available to the key): try the next model, a fresh call.
       if (recovery === 'switch_model' && bridge?.nextLiveModel) {
         const next = bridge.nextLiveModel(bridge.liveModel?.() || '');
-        if (next) { liveFallbacks++; liveResume.resuming = false; liveResume.handle = ''; notice(`This Live model is unavailable right now. Trying ${next}…`); state.liveModel = next; autoRetry = true; setTimeout(() => el('voice').click(), 900); return; }
+        if (!next) { liveResume.handoff = false; bridge?.endLive(); }
+        if (next) { liveFallbacks++; liveResume.resuming = false; liveResume.handle = ''; notice(`This Live model is unavailable right now. Trying ${next}…`); state.liveModel = next; autoRetry = true; retryCall(); return; }
       }
       // The call dropped or Google ended the session: connect again, resuming the conversation when Google gave a handle.
       if (recovery === 'reconnect') {
         liveReconnects++; liveResume.resuming = !(resuming && /while starting/i.test(message)) && !!liveResume.handle; if (!liveResume.resuming) liveResume.handle = '';
-        notice('Connection dropped. Reconnecting…'); autoRetry = true; setTimeout(() => el('voice').click(), 900); return;
+        notice('Connection dropped. Reconnecting…'); autoRetry = true; retryCall(); return;
       }
       notice(message);
     },
@@ -627,7 +673,7 @@ el('settings').onclick = async () => {
   stopVoice(); refreshState(); refreshSettings(); settingsPage('menu'); el<HTMLDialogElement>('settings-panel').showModal();
   let control = '';
   try { const state = JSON.parse(bridge?.getState() || '{}'); const status = state.controlStatus || {}; control = `\n\nPhone control: ${status.ready ? 'READY (connected)' : status.enabled ? 'switch on, not connected yet' : 'off'}\n${(state.controlLog || []).slice(-25).join('\n')}`; } catch { /* diagnostics only */ }
-  el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}) + control + voiceDiagnostics();
+  el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}) + control + voiceDiagnostics() + lifecycleDiagnostics();
 };
 el('save').onclick = () => {
   if (!bridge) return notice('Save settings in the installed Android app.');
@@ -651,6 +697,8 @@ for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) 
 el('settings-back').onclick = () => settingsPage('menu');
 el('save-advanced').onclick = () => el('save').click();
 el<HTMLInputElement>('idle-checkin').checked = idleCheckinOn();
+el<HTMLInputElement>('greet-on-start').checked = greetOn();
+el('greet-on-start').onchange = () => { try { localStorage.setItem(GREET_KEY, el<HTMLInputElement>('greet-on-start').checked ? 'on' : 'off'); } catch { /* setting stays for this session */ } };
 el('idle-checkin').onchange = () => { try { localStorage.setItem(IDLE_KEY, el<HTMLInputElement>('idle-checkin').checked ? 'on' : 'off'); } catch { /* setting stays for this session */ } };
 el('announce-calls').onchange = () => setAnnounce({ announceCalls: el<HTMLInputElement>('announce-calls').checked });
 el('driving-mode').onchange = () => setAnnounce({ drivingMode: el<HTMLInputElement>('driving-mode').checked });
@@ -795,7 +843,7 @@ async function wakeUp() {
   const dialog = el<HTMLDialogElement>('settings-panel'); if (dialog.open) dialog.close();
   showView('home');
   if (liveActive()) { listeningMinimized = false; showListening(true); return; }
-  notice('Yes? Starting FRIDAY Live…'); if (!liveActive()) el('voice').click();
+  notice('Yes? Starting FRIDAY Live…'); if (!liveActive()) { wakeStarting = true; el('voice').click(); wakeStarting = false; }
 }
 if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 400); else setTimeout(() => void appGate(), 1500);
 window.addEventListener('myraa:lifecycle', event => { if ((event as CustomEvent).detail?.active) setTimeout(() => void appGate(), 300); });

@@ -32,6 +32,7 @@ public final class LiveVoiceService extends Service {
     int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE|ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK|(share?ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION:0);
     if (Build.VERSION.SDK_INT >= 30) startForeground(42,notification,types);
     else startForeground(42,notification);
+    if (!running) ControlLog.i("call service: started");
     running = true;
     if (share) {
       Intent data = Build.VERSION.SDK_INT >= 33 ? intent.getParcelableExtra("data", Intent.class) : intent.getParcelableExtra("data");
@@ -49,7 +50,7 @@ public final class LiveVoiceService extends Service {
     }
     return START_NOT_STICKY;
   }
-  private void end() { ScreenCapture.stop(); running=false; sendBroadcast(new Intent(STOP).setPackage(getPackageName())); stopForeground(true); stopSelf(); }
+  private void end() { ControlLog.i("call service: stopped by Stop or by closing FRIDAY from recents"); ScreenCapture.stop(); running=false; sendBroadcast(new Intent(STOP).setPackage(getPackageName())); stopForeground(true); stopSelf(); }
   @Override public void onTaskRemoved(Intent root) { end(); }
-  @Override public void onDestroy() { ScreenCapture.stop(); if(chip!=null&&windows!=null){try{windows.removeView(chip);}catch(RuntimeException ignored){}}chip=null;overlayVisible=false;running=false; super.onDestroy(); }
+  @Override public void onDestroy() { ScreenCapture.stop(); if(chip!=null&&windows!=null){try{windows.removeView(chip);}catch(RuntimeException ignored){}}chip=null;overlayVisible=false;if(running)ControlLog.i("call service: stopped");running=false; super.onDestroy(); }
 }
