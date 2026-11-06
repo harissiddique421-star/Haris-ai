@@ -8,7 +8,7 @@
 export type AgentName = 'communication' | 'media' | 'device' | 'accessibility' | 'memory' | 'document' | 'research' | 'health' | 'core';
 
 const OWNERS: Record<AgentName, string[]> = {
-  communication: ['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'open_contact', 'open_dialer', 'read_notifications', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'missed_calls', 'set_call_announce', 'set_driving_mode'],
+  communication: ['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'open_contact', 'open_dialer', 'read_notifications', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'missed_calls', 'set_call_announce', 'set_driving_mode', 'reply_message', 'emergency', 'emergency_contact'],
   media: ['search_youtube', 'play_music', 'resume_video', 'media'],
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
@@ -16,14 +16,14 @@ const OWNERS: Record<AgentName, string[]> = {
   document: ['make_document'],
   research: ['search_web'],
   health: ['health_check', 'network_status', 'set_proactive'],
-  core: ['briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events'],
+  core: ['briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
 };
 const OWNER = new Map<string, AgentName>();
 for (const [agent, actions] of Object.entries(OWNERS) as [AgentName, string[]][]) for (const a of actions) OWNER.set(a, agent);
 export function agentFor(action: string): AgentName { return OWNER.get(action) ?? 'core'; }
 
 /** Actions that reach other people, change calls or remove data: only on the user's own words. */
-const HIGH_RISK = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine']);
+const HIGH_RISK = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine', 'emergency', 'emergency_contact', 'reply_message']);
 /** Actions that change no screen: a routine can run the next step right away. */
 export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'list_memories', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
 

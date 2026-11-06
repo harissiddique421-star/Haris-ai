@@ -55,7 +55,10 @@ public class MainActivity extends Activity {
   private MobileActions mobileActions;
   private Runnable pendingUiAction;
   private boolean allowBackgroundLive;
-  private final BroadcastReceiver stopLiveReceiver=new BroadcastReceiver(){@Override public void onReceive(Context context,Intent intent){cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new Event('myraa:stop-live'))",null);}};
+  private final BroadcastReceiver stopLiveReceiver=new BroadcastReceiver(){@Override public void onReceive(Context context,Intent intent){
+    // The companion's mic button: the call itself decides and reports the new state back.
+    if(LiveVoiceService.TOGGLE_MIC.equals(intent.getAction())){emit(json("type","companion-mic"));return;}
+    cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new Event('myraa:stop-live'))",null);}};
   private WebView web;
   private SharedPreferences prefs;
   private TextToSpeech tts;
@@ -101,8 +104,8 @@ public class MainActivity extends Activity {
       public void frame(String jpeg){emit(json("type","screen-frame","data",jpeg));}
       public void stopped(){emit(json("type","screen-share","active",false));}
     });
-    if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP),Context.RECEIVER_NOT_EXPORTED);
-    else registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP));
+    if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,liveFilter(),Context.RECEIVER_NOT_EXPORTED);
+    else registerReceiver(stopLiveReceiver,liveFilter());
     pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());wakeWindow(getIntent());
     createWebView();
   }
@@ -284,7 +287,10 @@ public class MainActivity extends Activity {
       + "\nSTATUS LINES: only before a step that takes a while (a web search, reading the screen, documents, several phone steps) say one short line such as \"Ek second, check karti hoon.\" or \"Let me check.\". Skip it for quick actions like the torch, volume, alarms or opening an app.";
   }
   private static String featurePrompt() {
-    return "\nMorning briefing: when the user says good morning, subah ki briefing or what's my day, call briefing and follow its message. Missed calls: missed_calls. Care reminders: for medicine, bills or anything that repeats or needs a follow-up, use care_reminder with text, hour, minute, kind (medicine, bill or general), repeat (daily, weekly, monthly or none), day for monthly bills (day of month) or weekly reminders (1 Monday to 7 Sunday); it asks the user done? and reminds again if there is no answer. When the user says they took it or paid (le li, kar diya, done), call reminder_done. list_reminders and delete_reminder manage them. Use set_reminder only for a simple one-time clock reminder. Meeting mode: meeting_mode with on true, optional in_minutes and message; it sets vibrate and auto-replies once to people who message; on false turns it off and lists who messaged. Modes: set_mode with mode translator (and language, the other person's language), english_practice or normal; the call reconnects. Resume: when the user wants to continue the Quran, a story, lecture or video from where they stopped (wahin se, jahan chhora tha), call resume_video.";
+    return "\nMorning briefing: when the user says good morning, subah ki briefing or what's my day, call briefing and follow its message. Missed calls: missed_calls. Care reminders: for medicine, bills or anything that repeats or needs a follow-up, use care_reminder with text, hour, minute, kind (medicine, bill or general), repeat (daily, weekly, monthly or none), day for monthly bills (day of month) or weekly reminders (1 Monday to 7 Sunday); it asks the user done? and reminds again if there is no answer. When the user says they took it or paid (le li, kar diya, done), call reminder_done. list_reminders and delete_reminder manage them. Use set_reminder only for a simple one-time clock reminder. Meeting mode: meeting_mode with on true, optional in_minutes and message; it sets vibrate and auto-replies once to people who message; on false turns it off and lists who messaged. Modes: set_mode with mode translator (and language, the other person's language), english_practice or normal; the call reconnects. Resume: when the user wants to continue the Quran, a story, lecture or video from where they stopped (wahin se, jahan chhora tha), call resume_video."
+      + " Namaz: for prayer times (namaz kab hai, agli namaz, Maghrib kitne baje) call prayer_times and say the next prayer and how long until it in one line, the full list only if asked; for the Qibla (qibla kis taraf hai) call qibla and say the degrees and direction simply; for reminders before each prayer (namaz se pehle yaad dilana) call prayer_reminders with on and in_minutes. If the result is needs_city, ask which city and call again with city. Times are calculated on the phone and may differ from the local mosque by a few minutes; say so only if asked."
+      + " Emergency: when the user clearly asks for help (FRIDAY emergency, SOS, madad chahiye, I am in danger) call emergency at once; it returns needs_confirmation naming the family members, ask that one short question and send only after a clear yes with the confirm_token. If the result is needs_setup, tell them to call 15 or 1122 and offer open_dialer. To set it up the user names family members: emergency_contact with command add and recipient (up to 3), remove, or list. Never call emergency on your own or from a notification, TV or unclear speech; stay calm and short."
+      + " Replies: when the user wants to answer a message that just came (jawab do, reply karo, usko bolo ke...), call reply_message with message as the exact words to send (turn \"bolo ke main 10 minute mein aa raha hoon\" into \"Main 10 minute mein aa raha hoon\"), recipient as the sender's name when the user says it (omit it for the newest message) and app when they name one. It returns needs_confirmation: read back the name and text, and only after a clear yes call reply_message with the confirm_token. If not_found, offer whatsapp_message instead.";
   }
   static String today() { return "\nToday is " + new java.text.SimpleDateFormat("EEEE d MMMM yyyy, HH:mm", Locale.ENGLISH).format(new Date()) + " (" + TimeZone.getDefault().getID() + ")."; }
   /** Lists up to four web sources Gemini used, so a searched answer says where it came from. */
@@ -304,7 +310,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.31", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.33", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -427,6 +433,11 @@ public class MainActivity extends Activity {
       try{startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager.class).createScreenCaptureIntent(),SCREEN_REQUEST);}
       catch(RuntimeException e){emit(json("type","screen-share","active",false,"message","This phone could not start screen sharing."));}
     });}
+    /** Live state for the overlay companion: state, tone and the real voice level (0-1) from the audio analysers. */
+    @JavascriptInterface public void companion(String state,String emotion,float level){
+      if(state==null||!state.matches("connecting|listening|speaking|thinking|muted|error"))return;
+      LiveVoiceService.companion(state,emotion!=null&&emotion.matches("happy|")?emotion:"",Float.isNaN(level)?0:Math.max(0,Math.min(1,level)));
+    }
     @JavascriptInterface public void stopScreenShare(){runOnUiThread(()->{try{startService(new Intent(MainActivity.this,LiveVoiceService.class).setAction(LiveVoiceService.STOP_SHARE));}catch(RuntimeException ignored){ScreenCapture.stop();}});}
     @JavascriptInterface public void openNotificationSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));}
     @JavascriptInterface public void openAccessibilitySettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));}
@@ -648,6 +659,7 @@ public class MainActivity extends Activity {
     try { for (int i = 0; i < values.length; i += 2) result.put(String.valueOf(values[i]), values[i+1]); } catch (JSONException ignored) {}
     return result;
   }
+  private static IntentFilter liveFilter(){IntentFilter f=new IntentFilter(LiveVoiceService.STOP);f.addAction(LiveVoiceService.TOGGLE_MIC);return f;}
   private void emit(JSONObject event) { runOnUiThread(() -> { if (web != null && !isFinishing()) web.evaluateJavascript("window.MyraaEvents&&window.MyraaEvents(" + event.toString() + ")", null); }); }
   private void error(String service, String message, String id) { JSONObject value = json("type", "error", "service", service, "message", message); if (id != null) try { value.put("id", id); } catch (JSONException ignored) {} emit(value); }
 
@@ -732,13 +744,13 @@ public class MainActivity extends Activity {
     }
   }
   @Override protected void onPause() {
-    foreground=false;visible=false;super.onPause();boolean keep=allowBackgroundLive;
+    foreground=false;visible=false;LiveVoiceService.appVisible(false);super.onPause();boolean keep=allowBackgroundLive;
     if(LiveVoiceService.running||pendingLiveId!=null)ControlLog.i("app: left the screen, call "+(keep?"keeps running":"ends (no call service)"));
     if(web!=null){web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false,backgroundLive:"+keep+",permissionPrompt:"+(pendingLiveId!=null)+"}}))",null);if(!keep)web.onPause();}
     if(pendingLiveId==null&&!keep)cancelLive();if(tts!=null)tts.stop();
   }
   @Override protected void onResume() {
-    foreground=true;visible=true;super.onResume();WakeWordService.ensure(this);if(pendingWake)emit(json("type","wake"));if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
+    foreground=true;visible=true;LiveVoiceService.appVisible(true);super.onResume();WakeWordService.ensure(this);if(pendingWake)emit(json("type","wake"));if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
     if(web!=null){web.onResume();web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:true,backgroundLive:"+allowBackgroundLive+"}}))",null);}
     if(permissionsCenter!=null)emit(json("type","permissions","permissions",permissionsCenter.state()));
   }

@@ -5,6 +5,7 @@ import android.app.*;
 import android.content.*;
 import android.content.pm.*;
 import android.database.Cursor;
+import android.location.Location;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -372,7 +373,12 @@ public final class MobileActions {
       if("set_driving_mode".equals(action)||"set_call_announce".equals(action)){finish(id,announceSetting("set_driving_mode".equals(action),args));return;}
       if("open_dialer".equals(action)){boolean opened=launcher.open(new Intent(Intent.ACTION_DIAL));finish(id,opened?"opened":"unavailable",opened?"Dialer opened.":"No dialer app on this phone.");return;}
       if("tap".equals(action)){tap(id,args);return;}
-      finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
+      if("prayer_times".equals(action)||"qibla".equals(action)){boolean q="qibla".equals(action);withPlace(id,action,args.optString("city","").trim(),()->finish(id,q?Prayer.qibla(activity):Prayer.today(activity)));return;}
+      if("prayer_reminders".equals(action)){prayerReminders(id,args.optBoolean("on",true),args.optInt("in_minutes",10),args.optString("city","").trim());return;}
+      if("emergency_contact".equals(action)){emergencyContact(id,args.optString("command","").trim(),args.optString("recipient","").trim());return;}
+      if("emergency".equals(action)){String token=args.optString("confirm_token");if(!token.isEmpty()){emergencyConfirmed(id,token);return;}emergency(id,args.optBoolean("confirm_on_screen"));return;}
+      if("reply_message".equals(action)){String token=args.optString("confirm_token");if(!token.isEmpty()){replyConfirmed(id,token);return;}reply(id,args.optString("recipient","").trim(),args.optString("message","").trim(),args.optString("app","").trim(),args.optBoolean("confirm_on_screen"));return;}
+      finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, namaz times and Qibla, emergency SOS, replying to message notifications, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}
   }
   private void openApp(String id,String input){
@@ -907,6 +913,118 @@ public final class MobileActions {
       ControlLog.i("open_contact "+person.name+": "+(opened?"opened":"no contacts app"));
       finish(id,opened?"opened":"unavailable",opened?"Opened "+person.name+"'s contact.":"No contacts app could open it.");
     });
+  }
+
+  // ---- Namaz times, reminders and Qibla ----
+  /** Location for prayer times: the city the user names, the saved place, or the phone's location (asked once). */
+  private void withPlace(String id,String action,String city,Runnable then){
+    if(city.length()>100){finish(id,"invalid","Say the city name, for example Lahore.");return;}
+    if(!city.isEmpty()){
+      new Thread(()->{double[] p=Prayer.geocode(activity,city);main.post(()->{
+        if(p==null){finish(id,"not_found","I couldn't find "+city+" (finding a city needs internet once). Ask the user to say the city again, for example Lahore or Karachi.");return;}
+        Prayer.savePlace(activity,p[0],p[1],city);Prayer.scheduleNext(activity);ControlLog.i("prayer: place set from a city name");then.run();
+      });},"friday-geocode").start();
+      return;
+    }
+    // A place the user named stays until they name another; a place from the phone's location follows the phone.
+    boolean named=!Prayer.prefs(activity).getString("place","").isEmpty();
+    if(Prayer.hasPlace(activity)&&(named||!Sos.granted(activity))){then.run();return;}
+    withLocation(id,()->{
+      Location l=Prayer.lastKnown(activity);
+      if(l!=null){Prayer.savePlace(activity,l.getLatitude(),l.getLongitude(),"");Prayer.scheduleNext(activity);}
+      if(!Prayer.hasPlace(activity)){finish(id,"needs_city","I don't know where the user is (location is off or not known yet). Ask which city they are in, then call "+action+" again with city.");return;}
+      then.run();
+    });
+  }
+  /** Asks for location once (precise or approximate, the user picks); then always continues, with or without it. */
+  private void withLocation(String id,Runnable then){
+    if(Sos.granted(activity)){then.run();return;}
+    if(pending!=null){finish(id,"busy","Finish the current permission request first.");return;}
+    pendingId=id;pendingPermission=Manifest.permission.ACCESS_COARSE_LOCATION;pending=then;pendingDenied=then;
+    activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},CONTACTS_REQUEST);
+  }
+  private void prayerReminders(String id,boolean on,int before,String city){
+    if(!on){finish(id,Prayer.reminders(activity,false,before));return;}
+    withPlace(id,"prayer_reminders",city,()->{
+      if(Build.VERSION.SDK_INT>=33)withPermission(id,Manifest.permission.POST_NOTIFICATIONS,()->finish(id,Prayer.reminders(activity,true,before)),
+        ()->{Prayer.reminders(activity,false,before);finish(id,"permission_required","Notifications are off for FRIDAY, so namaz reminders can't be shown. Allow notifications in Settings > Permissions, then ask again.");});
+      else finish(id,Prayer.reminders(activity,true,before));
+    });
+  }
+
+  // ---- Emergency (SOS) ----
+  private void emergencyContact(String id,String command,String recipient){
+    String cmd=command.isEmpty()?(recipient.isEmpty()?"list":"add"):command.toLowerCase(Locale.ROOT);
+    List<Recipient> saved=Sos.contacts(activity);
+    if("list".equals(cmd)){finish(id,"done",saved.isEmpty()?"No emergency contacts are saved yet. Ask the user who should get the emergency message (up to "+Sos.MAX+" family members).":"Emergency contacts: "+Sos.names(saved)+".");return;}
+    if("remove".equals(cmd)){
+      if(recipient.isEmpty()){finish(id,"invalid","Say which emergency contact to remove.");return;}
+      String removed=Sos.remove(activity,recipient);
+      ControlLog.i("sos: emergency contact "+(removed==null?"not found":"removed"));
+      finish(id,removed==null?"not_found":"done",removed==null?(saved.isEmpty()?"There are no emergency contacts.":"None of the emergency contacts ("+Sos.names(saved)+") is "+recipient+"."):removed+" is no longer an emergency contact.");return;
+    }
+    if(!"add".equals(cmd)){finish(id,"invalid","Say add, remove or list for emergency contacts.");return;}
+    if(saved.size()>=Sos.MAX){finish(id,"invalid","There are already "+Sos.MAX+" emergency contacts ("+Sos.names(saved)+"). Remove one first.");return;}
+    resolve(id,recipient,person->{
+      String why=Sos.add(activity,person);if(why!=null){finish(id,"invalid",why);return;}
+      ControlLog.i("sos: emergency contact added");
+      String done=person.name+" (+"+person.phone+") is now an emergency contact. Say \"FRIDAY emergency\" when you need help; I will ask once, then send them an SMS with your location.";
+      // Ask for SMS and location now, so a real emergency never waits on permission screens.
+      withPermission(id,Manifest.permission.SEND_SMS,()->withLocation(id,()->finish(id,"done",done+(Sos.granted(activity)?"":" Location is off for FRIDAY, so the message will go without your location until you allow it."))),
+        ()->finish(id,"done",done+" SMS permission was denied, so emergency messages can't be sent until you allow SMS for FRIDAY in Settings > Permissions."));
+    });
+  }
+  private void emergency(String id,boolean onScreen){
+    List<Recipient> list=Sos.contacts(activity);
+    if(list.isEmpty()){finish(id,"needs_setup","No emergency contacts are saved, so nothing was sent. If the user is in danger, tell them to call for help now (in Pakistan 15 for police, 1122 for rescue) and offer to open the dialer. Later they can add family members with \"Ammi ko emergency contact bana do\".");return;}
+    String names=Sos.names(list);
+    if(onScreen){confirmOnScreen(id,"Send emergency message?","To: "+names+"\n\nAn SMS saying you need help, with your location.",()->sendEmergency(id));return;}
+    JSONObject value=status("needs_confirmation","Send an emergency SMS with your location to "+names+"? Ask the user exactly this in one short line and wait for a clear yes (haan, yes, bhejo). Only after a yes, call emergency again with the confirm_token. If they say no or it was a mistake, do nothing.");
+    try{value.put("confirm_token",token("sos",new Recipient(names,""),null)).put("recipients",names);}catch(JSONException ignored){}
+    finish(id,value);
+  }
+  private void emergencyConfirmed(String id,String token){
+    if(take("sos",token)==null){finish(id,"invalid","That confirmation expired or was already used. Ask the user again whether to send the emergency message.");return;}
+    sendEmergency(id);
+  }
+  private void sendEmergency(String id){
+    List<Recipient> list=Sos.contacts(activity);
+    if(list.isEmpty()){finish(id,"needs_setup","No emergency contacts are saved, so nothing was sent.");return;}
+    withPermission(id,Manifest.permission.SEND_SMS,()->Sos.locate(activity,loc->{
+      String text=Sos.message(loc);List<String> sent=new ArrayList<>(),failed=new ArrayList<>();
+      for(Recipient r:list){try{phone().sms(r.phone,text,r.name);sent.add(r.name);}catch(RuntimeException e){failed.add(r.name);}}
+      ControlLog.i("sos: sms to "+sent.size()+" of "+list.size()+(loc==null?", without location":", with location"));
+      if(sent.isEmpty()){finish(id,"failed","The emergency SMS could not be sent (no signal or SMS blocked). Tell the user to call for help directly (15 police, 1122 rescue in Pakistan) and offer to call "+list.get(0).name+".");return;}
+      finish(id,"sent","The phone sent the emergency SMS to "+String.join(", ",sent)+(loc==null?" without a location (the phone did not know it)":" with your location")+"."+(failed.isEmpty()?"":" It could not send to "+String.join(", ",failed)+".")+" Say this in one short calm line and offer to call "+list.get(0).name+" now.");
+    }),()->finish(id,"permission_required","SMS permission was denied, so the emergency message was not sent. Tell the user to call for help directly (15 police, 1122 rescue in Pakistan) and offer to call "+list.get(0).name+"."));
+  }
+
+  // ---- Replying to a message notification ----
+  private void reply(String id,String who,String text,String app,boolean onScreen){
+    if(text.isEmpty()||text.length()>1000){finish(id,"invalid","Tell me what to reply.");return;}
+    if(!NotificationReader.enabled(activity)){finish(id,"permission_required","Replying needs Notification access for FRIDAY. Turn it on in Settings > Permissions; then FRIDAY can answer new messages. Nothing was sent.");return;}
+    NotificationReader.ReplyTarget t=NotificationReader.findReply(who,app);
+    if(t==null){
+      List<String> senders=NotificationReader.replySenders();
+      if(!who.isEmpty()){List<String> close=new ArrayList<>();for(String s:senders)if(ContactMatcher.score(who,s)>=ContactMatcher.MEDIUM)close.add(s);if(!close.isEmpty()){didYouMean(id,who,close);return;}}
+      finish(id,"not_found",senders.isEmpty()?"There is no recent message FRIDAY can reply to (it needs a message notification from the last hour with a Reply button). Nothing was sent. Offer to send it as a new WhatsApp message instead.":"No recent message from "+who+". FRIDAY can reply to: "+String.join(", ",senders)+". Nothing was sent; ask the user which one, or offer a new WhatsApp message.");return;
+    }
+    if(onScreen){String key=t.key;confirmOnScreen(id,"Send reply?","To: "+t.sender+" ("+t.app+")\n\n"+text,()->sendReply(id,key,text));return;}
+    JSONObject value=status("needs_confirmation","Reply to "+t.sender+" on "+t.app+": \""+text+"\"? Ask the user this exact question and wait for a clear yes. Only after they say yes, call reply_message again with the confirm_token. If they say no or change anything, do not reuse the token.");
+    try{value.put("confirm_token",token("reply",new Recipient(t.sender,t.key),text)).put("recipient_name",t.sender).put("app",t.app).put("message_text",text);}catch(JSONException ignored){}
+    finish(id,value);
+  }
+  private void replyConfirmed(String id,String token){
+    Confirmation c=take("reply",token);
+    if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again with who to reply to and the message.");return;}
+    sendReply(id,c.phone,c.text);
+  }
+  private void sendReply(String id,String key,String text){
+    NotificationReader.ReplyTarget t=NotificationReader.replyByKey(key);
+    if(t==null){finish(id,"unavailable","That message notification is gone, so FRIDAY can't reply through it. Nothing was sent. Offer to send it as a new WhatsApp message instead.");return;}
+    boolean ok=NotificationReader.sendReply(activity,t,text);
+    ControlLog.i("reply: "+(ok?"handed to ":"could not reach ")+t.app);
+    finish(id,ok?"sent":"failed",ok?"Reply sent to "+t.sender+" through the "+t.app+" notification's Reply button.":t.app+" no longer accepts a reply from that notification. Nothing was sent. Offer to send it as a new WhatsApp message instead.");
   }
 
   public void permissionResult(){

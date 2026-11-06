@@ -35,3 +35,15 @@ test('duplicate in-flight requests run once; failures become results', async () 
   assert.equal((await bad.dispatch('mobile_action', { action: 'torch' })).status, 'error');
   assert.match(bad.summary(), /device 1 run, .* 1 failed/);
 });
+test('SOS and message replies: owned by communication, never from a phone prompt alone', async () => {
+  assert.equal(agentFor('emergency'), 'communication'); assert.equal(agentFor('reply_message'), 'communication');
+  assert.equal(agentFor('prayer_times'), 'core'); assert.equal(agentFor('qibla'), 'core');
+  const calls: any[] = [];
+  const o = new Orchestrator(async (_n, a) => { calls.push(a); return { status: 'needs_confirmation' }; });
+  o.userSpoke(); await new Promise(r => setTimeout(r, 2)); o.phonePrompted();
+  // A message read aloud from a notification must not make FRIDAY reply or send an SOS by itself.
+  assert.equal((await o.dispatch('mobile_action', { action: 'reply_message', message: 'ok' })).status, 'needs_user');
+  assert.equal((await o.dispatch('mobile_action', { action: 'emergency' })).status, 'needs_user');
+  assert.equal(calls.length, 0);
+  assert.equal((await o.dispatch('mobile_action', { action: 'prayer_times' })).status, 'needs_confirmation', 'harmless actions still run');
+});

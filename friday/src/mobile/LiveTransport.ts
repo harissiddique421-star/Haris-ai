@@ -13,6 +13,11 @@ export interface MobileLiveBridge { startLive(id: string): void; endLive(): void
  * call service (which keeps FRIDAY running while she is in the background); the next connection reuses it.
  */
 export const liveResume = { handle: '', resuming: false, handoff: false, off: (() => { try { return localStorage.getItem('friday.resumeOff') === '1'; } catch { return false; } })() };
+/**
+ * Microphone mute for the Live call: while muted no microphone audio leaves the phone, and Google is
+ * told the audio stream paused, so it does not wait for the rest of a sentence. Turned off with each new call.
+ */
+export const liveMic = { muted: false, ended: false };
 /** Adapt the native short-lived token and Gemini Live protocol to the PC audio engine. */
 export class MobileLiveTransport implements AudioSocket {
   readyState = 0;
@@ -107,7 +112,11 @@ export class MobileLiveTransport implements AudioSocket {
   send(raw: string) {
     if (!this.ready || this.readyState !== 1 || this.socket?.readyState !== WebSocket.OPEN) return;
     const data = JSON.parse(raw);
-    if (data.audio) this.socket.send(JSON.stringify({ realtimeInput: { audio: { data: data.audio, mimeType: 'audio/pcm;rate=16000' } } }));
+    if (data.audio) {
+      if (liveMic.muted) { if (!liveMic.ended) { liveMic.ended = true; this.socket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } return; }
+      liveMic.ended = false;
+      this.socket.send(JSON.stringify({ realtimeInput: { audio: { data: data.audio, mimeType: 'audio/pcm;rate=16000' } } }));
+    }
     else if (data.type === 'text' && data.text) this.socket.send(JSON.stringify({ realtimeInput: { text: data.text } }));
     else if (data.type === 'video' && typeof data.video === 'string' && data.video.length > 0 && data.video.length < 600000) this.socket.send(JSON.stringify({ realtimeInput: { video: { data: data.video, mimeType: 'image/jpeg' } } }));
     else if (data.type === 'toolResponse') {
