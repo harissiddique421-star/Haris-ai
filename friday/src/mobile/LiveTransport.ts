@@ -73,7 +73,12 @@ export class MobileLiveTransport implements AudioSocket {
     socket.onerror = () => this.fail('The Live audio connection failed. Check your network and Gemini Live access.');
     socket.onclose = event => {
       if (this.readyState === 3) return;
-      if (event.code !== 1000) this.fail('Gemini Live disconnected. Check your key, quota and Live model in Settings.');
+      if (event.code !== 1000) {
+        // Show Google's own reason so a rejected setup, quota or model problem can be told apart.
+        const reason = String(event.reason || '').replace(/\s+/g, ' ').slice(0, 160);
+        const when = this.ready ? 'during the call' : 'while starting';
+        this.fail(`Gemini Live disconnected ${when} (code ${event.code}${reason ? ': ' + reason : ''}). Check your key, quota and Live model in Settings.`);
+      }
       else { this.packet({ type: 'status', status: 'session_closed' }); this.close(); }
     };
   };
