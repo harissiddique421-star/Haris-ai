@@ -1,6 +1,6 @@
 import './mobile.css';
 import { MyraaAudioSession, type LiveState } from '../lib/audio';
-import { MobileLiveTransport, liveResume } from './LiveTransport';
+import { MobileLiveTransport, liveResume, liveMic } from './LiveTransport';
 import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
@@ -14,7 +14,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; }
+interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -118,6 +118,7 @@ function withHeard(args: any) {
 function showThinking(on: boolean) {
   if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; }
   if (!liveSession || liveSession.getState() !== 'listening') return;
+  thinkingNow = on;
   el('listen-state').textContent = on ? 'THINKING…' : 'LISTENING…';
   el('presence').textContent = on ? 'Thinking…' : 'Live · listening to you';
   system?.setFrameInput({ activity: on ? 'thinking' : 'listening', emotion: on ? 'thinking' : AVATAR_EMOTION[emotions.emotion] });
@@ -161,7 +162,7 @@ async function startCamera() {
   notice('Camera on. FRIDAY can see what the camera sees.'); updateVisionButtons();
 }
 function stopVision() { stopCamera(); if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; updateVisionButtons(); }
-function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; cancelMobileActions(); } session?.disconnect(); if (!keepService) bridge?.endLive(); }
+function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; cancelMobileActions(); } session?.disconnect(); if (!keepService) bridge?.endLive(); }
 /** Builds without the licensed 3D model show the FRIDAY core instead of an error. */
 function showCore() {
   el('avatar-status').textContent = '';
@@ -171,6 +172,7 @@ function showCore() {
 }
 function liveState(value: LiveState) {
   markActivity();
+  if (value === 'disconnected') { thinkingNow = false; toolsRunning = 0; stopCompanion(); } else startCompanion();
   if (value === 'speaking') { heardUserSinceReply = false; checkinPending = false; if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; } }
   queueMicrotask(() => { if (value === "disconnected") stopVision(); else updateVisionButtons(); });
   const active = value !== 'disconnected';
@@ -178,7 +180,7 @@ function liveState(value: LiveState) {
   el('voice').setAttribute('aria-pressed', String(active));
   el('voice').querySelector('span')!.textContent = active ? 'Live' : 'AI';
   el('listen-state').textContent = value === 'connecting' ? 'CONNECTING…' : value === 'speaking' ? 'SPEAKING…' : value === 'listening' ? 'LISTENING…' : '';
-  el('listen-hint').textContent = value === 'speaking' ? 'Tap the red button to end the call' : 'Say your command';
+  el('listen-hint').textContent = value === 'speaking' ? 'Tap the red button to end the call' : liveMic.muted ? 'Microphone muted · tap Unmute to talk' : 'Say your command';
   el('connection-pill').textContent = active ? 'Live' : state.keyConfigured ? 'Ready' : 'Setup';
   el('connection-pill').classList.toggle('live', active);
   if (active && !listeningMinimized) showListening(true); if (!active) { showListening(false); listeningMinimized = false; }
@@ -245,7 +247,7 @@ app.innerHTML = `
     <div class="orb"><i></i><i></i><i></i><div class="orb-core">${icon.mic}</div><div class="orb-bars" id="orb-bars">${bars}</div></div>
     <h2 id="listen-state">CONNECTING…</h2><p id="listen-hint">Say your command</p>
     <div class="wave-bars" id="wave-bars">${bars}${bars}</div>
-    <div class="listen-tools"><button id="camera" aria-pressed="false" hidden>Camera</button><button id="screen" aria-pressed="false" hidden>Share screen</button></div>
+    <div class="listen-tools"><button id="mic-toggle" aria-pressed="false">Mute</button><button id="camera" aria-pressed="false" hidden>Camera</button><button id="screen" aria-pressed="false" hidden>Share screen</button></div>
     <button id="listen-stop" class="listen-stop" aria-label="End call"><i></i></button>
   </section>
   <nav class="bottom-nav" aria-label="Main"><button id="nav-chat" class="nav-item">${icon.chat}<span>Chat</span></button><button id="voice" class="ai-button" aria-label="Talk to FRIDAY" aria-pressed="false">${icon.wave}<span>AI</span></button><button id="nav-more" class="nav-item">${icon.more}<span>More</span></button></nav>
@@ -333,6 +335,38 @@ let listeningMinimized = false;
 let torchOn = false;
 let meterFrame = 0;
 const meterData = new Uint8Array(64);
+// ---- Live companion (the animated overlay shown while FRIDAY is in the background) ----
+let toolsRunning = 0, thinkingNow = false, companionErrorUntil = 0, companionTimer: ReturnType<typeof setInterval> | null = null, lastCompanion = '';
+const FAILED_COMPANION = new Set(['error', 'failed', 'timeout', 'unavailable']);
+const companionData = new Uint8Array(128);
+/** The companion shows only what the call really reports: its state, mute, a failed step, the tone and the voice level. */
+function companionNow(): { state: string; emotion: string; level: number } | null {
+  const s = liveSession?.getState();
+  if (!s || s === 'disconnected') return null;
+  const state = s === 'connecting' ? 'connecting' : Date.now() < companionErrorUntil ? 'error' : liveMic.muted ? 'muted' : s === 'speaking' ? 'speaking' : (thinkingNow || toolsRunning > 0) ? 'thinking' : 'listening';
+  const emotion = (emotions.emotion === 'happy' || emotions.emotion === 'excited') && emotions.ageMs < 30_000 ? 'happy' : '';
+  const analyser = state === 'speaking' ? liveSession?.outputAnalyser : state === 'listening' ? liveSession?.inputAnalyser : null;
+  let level = 0;
+  if (analyser) { const data = companionData.subarray(0, Math.min(companionData.length, analyser.frequencyBinCount)); analyser.getByteFrequencyData(data); for (const v of data) level += v; level = Math.min(1, (level / (data.length * 255)) * 2.4); }
+  return { state, emotion, level };
+}
+function pushCompanion() {
+  if (!bridge?.companion) return;
+  const now = companionNow();
+  if (!now) { stopCompanion(); return; }
+  const key = `${now.state}|${now.emotion}|${now.level.toFixed(2)}`;
+  if (key === lastCompanion) return;
+  lastCompanion = key; bridge.companion(now.state, now.emotion, now.level);
+}
+/** About 8 updates a second while a call is live; nothing runs once it ends. */
+function startCompanion() { if (!companionTimer && bridge?.companion) companionTimer = setInterval(pushCompanion, 120); pushCompanion(); }
+function stopCompanion() { if (companionTimer) clearInterval(companionTimer); companionTimer = null; lastCompanion = ''; }
+function toggleMic() {
+  if (!liveActive()) return;
+  liveMic.muted = !liveMic.muted; liveMic.ended = false;
+  updateMicButton(); notice(liveMic.muted ? 'Microphone muted. FRIDAY can\'t hear you until you unmute.' : 'Microphone on.'); pushCompanion();
+}
+function updateMicButton() { const b = el('mic-toggle'); b.textContent = liveMic.muted ? 'Unmute' : 'Mute'; b.setAttribute('aria-pressed', String(liveMic.muted)); if (liveActive()) el('listen-hint').textContent = liveMic.muted ? 'Microphone muted · tap Unmute to talk' : 'Say your command'; }
 function showListening(show: boolean) {
   el('listening').hidden = !show;
   cancelAnimationFrame(meterFrame);
@@ -342,7 +376,7 @@ function showListening(show: boolean) {
 function meter() {
   const analyser = liveSession?.getState() === 'speaking' ? liveSession?.outputAnalyser : liveSession?.inputAnalyser;
   let level = 0;
-  if (analyser) { analyser.getByteFrequencyData(meterData); for (let i = 0; i < meterData.length; i++) level += meterData[i]; level /= meterData.length * 255; }
+  if (analyser && !(liveMic.muted && liveSession?.getState() !== 'speaking')) { analyser.getByteFrequencyData(meterData); for (let i = 0; i < meterData.length; i++) level += meterData[i]; level /= meterData.length * 255; }
   el('listening').style.setProperty('--level', String(Math.min(1, level * 2.4)));
   meterFrame = requestAnimationFrame(meter);
 }
@@ -535,6 +569,7 @@ window.MyraaEvents = event => {
   if (event.type === 'pattern-auth') { const waiter = authWaiter; authWaiter = null; waiter?.(!!event.ok, String(event.message || '')); renderSecurity(); return; }
   if (event.type === 'wake-test') { renderWakeTest(event); return; }
   if (event.type === 'wake') { if (bridge?.consumeWake?.()) void wakeUp(); return; }
+  if (event.type === 'companion-mic') { toggleMic(); return; }
   if (event.type === 'backup') {
     if (event.assistant) state.assistant = event.assistant; if (event.announce) state.announce = event.announce; if (event.wake) state.wake = event.wake;
     renderAssistant(); notice(event.message || ''); return;
@@ -614,7 +649,7 @@ let liveFallbacks = 0, liveReconnects = 0, liveUpSince = 0, autoRetry = false;
 function retryCall() { setTimeout(() => { el('voice').click(); if (!liveSession && liveResume.handoff) { liveResume.handoff = false; backgroundLive = false; bridge?.endLive(); } }, 900); }
 el('voice').onclick = () => {
   // A call the user starts is fresh; an automatic retry keeps its counters and may resume the conversation.
-  if (!autoRetry) { liveFallbacks = 0; liveReconnects = 0; liveResume.handle = ''; liveResume.resuming = false; liveResume.handoff = false; }
+  if (!autoRetry) { liveFallbacks = 0; liveReconnects = 0; liveResume.handle = ''; liveResume.resuming = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); }
   // Who started this call decides the opening line; an automatic reconnect continues without one.
   const startedBy: 'wake' | 'mic' | '' = autoRetry || noGreeting ? '' : wakeStarting ? 'wake' : 'mic';
   wakeStarting = false; noGreeting = false; autoRetry = false;
@@ -632,7 +667,7 @@ el('voice').onclick = () => {
     onUserSpeech: userSpeech,
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
     onStateChange: liveState, onTranscription: liveTranscription,
-    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, withHeard(args)).then(result => { markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
+    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, withHeard(args)).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
       // Gemini gets the tone to use and what is open/playing now, so follow-ups like "volume kam karo" or "Quran wali video chalao" need no extra questions.
       callback({ ...result, tone, tone_hint: TONE_HINT[tone], context: { current_app: convo.currentApp || 'unknown', now_playing: convo.media || 'nothing known', last_action: action } }); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => { noGreeting = true; el('voice').click(); }, 900); }, 3500); } }); },
     onError: message => {
@@ -654,7 +689,7 @@ el('voice').onclick = () => {
       // The call dropped or Google ended the session: connect again, resuming the conversation when Google gave a handle.
       if (recovery === 'reconnect') {
         liveReconnects++; liveResume.resuming = !(resuming && /while starting/i.test(message)) && !!liveResume.handle; if (!liveResume.resuming) liveResume.handle = '';
-        notice('Connection dropped. Reconnecting…'); autoRetry = true; retryCall(); return;
+        notice('Connection dropped. Reconnecting…'); bridge?.companion?.('connecting', '', 0); autoRetry = true; retryCall(); return;
       }
       notice(message);
     },
@@ -818,6 +853,7 @@ el('memory-add').onclick = () => { const input = el<HTMLInputElement>('memory-ne
 el('nav-chat').onclick = () => showView(el('chat-view').classList.contains('active') ? 'home' : 'chat');
 el('nav-more').onclick = () => el('settings').click();
 el('listen-stop').onclick = () => { stopVoice(); notice('Live voice ended.'); };
+el('mic-toggle').onclick = toggleMic;
 el('listen-min').onclick = () => { listeningMinimized = true; showListening(false); showView('chat'); };
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-quick]')) button.onclick = () => {
   const quick = button.dataset.quick!;

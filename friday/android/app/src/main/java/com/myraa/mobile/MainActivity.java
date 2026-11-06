@@ -55,7 +55,10 @@ public class MainActivity extends Activity {
   private MobileActions mobileActions;
   private Runnable pendingUiAction;
   private boolean allowBackgroundLive;
-  private final BroadcastReceiver stopLiveReceiver=new BroadcastReceiver(){@Override public void onReceive(Context context,Intent intent){cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new Event('myraa:stop-live'))",null);}};
+  private final BroadcastReceiver stopLiveReceiver=new BroadcastReceiver(){@Override public void onReceive(Context context,Intent intent){
+    // The companion's mic button: the call itself decides and reports the new state back.
+    if(LiveVoiceService.TOGGLE_MIC.equals(intent.getAction())){emit(json("type","companion-mic"));return;}
+    cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new Event('myraa:stop-live'))",null);}};
   private WebView web;
   private SharedPreferences prefs;
   private TextToSpeech tts;
@@ -101,8 +104,8 @@ public class MainActivity extends Activity {
       public void frame(String jpeg){emit(json("type","screen-frame","data",jpeg));}
       public void stopped(){emit(json("type","screen-share","active",false));}
     });
-    if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP),Context.RECEIVER_NOT_EXPORTED);
-    else registerReceiver(stopLiveReceiver,new IntentFilter(LiveVoiceService.STOP));
+    if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,liveFilter(),Context.RECEIVER_NOT_EXPORTED);
+    else registerReceiver(stopLiveReceiver,liveFilter());
     pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());wakeWindow(getIntent());
     createWebView();
   }
@@ -307,7 +310,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.32", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.33", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -430,6 +433,11 @@ public class MainActivity extends Activity {
       try{startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager.class).createScreenCaptureIntent(),SCREEN_REQUEST);}
       catch(RuntimeException e){emit(json("type","screen-share","active",false,"message","This phone could not start screen sharing."));}
     });}
+    /** Live state for the overlay companion: state, tone and the real voice level (0-1) from the audio analysers. */
+    @JavascriptInterface public void companion(String state,String emotion,float level){
+      if(state==null||!state.matches("connecting|listening|speaking|thinking|muted|error"))return;
+      LiveVoiceService.companion(state,emotion!=null&&emotion.matches("happy|")?emotion:"",Float.isNaN(level)?0:Math.max(0,Math.min(1,level)));
+    }
     @JavascriptInterface public void stopScreenShare(){runOnUiThread(()->{try{startService(new Intent(MainActivity.this,LiveVoiceService.class).setAction(LiveVoiceService.STOP_SHARE));}catch(RuntimeException ignored){ScreenCapture.stop();}});}
     @JavascriptInterface public void openNotificationSettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)));}
     @JavascriptInterface public void openAccessibilitySettings(){runOnUiThread(()->startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));}
@@ -651,6 +659,7 @@ public class MainActivity extends Activity {
     try { for (int i = 0; i < values.length; i += 2) result.put(String.valueOf(values[i]), values[i+1]); } catch (JSONException ignored) {}
     return result;
   }
+  private static IntentFilter liveFilter(){IntentFilter f=new IntentFilter(LiveVoiceService.STOP);f.addAction(LiveVoiceService.TOGGLE_MIC);return f;}
   private void emit(JSONObject event) { runOnUiThread(() -> { if (web != null && !isFinishing()) web.evaluateJavascript("window.MyraaEvents&&window.MyraaEvents(" + event.toString() + ")", null); }); }
   private void error(String service, String message, String id) { JSONObject value = json("type", "error", "service", service, "message", message); if (id != null) try { value.put("id", id); } catch (JSONException ignored) {} emit(value); }
 
@@ -735,13 +744,13 @@ public class MainActivity extends Activity {
     }
   }
   @Override protected void onPause() {
-    foreground=false;visible=false;super.onPause();boolean keep=allowBackgroundLive;
+    foreground=false;visible=false;LiveVoiceService.appVisible(false);super.onPause();boolean keep=allowBackgroundLive;
     if(LiveVoiceService.running||pendingLiveId!=null)ControlLog.i("app: left the screen, call "+(keep?"keeps running":"ends (no call service)"));
     if(web!=null){web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false,backgroundLive:"+keep+",permissionPrompt:"+(pendingLiveId!=null)+"}}))",null);if(!keep)web.onPause();}
     if(pendingLiveId==null&&!keep)cancelLive();if(tts!=null)tts.stop();
   }
   @Override protected void onResume() {
-    foreground=true;visible=true;super.onResume();WakeWordService.ensure(this);if(pendingWake)emit(json("type","wake"));if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
+    foreground=true;visible=true;LiveVoiceService.appVisible(true);super.onResume();WakeWordService.ensure(this);if(pendingWake)emit(json("type","wake"));if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
     if(web!=null){web.onResume();web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:true,backgroundLive:"+allowBackgroundLive+"}}))",null);}
     if(permissionsCenter!=null)emit(json("type","permissions","permissions",permissionsCenter.state()));
   }
