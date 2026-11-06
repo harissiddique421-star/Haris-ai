@@ -529,8 +529,7 @@ export class MyraaAudioSession {
           noiseSuppression: true,
           autoGainControl: true,
           channelCount: 1,
-          // Chrome/WebView voice isolation where the phone supports it; ignored elsewhere.
-          ...({ voiceIsolation: true } as Record<string, boolean>),
+          // No "voice isolation": on phones that have it, it removes a voice from a few steps away.
         }
       });
 

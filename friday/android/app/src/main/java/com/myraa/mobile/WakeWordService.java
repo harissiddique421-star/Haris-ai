@@ -183,6 +183,10 @@ public final class WakeWordService extends Service {
     if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){ControlLog.i("wake: microphone permission missing");stopSelf();return;}
     if(VoiceGuardian.recording){listenSoon(2000);return;}
     if(VoiceGuardian.active(this)){listenGuardian();return;}
+    // The phone's speech recognizer takes audio focus, so each restart paused the user's song or video.
+    // While other audio plays, wait instead (Voice Guardian above uses its own microphone and keeps listening).
+    if(otherAudioPlaying()){if(!musicWait){musicWait=true;ControlLog.i("wake: waiting while music or video plays");}listenSoon(2000);return;}
+    musicWait=false;
     if(recognizer==null){
       boolean local=onDevice&&Build.VERSION.SDK_INT>=31&&SpeechRecognizer.isOnDeviceRecognitionAvailable(this);
       if(!local)onDevice=false;
@@ -193,6 +197,8 @@ public final class WakeWordService extends Service {
     if(onDevice)intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE,true);
     try{listening=true;recognizer.startListening(intent);}catch(RuntimeException e){listening=false;if(onDevice){onDevice=false;ControlLog.i("wake: offline recognizer unavailable, using the normal one");}recreate(2000);}
   }
+  private boolean musicWait;
+  private boolean otherAudioPlaying(){android.media.AudioManager audio=getSystemService(android.media.AudioManager.class);return audio!=null&&audio.isMusicActive();}
   private void halt(){main.removeCallbacksAndMessages(null);stopGuardian();if(recognizer!=null&&listening){try{recognizer.cancel();}catch(RuntimeException ignored){}}listening=false;}
   /** Voice Guardian: our own microphone loop; each burst of speech is compared with the user's saved wake phrase. */
   private void listenGuardian(){
