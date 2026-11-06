@@ -1,0 +1,53 @@
+name: FRIDAY activation key
+
+# Makes the activation key for ONE phone, from the GitHub app or website.
+# Only people with write access to this repository can run it. It needs the
+# repository secret FRIDAY_ACTIVATION_PRIVATE_KEY (the owner's private key,
+# made once with `node scripts/friday-activation.mjs init`). The key it prints
+# works only on the phone whose Device ID you enter, so showing it in the run
+# summary does not unlock any other phone.
+
+on:
+  workflow_dispatch:
+    inputs:
+      device_id:
+        description: "Device ID shown on the phone's FRIDAY activation screen (e.g. A1B2-C3D4-E5F6-0718)"
+        required: true
+      name:
+        description: "Optional label, e.g. Ammi ka phone"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  key:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Make the key
+        working-directory: friday
+        env:
+          FRIDAY_ACTIVATION_PRIVATE_KEY: ${{ secrets.FRIDAY_ACTIVATION_PRIVATE_KEY }}
+          DEVICE_ID: ${{ inputs.device_id }}
+          LABEL: ${{ inputs.name }}
+        run: |
+          if [ -z "$FRIDAY_ACTIVATION_PRIVATE_KEY" ]; then echo "Add the repository secret FRIDAY_ACTIVATION_PRIVATE_KEY first (see friday/android/README.md)." >&2; exit 1; fi
+          KEY=$(node scripts/friday-activation.mjs key "$DEVICE_ID")
+          {
+            echo "## FRIDAY activation key"
+            echo ""
+            echo "Phone: ${LABEL:-(no label)}  "
+            echo "Device ID: \`$DEVICE_ID\`"
+            echo ""
+            echo "Copy this whole key and paste it on that phone's activation screen:"
+            echo ""
+            echo '```'
+            echo "$KEY"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Key is in the run summary."

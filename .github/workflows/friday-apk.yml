@@ -44,6 +44,7 @@ jobs:
         run: |
           npx tsc --noEmit
           npm run test:mobile-actions
+          npm run test:activation
       - name: Build APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.FRIDAY_KEYSTORE_BASE64 }}

@@ -21,6 +21,10 @@ New-Item -ItemType Directory -Path (Join-Path $assetRoot 'characters') -Force | 
 Copy-Item -LiteralPath (Join-Path $projectRoot 'assets\characters\evelyn') -Destination (Join-Path $assetRoot 'characters\evelyn') -Recurse
 & node.exe --import tsx scripts/export-mobile-personality.ts
 if ($LASTEXITCODE -ne 0) { throw 'Shared personality export failed.' }
+# Per-phone activation: the owner's PUBLIC key goes into the APK (the private key never does).
+$activationKey = Join-Path $projectRoot 'android\activation-public-key.txt'
+if (-not (Test-Path -LiteralPath $activationKey) -or (Get-Item -LiteralPath $activationKey).Length -eq 0) { throw "Missing $activationKey. Run 'node scripts/friday-activation.mjs init' once (it keeps the private key in your user folder and writes this public key file)." }
+Copy-Item -LiteralPath $activationKey -Destination (Join-Path $assetRoot 'activation_public_key.txt') -Force
 $buildRoot = Join-Path $projectRoot ('android\app\build\local-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $classes = Join-Path $buildRoot 'classes'
 $dex = Join-Path $buildRoot 'dex'
