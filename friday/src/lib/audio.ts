@@ -169,6 +169,7 @@ export class MyraaAudioSession {
   private micStream: MediaStream | null = null;
   private micSourceNode: MediaStreamAudioSourceNode | null = null;
   private micProcessorNode: ScriptProcessorNode | null = null;
+  private micFilterNode: BiquadFilterNode | null = null;
   
   // Visualisers
   public inputAnalyser: AnalyserNode | null = null;
@@ -207,6 +208,27 @@ export class MyraaAudioSession {
   private liveReady = false;
   private outputReady = false;
   private pendingTextMessages: string[] = [];
+
+  // Microphone lifecycle: one capture at a time, restarted if Android takes it away mid-call.
+  private micReady = false;
+  private micStarting = false;
+  private micRestarts = 0;
+  private lastMicFrameAt = 0;
+  private micWatchdog: ReturnType<typeof setInterval> | null = null;
+  private turnWatchdog: ReturnType<typeof setTimeout> | null = null;
+  /** Speech captured before Gemini finished its setup, sent as soon as it is ready (about 2 s at most). */
+  private preReadyAudio: string[] = [];
+  private readonly preReadyMaxChunks = 32;
+  /** The last half second while FRIDAY talks, so a barge-in keeps the first words of the user's sentence. */
+  private bargeInPreRoll: string[] = [];
+  private readonly bargeInPreRollChunks = 8;
+
+  /** Timings only (no audio, no text), shown in Settings diagnostics to see where a delay comes from. */
+  public readonly timings: {
+    connectStartedAt: number; micReadyAt: number; liveReadyAt: number;
+    lastSpeechEndAt: number; lastReplyStartAt: number; lastReplyLatencyMs: number;
+    micRestarts: number; lastMicIssue: string;
+  } = { connectStartedAt: 0, micReadyAt: 0, liveReadyAt: 0, lastSpeechEndAt: 0, lastReplyStartAt: 0, lastReplyLatencyMs: -1, micRestarts: 0, lastMicIssue: "" };
 
   constructor(handlers: {
     onStateChange: (state: LiveState) => void;
@@ -282,6 +304,7 @@ export class MyraaAudioSession {
     if (this.isActivated) return;
     this.isActivated = true;
     this.useMicrophone = useMicrophone;
+    this.timings.connectStartedAt = Date.now();
     this.setState("connecting");
 
     try {
@@ -349,73 +372,11 @@ export class MyraaAudioSession {
             return;
           }
 
-          // Obtain the user microphone. Some embedded preview browsers do not
-          // expose getUserMedia even though the main UI itself renders normally.
-          if (!navigator.mediaDevices?.getUserMedia) {
-            throw new Error(
-              "Microphone access is unavailable in this browser. Open FRIDAY in Chrome at http://localhost:3000 and allow microphone access.",
-            );
-          }
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              channelCount: 1,
-              // Chrome/WebView voice isolation where the phone supports it; ignored elsewhere.
-              ...({ voiceIsolation: true } as Record<string, boolean>),
-            }
-          });
-
-          // Safeguard: Check if we disconnected while waiting for user to grant mic permissions
-          if (!this.isActivated || !this.inputAudioCtx || !this.outputAudioCtx) {
-            stream.getTracks().forEach((track) => {
-              try {
-                track.stop();
-              } catch (e) {}
-            });
-            return;
-          }
-
-          this.micStream = stream;
-
-          // Setup custom input Analyser
-          this.inputAnalyser = this.inputAudioCtx.createAnalyser();
-          this.inputAnalyser.fftSize = 256;
-          
-          this.micSourceNode = this.inputAudioCtx.createMediaStreamSource(this.micStream);
-          // Cut low rumble (fans, traffic, AC hum) below the human voice before it reaches Gemini.
-          const voiceBand = this.inputAudioCtx.createBiquadFilter();
-          voiceBand.type = "highpass";
-          voiceBand.frequency.value = 85;
-          this.micSourceNode.connect(voiceBand);
-          voiceBand.connect(this.inputAnalyser);
-
-          // Stream input PCM 16-bit to WS
-          // A smaller buffer cuts microphone-to-live-stream latency while
-          // remaining stable on ordinary Windows audio devices.
-          this.micProcessorNode = this.inputAudioCtx.createScriptProcessor(1024, 1, 1);
-          voiceBand.connect(this.micProcessorNode);
-          this.micProcessorNode.connect(this.inputAudioCtx.destination);
-
-          this.micProcessorNode.onaudioprocess = (e) => {
-            if (this.currentState === "disconnected" || this.currentState === "connecting") return;
-            
-            const channelData = e.inputBuffer.getChannelData(0);
-            const shouldForwardMicrophone = this.updateVoiceActivity(channelData);
-            if (!shouldForwardMicrophone) return;
-            
-            // Convert to base64 Int16 Little Endian PCM
-            const pcmBuffer = floatTo16BitPCM(channelData);
-            const base64 = base64ArrayBuffer(pcmBuffer);
-            
-            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-              this.ws.send(JSON.stringify({ audio: base64 }));
-            }
-          };
-
-          // Sound setups are fully functional
-          this.setState("listening");
+          await this.startMicrophone();
+          if (!this.isActivated) return;
+          this.startMicWatchdog();
+          // Say "listening" only once both the microphone and Gemini are ready.
+          if (this.liveReady) this.setState("listening");
 
         } catch (audioError: any) {
           console.error("Audio Context or Microphone Initialization Failed:", audioError);
@@ -448,7 +409,10 @@ export class MyraaAudioSession {
               // Wait for Gemini Live connection
             } else if (data.status === "connected") {
               this.liveReady = true;
-              this.setState("listening");
+              this.timings.liveReadyAt = Date.now();
+              // Until the microphone is running, stay in "connecting" so the user is not told to speak into nothing.
+              if (this.micReady || !this.useMicrophone) this.setState("listening");
+              this.flushPreReadyAudio();
               this.flushPendingTextMessages();
             } else if (data.status === "session_closed") {
               this.disconnect();
@@ -458,6 +422,10 @@ export class MyraaAudioSession {
 
           // Handle audio payload (24kHzPCM model response)
           if (data.type === "audio" && data.audio) {
+            if (this.currentState !== "speaking" && this.timings.lastSpeechEndAt > 0 && this.timings.lastReplyStartAt < this.timings.lastSpeechEndAt) {
+              this.timings.lastReplyStartAt = Date.now();
+              this.timings.lastReplyLatencyMs = this.timings.lastReplyStartAt - this.timings.lastSpeechEndAt;
+            }
             this.playAudioPCMChunk(data.audio);
           }
 
@@ -474,6 +442,7 @@ export class MyraaAudioSession {
                 this.setState("listening");
               }
             }, 100);
+            this.armTurnWatchdog();
           }
 
           // Handle live captions transcription
@@ -537,6 +506,204 @@ export class MyraaAudioSession {
     }
   }
 
+  /**
+   * Opens the microphone once and routes it into the existing input context.
+   * Any previous capture is released first, so there is never more than one
+   * microphone stream or processor for a call.
+   */
+  private async startMicrophone(): Promise<void> {
+    if (this.micStarting || !this.isActivated || !this.inputAudioCtx) return;
+    this.micStarting = true;
+    try {
+      this.releaseMicrophone();
+      // Obtain the user microphone. Some embedded preview browsers do not
+      // expose getUserMedia even though the main UI itself renders normally.
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error(
+          "Microphone access is unavailable in this browser. Open FRIDAY in Chrome at http://localhost:3000 and allow microphone access.",
+        );
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          channelCount: 1,
+          // Chrome/WebView voice isolation where the phone supports it; ignored elsewhere.
+          ...({ voiceIsolation: true } as Record<string, boolean>),
+        }
+      });
+
+      // Safeguard: Check if we disconnected while waiting for user to grant mic permissions
+      const ctx = this.inputAudioCtx;
+      if (!this.isActivated || !ctx || !this.outputAudioCtx) {
+        stream.getTracks().forEach((track) => {
+          try {
+            track.stop();
+          } catch (e) {}
+        });
+        return;
+      }
+      if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+
+      this.micStream = stream;
+
+      // The input analyser is kept across microphone restarts so visuals keep their reference.
+      if (!this.inputAnalyser) {
+        this.inputAnalyser = ctx.createAnalyser();
+        this.inputAnalyser.fftSize = 256;
+      }
+
+      this.micSourceNode = ctx.createMediaStreamSource(stream);
+      // Cut low rumble (fans, traffic, AC hum) below the human voice before it reaches Gemini.
+      const voiceBand = ctx.createBiquadFilter();
+      voiceBand.type = "highpass";
+      voiceBand.frequency.value = 85;
+      this.micFilterNode = voiceBand;
+      this.micSourceNode.connect(voiceBand);
+      voiceBand.connect(this.inputAnalyser);
+
+      // Stream input PCM 16-bit to WS
+      // A smaller buffer cuts microphone-to-live-stream latency while
+      // remaining stable on ordinary Windows audio devices.
+      this.micProcessorNode = ctx.createScriptProcessor(1024, 1, 1);
+      voiceBand.connect(this.micProcessorNode);
+      this.micProcessorNode.connect(ctx.destination);
+      this.micProcessorNode.onaudioprocess = (e) => this.onMicrophoneFrame(e.inputBuffer.getChannelData(0));
+
+      // Android can take the microphone away (a phone call, another app): get it back.
+      for (const track of stream.getAudioTracks()) {
+        track.onended = () => this.recoverMicrophone("microphone track ended");
+      }
+
+      this.micReady = true;
+      this.lastMicFrameAt = performance.now();
+      if (!this.timings.micReadyAt) this.timings.micReadyAt = Date.now();
+    } finally {
+      this.micStarting = false;
+    }
+  }
+
+  private releaseMicrophone() {
+    this.micReady = false;
+    if (this.micProcessorNode) {
+      this.micProcessorNode.onaudioprocess = null;
+      try {
+        this.micProcessorNode.disconnect();
+      } catch (e) {}
+      this.micProcessorNode = null;
+    }
+    if (this.micFilterNode) {
+      try {
+        this.micFilterNode.disconnect();
+      } catch (e) {}
+      this.micFilterNode = null;
+    }
+    if (this.micSourceNode) {
+      try {
+        this.micSourceNode.disconnect();
+      } catch (e) {}
+      this.micSourceNode = null;
+    }
+    if (this.micStream) {
+      this.micStream.getTracks().forEach((track) => {
+        track.onended = null;
+        try {
+          track.stop();
+        } catch (e) {}
+      });
+      this.micStream = null;
+    }
+  }
+
+  /** Restarts the microphone in place (same call, same contexts), a few times at most. */
+  private recoverMicrophone(reason: string) {
+    if (!this.isActivated || this.micStarting || !this.useMicrophone || !this.inputAudioCtx) return;
+    this.timings.lastMicIssue = reason;
+    if (this.micRestarts >= 5) {
+      this.onError("The microphone stopped working. End the call and start it again, and check that no other app is using the microphone.");
+      this.disconnect();
+      return;
+    }
+    this.micRestarts += 1;
+    this.timings.micRestarts += 1;
+    console.warn("[Audio] Restarting microphone:", reason);
+    this.startMicrophone().catch((error: any) => {
+      if (!this.isActivated) return;
+      this.onError(`Permission error: ${error?.message || "The microphone could not be restarted."}`);
+      this.disconnect();
+    });
+  }
+
+  /**
+   * Keeps the call able to hear: resumes audio contexts Android suspended and
+   * restarts the microphone when its frames stop arriving.
+   */
+  private startMicWatchdog() {
+    if (this.micWatchdog) return;
+    this.micWatchdog = setInterval(() => {
+      if (!this.isActivated) return;
+      for (const ctx of [this.inputAudioCtx, this.outputAudioCtx]) {
+        if (ctx && ctx.state !== "running" && ctx.state !== "closed") void ctx.resume().catch(() => {});
+      }
+      if (!this.micReady || this.micStarting) return;
+      const track = this.micStream?.getAudioTracks()[0];
+      if (!track || track.readyState === "ended") this.recoverMicrophone("microphone track ended");
+      else if (this.inputAudioCtx?.state === "running" && performance.now() - this.lastMicFrameAt > 4000) this.recoverMicrophone("no microphone audio for 4 s");
+    }, 1500);
+  }
+
+  private onMicrophoneFrame(channelData: Float32Array) {
+    this.lastMicFrameAt = performance.now();
+    if (this.currentState === "disconnected") return;
+
+    const shouldForwardMicrophone = this.updateVoiceActivity(channelData);
+    if (!shouldForwardMicrophone) {
+      // While FRIDAY talks, keep the last moment of audio so a barge-in does not lose its first words.
+      this.bargeInPreRoll.push(base64ArrayBuffer(floatTo16BitPCM(channelData)));
+      if (this.bargeInPreRoll.length > this.bargeInPreRollChunks) this.bargeInPreRoll.shift();
+      return;
+    }
+
+    // Convert to base64 Int16 Little Endian PCM
+    const base64 = base64ArrayBuffer(floatTo16BitPCM(channelData));
+    if (!this.liveReady) {
+      // Gemini is still setting up: keep what the user already says instead of dropping it.
+      this.preReadyAudio.push(base64);
+      if (this.preReadyAudio.length > this.preReadyMaxChunks) this.preReadyAudio.shift();
+      return;
+    }
+    if (this.bargeInPreRoll.length) {
+      const preRoll = this.bargeInPreRoll.splice(0);
+      // Only a real barge-in sends it; otherwise it is FRIDAY's own voice and is dropped.
+      if (this.userSpeaking) for (const chunk of preRoll) this.sendAudio(chunk);
+    }
+    this.sendAudio(base64);
+  }
+
+  private sendAudio(base64: string) {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ audio: base64 }));
+    }
+  }
+
+  private flushPreReadyAudio() {
+    for (const chunk of this.preReadyAudio.splice(0)) this.sendAudio(chunk);
+  }
+
+  /** If the end of FRIDAY's playback is never reported (audio output suspended), do not stay stuck in "speaking". */
+  private armTurnWatchdog() {
+    if (this.turnWatchdog) clearTimeout(this.turnWatchdog);
+    const ctx = this.outputAudioCtx;
+    const remainingMs = ctx ? Math.max(0, (this.nextStartTime - ctx.currentTime) * 1000) : 0;
+    this.turnWatchdog = setTimeout(() => {
+      this.turnWatchdog = null;
+      const out = this.outputAudioCtx;
+      if (!this.isActivated || this.currentState !== "speaking" || !out) return;
+      if (out.currentTime > this.nextStartTime + 1) this.handleInterruption();
+    }, remainingMs + 1500);
+  }
+
   // Interruption triggers: stops all active audio players immediately
   private handleInterruption() {
     console.log("[Audio] Interruption signal received; flushing play logs.");
@@ -552,6 +719,7 @@ export class MyraaAudioSession {
     this.activeSources = [];
     this.nextStartTime = 0;
     this.outputSpeechStartedAt = 0;
+    if (this.turnWatchdog) { clearTimeout(this.turnWatchdog); this.turnWatchdog = null; }
     
     // Set state back to user listening
     this.setState("listening");
@@ -602,15 +770,18 @@ export class MyraaAudioSession {
           this.emitConversationEvent("user_interrupted_myraa", rms);
           this.handleInterruption();
         }
+        this.micRestarts = 0;
         this.emitConversationEvent("user_started_speaking", rms);
       }
       return !myraaOutputActive || this.userSpeaking;
     }
 
-    this.voiceFrames = 0;
+    // While FRIDAY talks, a brief dip between syllables should not restart the barge-in count.
+    this.voiceFrames = myraaOutputActive ? Math.max(0, this.voiceFrames - 2) : 0;
     if (!myraaOutputActive && !this.userSpeaking) this.noiseFloor = this.noiseFloor * 0.98 + rms * 0.02;
     if (this.userSpeaking && timestamp - this.lastVoiceAt >= this.voiceStopDelayMs) {
       this.userSpeaking = false;
+      this.timings.lastSpeechEndAt = Date.now();
       this.emitConversationEvent("user_stopped_speaking", rms);
     }
     return !myraaOutputActive || this.userSpeaking;
@@ -694,6 +865,12 @@ export class MyraaAudioSession {
     this.isActivated = false;
     this.liveReady = false;
     this.outputReady = false;
+    this.micReady = false;
+    this.micStarting = false;
+    if (this.micWatchdog) { clearInterval(this.micWatchdog); this.micWatchdog = null; }
+    if (this.turnWatchdog) { clearTimeout(this.turnWatchdog); this.turnWatchdog = null; }
+    this.preReadyAudio = [];
+    this.bargeInPreRoll = [];
     this.setState("disconnected");
 
     // Close WS socket
@@ -704,30 +881,8 @@ export class MyraaAudioSession {
       this.ws = null;
     }
 
-    // Stop and release user microphone streams
-    if (this.micStream) {
-      this.micStream.getTracks().forEach((track) => {
-        try {
-          track.stop();
-        } catch (e) {}
-      });
-      this.micStream = null;
-    }
-
-    // Disconnect routing nodes
-    if (this.micProcessorNode) {
-      try {
-        this.micProcessorNode.disconnect();
-      } catch (e) {}
-      this.micProcessorNode = null;
-    }
-
-    if (this.micSourceNode) {
-      try {
-        this.micSourceNode.disconnect();
-      } catch (e) {}
-      this.micSourceNode = null;
-    }
+    // Stop and release the microphone stream and its routing nodes
+    this.releaseMicrophone();
 
     // Close Audio contexts
     if (this.inputAudioCtx) {

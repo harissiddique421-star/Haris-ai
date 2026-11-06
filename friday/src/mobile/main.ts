@@ -42,6 +42,13 @@ let cameraTimer: ReturnType<typeof setInterval> | null = null;
 let cameraFacing: 'environment' | 'user' = 'environment';
 let screenSharing = false;
 const frameCanvas = document.createElement('canvas');
+/** Last Live call's timings (milliseconds only, no audio or words), for Settings diagnostics. */
+let lastVoiceTimings: MyraaAudioSession['timings'] | null = null;
+function voiceDiagnostics() {
+  const t = liveSession?.timings || lastVoiceTimings; if (!t || !t.connectStartedAt) return '';
+  const after = (at: number) => at ? `${at - t.connectStartedAt} ms` : 'not yet';
+  return `\n\nLive voice: online ${navigator.onLine !== false ? 'yes' : 'no'} · microphone ready after ${after(t.micReadyAt)} · Gemini ready after ${after(t.liveReadyAt)} · last reply started ${t.lastReplyLatencyMs >= 0 ? t.lastReplyLatencyMs + ' ms' : '-'} after you stopped speaking · microphone restarts ${t.micRestarts}${t.lastMicIssue ? ' (' + t.lastMicIssue + ')' : ''}`;
+}
 function liveActive() { return !!liveSession && liveSession.getState() !== 'disconnected'; }
 function updateVisionButtons() {
   const live = liveActive();
@@ -74,7 +81,7 @@ async function startCamera() {
   notice('Camera on. FRIDAY can see what the camera sees.'); updateVisionButtons();
 }
 function stopVision() { stopCamera(); if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; updateVisionButtons(); }
-function stopVoice() { stopVision(); backgroundLive = false; const session = liveSession; liveSession = null; if (session) cancelMobileActions(); session?.disconnect(); bridge?.endLive(); }
+function stopVoice() { stopVision(); backgroundLive = false; const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; cancelMobileActions(); } session?.disconnect(); bridge?.endLive(); }
 /** Builds without the licensed 3D model show the FRIDAY core instead of an error. */
 function showCore() {
   el('avatar-status').textContent = '';
@@ -517,6 +524,7 @@ el('voice').onclick = () => {
   if (!bridge) { notice('Gemini Live voice runs inside the Android app.'); return; }
   if (!state.keyConfigured) { notice('Add a working Gemini key in Settings to start Live voice.'); return; }
   if (busy) { notice('Stop the current text reply before starting Live voice.'); return; }
+  if (navigator.onLine === false) { notice('No internet connection. Connect to the internet and try again.'); return; }
   bridge.stopSpeech(); liveCaption = null;
   liveSession = new MyraaAudioSession({
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
@@ -546,7 +554,7 @@ el('settings').onclick = async () => {
   stopVoice(); refreshState(); refreshSettings(); settingsPage('menu'); el<HTMLDialogElement>('settings-panel').showModal();
   let control = '';
   try { const state = JSON.parse(bridge?.getState() || '{}'); const status = state.controlStatus || {}; control = `\n\nPhone control: ${status.ready ? 'READY (connected)' : status.enabled ? 'switch on, not connected yet' : 'off'}\n${(state.controlLog || []).slice(-25).join('\n')}`; } catch { /* diagnostics only */ }
-  el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}) + control;
+  el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}) + control + voiceDiagnostics();
 };
 el('save').onclick = () => {
   if (!bridge) return notice('Save settings in the installed Android app.');
@@ -702,6 +710,8 @@ el('avatar').onpointermove = event => { const box = el('avatar').getBoundingClie
 document.addEventListener('visibilitychange', () => { if (document.hidden) { if (!backgroundLive && !permissionPrompt) stopVoice(); system?.stop(); bridge?.stopSpeech(); } else system?.start(); });
 window.addEventListener('myraa:lifecycle', event => { foreground = !!(event as CustomEvent).detail?.active; permissionPrompt = !!(event as CustomEvent).detail?.permissionPrompt; backgroundLive = !!(event as CustomEvent).detail?.backgroundLive; if (!foreground && !backgroundLive && !(event as CustomEvent).detail?.permissionPrompt) stopVoice(); if (foreground) system?.start(); else { system?.stop(); bridge?.stopSpeech(); } });
 window.addEventListener('myraa:stop-live', () => { stopVoice(); notice('Live call stopped.'); });
+// Say so right away when the network drops instead of staying silent.
+window.addEventListener('offline', () => { if (liveActive()) { stopVoice(); notice('Internet connection lost, so the Live call ended. Tap Talk when you are back online.'); } });
 window.addEventListener('pagehide', () => { stopVoice(); generation++; system?.dispose(); bridge?.cancel(); });
 window.__mobileDiagnostics = () => system?.diagnostics;
 /** The wake phrase opened FRIDAY: start a Live call unless one is already running. */
@@ -710,9 +720,9 @@ async function wakeUp() {
   const dialog = el<HTMLDialogElement>('settings-panel'); if (dialog.open) dialog.close();
   showView('home');
   if (liveActive()) { listeningMinimized = false; showListening(true); return; }
-  notice('Yes? Starting FRIDAY Live…'); setTimeout(() => { if (!liveActive()) el('voice').click(); }, 500);
+  notice('Yes? Starting FRIDAY Live…'); if (!liveActive()) el('voice').click();
 }
-if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 1600); else setTimeout(() => void appGate(), 1500);
+if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 400); else setTimeout(() => void appGate(), 1500);
 window.addEventListener('myraa:lifecycle', event => { if ((event as CustomEvent).detail?.active) setTimeout(() => void appGate(), 300); });
 renderHistory(); refreshSettings(); void loadAvatar();
 el('boot-version').textContent = 'v' + (state.version || '1.0');

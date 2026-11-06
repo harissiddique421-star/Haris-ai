@@ -216,11 +216,14 @@ public class MainActivity extends Activity {
       }
       @Override public void onPermissionRequest(PermissionRequest request) {
         runOnUiThread(() -> {
-          if (foreground && ORIGIN.equals(request.getOrigin().toString().replaceAll("/$", "")) &&
+          // The microphone may also be reopened while a Live call runs behind another app (its microphone service is on),
+          // so a call that lost the microphone, for example after a phone call, can hear again.
+          boolean audio = request.getResources().length == 1 && PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(request.getResources()[0]);
+          if ((foreground || (audio && LiveVoiceService.running)) && ORIGIN.equals(request.getOrigin().toString().replaceAll("/$", "")) &&
               web != null && (ORIGIN + "/assets/mobile.html").equals(web.getUrl()) &&
               request.getResources().length == 1 &&
-              ((PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(request.getResources()[0]) && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) ||
-               (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(request.getResources()[0]) && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)))
+              ((audio && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) ||
+               (foreground && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(request.getResources()[0]) && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)))
             request.grant(request.getResources());
           else request.deny();
         });
@@ -291,7 +294,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.25", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.26", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;

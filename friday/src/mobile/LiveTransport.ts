@@ -18,7 +18,7 @@ export class MobileLiveTransport implements AudioSocket {
   private receiveChain = Promise.resolve();
   constructor(private bridge: MobileLiveBridge) {
     window.addEventListener('myraa:mobile-live', this.nativeEvent);
-    this.timeout = setTimeout(() => this.fail('Live voice timed out while connecting. Check your connection and Live model access.'), 35000);
+    this.timeout = setTimeout(() => this.fail(navigator.onLine === false ? 'No internet connection. Connect to the internet and try again.' : 'Live voice timed out while connecting. Your network may be slow; check your connection and Live model access.'), 20000);
     bridge.startLive(this.id);
   }
   private packet(value: unknown) { if (this.readyState !== 3) this.onmessage?.({ data: JSON.stringify(value) }); }
@@ -40,8 +40,9 @@ export class MobileLiveTransport implements AudioSocket {
         model: 'models/' + value.model,
         generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: value.voice || 'Aoede' } } } },
         systemInstruction: { parts: [{ text: value.instruction || 'You are MYRAA. Speak warmly and naturally in the user’s language.' }] },
-        // Gemini starts a user turn only on clear, sustained speech, so small noises don't interrupt FRIDAY.
-        realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_LOW', prefixPaddingMs: 300, silenceDurationMs: 800 } },
+        // Hear normal and short commands right away (the phone already keeps FRIDAY's own voice and small noises
+        // from interrupting her while she talks), and wait 0.8 s of silence so a brief pause doesn't end the sentence.
+        realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', prefixPaddingMs: 200, silenceDurationMs: 800 } },
         inputAudioTranscription: {}, outputAudioTranscription: {}, tools: [{ functionDeclarations: [MOBILE_TOOL] }, { googleSearch: {} }],
       } }));
       this.onopen?.({});
