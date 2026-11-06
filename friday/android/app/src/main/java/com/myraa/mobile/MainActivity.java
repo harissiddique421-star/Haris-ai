@@ -291,7 +291,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.24", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.25", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -753,8 +753,7 @@ public class MainActivity extends Activity {
         }
         public void onError(int error){finishTest(false,"",-1,error==android.speech.SpeechRecognizer.ERROR_NO_MATCH||error==android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT?"Nothing clear was heard.":error==android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS?"Microphone permission is missing.":"The speech recognizer had a problem (error "+error+").");}
       });
-      Intent intent=new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL,android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-        .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE,prefs.getString("language","hi-IN")).putExtra(android.speech.RecognizerIntent.EXTRA_MAX_RESULTS,3).putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE,true);
+      Intent intent=WakeWordService.recognizerIntent(this);
       try{testRecognizer.startListening(intent);}catch(RuntimeException e){finishTest(false,"",-1,"The speech recognizer couldn't start.");}
     },700);
   }

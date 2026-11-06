@@ -189,8 +189,8 @@ export class MyraaAudioSession {
   private readonly voiceStartFrames = 2;
   private readonly voiceStopDelayMs = 500;
   private readonly bargeInGuardMs = 700;
-  private readonly bargeInStartFrames = 4;
-  private readonly bargeInVoiceThreshold = 0.045;
+  private readonly bargeInStartFrames = 6;
+  private readonly bargeInVoiceThreshold = 0.06;
   
   // State Callbacks
   private onStateChange: (state: LiveState) => void;
@@ -585,6 +585,8 @@ export class MyraaAudioSession {
     const threshold = myraaOutputActive
       ? Math.max(
           this.bargeInVoiceThreshold,
+          // A short knock, cough or steady room noise must not cut FRIDAY off: stay well above the room's level.
+          Math.min(0.12, this.noiseFloor * 3.5),
           Math.min(0.1, outputRms * 0.32 + 0.012),
         )
       : Math.max(this.voiceThreshold, Math.min(0.06, this.noiseFloor * 2.2));
