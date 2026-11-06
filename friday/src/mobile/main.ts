@@ -109,7 +109,7 @@ setInterval(() => {
   liveSession.sendText('[Phone] The user has not said anything since your opening line. Say one very short, calm line such as "Main yahin hoon, jab bolo." and then stay silent until they speak.');
 }, 3000);
 /** Contact actions also get what the user actually said (stays on the phone), so a name the model misheard can still be found. */
-const CONTACT_ACTIONS = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'open_contact', 'email']);
+const CONTACT_ACTIONS = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'open_contact', 'email', 'emergency_contact']);
 function withHeard(args: any) {
   if (!args || typeof args !== 'object' || !CONTACT_ACTIONS.has(String(args.action || ''))) return args;
   const said = (liveCaption?.role === 'user' ? liveCaption.body.textContent : lastUserCaption) || '';
@@ -362,7 +362,7 @@ function appendAction(action: string, result: any) {
   const mark = document.createElement('i'); mark.textContent = ok ? '✓' : result?.status === 'needs_confirmation' ? '?' : '!';
   card.append(mark, title, body); el('messages').appendChild(card); el('messages').scrollTop = el('messages').scrollHeight;
 }
-const onScreenConfirm = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms']);
+const onScreenConfirm = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
 const refreshAfter = new Set(['remember', 'forget', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'save_routine', 'delete_routine']);
 /** Runs a typed command; a routine runs its saved steps one by one and stops at anything that needs the user. */
 async function runTyped(mobile: MobileAction) {
