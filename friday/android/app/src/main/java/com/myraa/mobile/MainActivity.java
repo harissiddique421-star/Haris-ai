@@ -300,7 +300,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.29", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.30", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -626,7 +626,7 @@ public class MainActivity extends Activity {
       public void message(String app,String from,String text){emit(json("type","incoming-message","app",app,"from",from,"text",text));}
     });
     if(foreground&&(Build.VERSION.SDK_INT<33||checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED)){
-      try{startForegroundService(new Intent(this,LiveVoiceService.class));allowBackgroundLive=true;}catch(RuntimeException ignored){allowBackgroundLive=false;}
+      try{startForegroundService(new Intent(this,LiveVoiceService.class));allowBackgroundLive=true;}catch(RuntimeException e){allowBackgroundLive=false;ControlLog.i("live: background call service not started ("+e.getClass().getSimpleName()+")");}
     }
     liveNetwork.execute(() -> {
       try {
