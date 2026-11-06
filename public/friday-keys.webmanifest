@@ -1,0 +1,10 @@
+{
+  "name": "FRIDAY Key Maker",
+  "short_name": "FRIDAY Keys",
+  "start_url": "/friday-keys.html",
+  "scope": "/friday-keys.html",
+  "display": "standalone",
+  "background_color": "#101317",
+  "theme_color": "#101317",
+  "icons": [{ "src": "/friday-keys-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

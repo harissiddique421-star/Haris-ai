@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ur">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#101317">
+<link rel="manifest" href="/friday-keys.webmanifest">
+<link rel="icon" href="/friday-keys-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/friday-keys-icon.svg">
+<title>FRIDAY Key Maker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=Sora:wght@600;700&display=swap">
+<style>
+*{box-sizing:border-box}[hidden]{display:none!important}body{margin:0}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+/* Layout: one narrow column, like a phone's own settings screen; the key output is the hero. */
+:root {
+  --bg: #eef2f6; --surface: #ffffff; --line: #d5dde6; --fg: #121820; --muted: #5b6876;
+  --accent: #0077a8; --accent-ink: #ffffff; --ok: #1b7a46; --bad: #b3261e; --code: #e4eef5;
+  --display: "Sora", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #101317; --surface: #1a2028; --line: #2c3540; --fg: #e8edf2; --muted: #9aa7b4;
+  --accent: #33c4ff; --accent-ink: #04141c; --ok: #5fd08e; --bad: #ff8a80; --code: #0d1a22; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #101317; --surface: #1a2028; --line: #2c3540; --fg: #e8edf2; --muted: #9aa7b4;
+  --accent: #33c4ff; --accent-ink: #04141c; --ok: #5fd08e; --bad: #ff8a80; --code: #0d1a22; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
+.wrap { max-width: 560px; margin: 0 auto; padding-block: 24px 48px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 18px; }
+header h1 { font: 700 26px/1.2 var(--display); margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 6px 0 0; color: var(--muted); }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 12px; min-width: 0; }
+h2 { font: 600 17px/1.3 var(--display); margin: 0; }
+.hint { color: var(--muted); font-size: 14px; margin: 0; }
+label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: grid; gap: 6px; }
+input, textarea { font: 16px/1.4 var(--body); color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; width: 100%; box-sizing: border-box; text-transform: none; letter-spacing: 0; }
+input.mono, textarea.mono { font-family: var(--mono); font-size: 15px; }
+textarea { resize: vertical; min-height: 110px; }
+textarea.keybox { min-height: 0; border: 1px solid var(--line); width: 100%; box-sizing: border-box; resize: none; }
+input:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.row { display: flex; flex-wrap: wrap; gap: 10px; }
+button { font: 600 15px/1 var(--body); border-radius: 10px; padding: 13px 16px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); cursor: pointer; }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); flex: 1 1 auto; }
+button.small { padding: 9px 12px; font-size: 14px; }
+.keybox { font: 600 15px/1.7 var(--mono); background: var(--code); border-radius: 10px; padding: 14px; word-break: break-all; user-select: all; font-variant-numeric: tabular-nums; }
+.keybox.big { font-size: 16px; color: var(--accent); }
+.status { font-size: 14px; margin: 0; min-height: 1.4em; }
+.status.ok { color: var(--ok); } .status.bad { color: var(--bad); }
+.warn { border-left: 3px solid var(--bad); padding-left: 10px; font-size: 14px; margin: 0; }
+details summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 10px; }
+ul.log { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+ul.log li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 8px; font-size: 14px; }
+ul.log code { font-family: var(--mono); }
+.muted { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <h1>FRIDAY Key Maker</h1>
+    <p>Har phone ke liye alag activation key. Yeh page sirf aap ke paas rahe.</p>
+  </header>
+
+  <section id="setup" hidden>
+    <h2>Step 1: Pehli dafa setup</h2>
+    <p class="hint">Yeh aap ki owner key banata hai. Sirf ek dafa karna hai.</p>
+    <div id="restoreBox" style="display:grid;gap:10px">
+      <p class="hint"><b>Pehle se setup kar chuke hain?</b> Apna Backup text (BEGIN PRIVATE KEY se END tak) yahan paste karein.</p>
+      <label for="restoreText">Backup (PRIVATE KEY)</label>
+      <textarea id="restoreText" class="mono" placeholder="-----BEGIN PRIVATE KEY----- ..."></textarea>
+      <button id="restore" class="primary">Backup se wapas laao</button>
+    </div>
+    <details>
+      <summary>Bilkul nayi owner key (sirf agar backup kho gaya ho)</summary>
+      <p class="warn">Nayi key banane se purani APK mein koi key kaam nahi karegi. Phir Claude se naya APK banwana hoga.</p>
+      <button class="small" id="create" style="margin-top:10px">Haan, nayi owner key banao</button>
+    </details>
+    <p class="status" id="setupStatus"></p>
+  </section>
+
+  <section id="owner" hidden>
+    <h2>Owner key</h2>
+    <p class="status" id="match"></p>
+    <p class="hint">Public key app ke andar jati hai. Yeh share karna safe hai.</p>
+    <textarea id="pub" class="keybox mono" readonly rows="4" aria-label="Public key"></textarea>
+    <div class="row"><button class="primary" id="copyPub">Public key copy karo</button></div>
+    <p class="hint">Agar copy button kaam na kare: upar wale dabbe par ungli daba kar rakhein, "Select all" phir "Copy" karein.</p>
+    <details>
+      <summary>Backup (zaroori)</summary>
+      <p class="warn">Yeh PRIVATE key hai. Isay kisi ko na bhejein, Claude ko bhi nahi. Apne paas kahin mehfooz save kar lein (jaise WhatsApp "Message yourself" ya Google Keep). Agar browser data saaf ho gaya to isi backup se wapas laana hoga.</p>
+      <textarea id="priv" class="keybox mono" readonly rows="6" aria-label="Backup" style="margin-top:10px"></textarea>
+      <div class="row" style="margin-top:10px"><button class="small" id="copyPriv">Backup copy karo</button></div>
+    </details>
+    <details>
+      <summary>Is phone/browser se owner key hatao</summary>
+      <p class="hint">Sirf tab karein jab backup save kar chuke hon.</p>
+      <button class="small" id="forget">Haan, hatao</button>
+    </details>
+  </section>
+
+  <section id="maker" hidden>
+    <h2>Phone ki key banao</h2>
+    <label for="device">Device ID (phone ki screen se)
+      <input id="device" class="mono" inputmode="text" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="A1B2-C3D4-E5F6-0718">
+    </label>
+    <label for="name">Phone ka naam (sirf aap ki yaad ke liye)
+      <input id="name" autocomplete="off" placeholder="Ammi ka phone">
+    </label>
+    <button class="primary" id="make">Key banao</button>
+    <p class="status" id="makeStatus"></p>
+    <div id="result" hidden>
+      <div class="keybox big" id="key"></div>
+      <div class="row" style="margin-top:10px"><button class="small" id="copyKey">Key copy karo</button></div>
+      <p class="hint" style="margin-top:8px">Yeh key us phone par bhejein. Woh FRIDAY ki activation screen par paste karke Activate dabaye.</p>
+    </div>
+  </section>
+
+  <section id="history" hidden>
+    <h2>Banayi hui keys</h2>
+    <ul class="log" id="log"></ul>
+  </section>
+
+</div>
+
+<script>
+const APP_PUBLIC_KEY = 'MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEQmbhpR4SEiWRutUPjsa9HlfJoKSn1AI6R3frpM2edSRrvY1mnRBalpMWTw3TfgEzfm9768W6gJQXc9BjRKNbxQ==';
+const PREFIX = 'FRIDAY-ACTIVATION-V1|', B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567', STORE = 'friday-owner-key-v1', LOG = 'friday-issued-v1';
+const $ = id => document.getElementById(id);
+const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } }, del(k) { try { localStorage.removeItem(k); } catch {} } };
+const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const pem = buf => '-----BEGIN PRIVATE KEY-----\n' + b64(buf).match(/.{1,64}/g).join('\n') + '\n-----END PRIVATE KEY-----';
+function base32(bytes) { let out = '', buf = 0, bits = 0; for (const b of bytes) { buf = (buf << 8) | b; bits += 8; while (bits >= 5) { bits -= 5; out += B32[(buf >> bits) & 31]; } buf &= (1 << bits) - 1; } if (bits) out += B32[(buf << (5 - bits)) & 31]; return out; }
+let priv = null, pubKey = null;
+
+async function load(pkcs8Text) {
+  const body = pkcs8Text.replace(/-----[A-Z ]+-----/g, '').replace(/\s/g, '');
+  const p = await crypto.subtle.importKey('pkcs8', unb64(body), { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+  const jwk = await crypto.subtle.exportKey('jwk', p); delete jwk.d; jwk.key_ops = ['verify'];
+  const pub = await crypto.subtle.importKey('jwk', jwk, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['verify']);
+  priv = p; pubKey = pub;
+  $('pub').value = b64(await crypto.subtle.exportKey('spki', pub));
+  $('priv').value = pem(await crypto.subtle.exportKey('pkcs8', p));
+  const same = $('pub').value === APP_PUBLIC_KEY;
+  say($('match'), same ? 'Yeh wahi owner key hai jo FRIDAY app mein lagi hai. Is ki banayi keys kaam karengi.' : 'Dhyan: yeh owner key FRIDAY app wali nahi hai, is ki banayi keys app nahi maanegi. Sahi Backup se wapas laayein, ya yeh public key Claude ko bhej kar naya APK banwayein.', same ? 'ok' : 'bad');
+}
+function show() {
+  const ready = !!priv;
+  $('setup').hidden = ready; $('maker').hidden = !ready; $('owner').hidden = !ready;
+  const log = JSON.parse(store.get(LOG) || '[]');
+  $('history').hidden = !ready || !log.length;
+  $('log').replaceChildren(...log.slice().reverse().map(e => { const li = document.createElement('li'); li.innerHTML = '<span></span><code></code>'; li.firstChild.textContent = (e.name || 'Bina naam') + ' · ' + new Date(e.at).toLocaleDateString(); li.lastChild.textContent = e.device.replace(/(.{4})(?=.)/g, '$1-'); return li; }));
+}
+function say(el, text, kind) { el.textContent = text; el.className = 'status' + (kind ? ' ' + kind : ''); }
+async function copy(text, btn, area) {
+  const old = btn.textContent;
+  try { await navigator.clipboard.writeText(text); btn.textContent = 'Copy ho gaya'; }
+  catch { if (area) { area.focus(); area.select(); let ok = false; try { ok = document.execCommand('copy'); } catch {} btn.textContent = ok ? 'Copy ho gaya' : 'Select ho gaya, ab Copy karein'; setTimeout(() => btn.textContent = old, 2500); return; } const r = document.createRange(); r.selectNodeContents(btn.closest('section, details').querySelector('.keybox')); getSelection().removeAllRanges(); getSelection().addRange(r); btn.textContent = 'Select ho gaya, ab copy karein'; }
+  setTimeout(() => btn.textContent = old, 2000);
+}
+
+$('create').onclick = async () => {
+  try {
+  say($('setupStatus'), 'Ban rahi hai...');
+  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const text = pem(await crypto.subtle.exportKey('pkcs8', pair.privateKey));
+  await load(text);
+  if (!store.set(STORE, text)) say($('setupStatus'), 'Browser key save nahi kar saka. Backup zaroor copy karein.', 'bad');
+  show(); $('owner').scrollIntoView({ block: 'start' });
+  } catch (e) { $('setup').hidden = false; say($('setupStatus'), 'Key nahi ban saki: ' + (e && e.message || e) + '. Yeh page Chrome mein khol kar dobara try karein.', 'bad'); }
+};
+$('restore').onclick = async () => {
+  try { await load($('restoreText').value); store.set(STORE, $('restoreText').value.trim()); show(); }
+  catch { say($('setupStatus'), 'Yeh backup sahi nahi lagta. Poora text paste karein, BEGIN se END tak.', 'bad'); }
+};
+$('make').onclick = async () => {
+  const device = $('device').value.toUpperCase().replace(/[\s-]/g, '');
+  $('result').hidden = true;
+  if (!/^[0-9A-F]{16}$/.test(device)) return say($('makeStatus'), 'Device ID 16 akshar ka hota hai, jaise A1B2-C3D4-E5F6-0718. Dobara check karein.', 'bad');
+  const msg = new TextEncoder().encode(PREFIX + device);
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, priv, msg);
+  if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pubKey, sig, msg)) return say($('makeStatus'), 'Key check fail hui. Page dobara kholein.', 'bad');
+  $('key').textContent = base32(new Uint8Array(sig)).match(/.{1,5}/g).join('-');
+  $('result').hidden = false;
+  say($('makeStatus'), 'Key ban gayi: ' + device.replace(/(.{4})(?=.)/g, '$1-'), 'ok');
+  const log = JSON.parse(store.get(LOG) || '[]'); log.push({ device, name: $('name').value.trim(), at: Date.now() }); store.set(LOG, JSON.stringify(log.slice(-200))); show();
+};
+$('copyKey').onclick = e => copy($('key').textContent, e.currentTarget);
+$('copyPub').onclick = e => copy($('pub').value, e.currentTarget, $('pub'));
+$('copyPriv').onclick = e => copy($('priv').value, e.currentTarget, $('priv'));
+$('forget').onclick = () => { store.del(STORE); priv = pubKey = null; show(); };
+
+(async () => {
+  if (!window.crypto?.subtle) { $('setup').hidden = false; say($('setupStatus'), 'Yeh browser zaroori security feature nahi deta. Chrome mein kholein.', 'bad'); $('create').disabled = true; return; }
+  const saved = store.get(STORE);
+  if (saved) { try { await load(saved); } catch { store.del(STORE); } }
+  show();
+})();
+</script>
+</body>
+</html>
