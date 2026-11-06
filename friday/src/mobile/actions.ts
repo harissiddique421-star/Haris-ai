@@ -14,12 +14,19 @@ export type MobileAction =
   | { action: 'save_routine'; name: string; steps: string[] }
   | { action: 'make_document'; title: string; text: string; format?: 'pdf' | 'txt' }
   | { action: 'run_routine' | 'delete_routine'; name: string }
-  | { action: 'list_routines' | 'sleep' | 'briefing' | 'list_reminders' | 'resume_video' }
+  | { action: 'list_routines' | 'sleep' | 'briefing' | 'list_reminders' | 'resume_video' | 'health_check' | 'network_status' }
+  | { action: 'action_history'; limit?: number }
+  | { action: 'upcoming_events'; days?: number }
+  | { action: 'set_proactive'; on: boolean }
+  | { action: 'set_style'; style: 'normal' | 'calm' | 'funny' | 'serious' | 'technical' | 'friendly' | 'playful' }
+  | { action: 'rename_routine'; name: string; new_name: string }
+  | { action: 'clock'; command: 'stop_timer' | 'show_timers' | 'show_alarms' | 'dismiss_alarm' }
+  | { action: 'copy_text'; text: string }
   | { action: 'missed_calls'; limit?: number }
-  | { action: 'care_reminder'; text: string; hour: number; minute?: number; kind?: 'medicine' | 'bill' | 'general'; repeat?: 'none' | 'daily' | 'monthly'; day?: number; date?: string }
-  | { action: 'delete_reminder' | 'reminder_done'; text?: string }
+  | { action: 'care_reminder'; text: string; hour: number; minute?: number; kind?: 'medicine' | 'bill' | 'general'; repeat?: 'none' | 'daily' | 'weekly' | 'monthly'; day?: number; date?: string }
+  | { action: 'delete_reminder' | 'reminder_done' | 'reminder_skip'; text?: string }
   | { action: 'meeting_mode'; on: boolean; in_minutes?: number; message?: string }
-  | { action: 'set_mode'; mode: 'normal' | 'translator' | 'english_practice'; language?: string }
+  | { action: 'set_mode'; mode: 'normal' | 'translator' | 'english_practice' | 'developer'; language?: string }
   | { action: 'set_timer'; in_minutes?: number; seconds?: number; label?: string }
   | { action: 'add_event'; text: string; date?: string; hour: number; minute?: number; duration_minutes?: number }
   | { action: 'call'; recipient: string }
@@ -37,8 +44,8 @@ export type MobileAction =
   | { action: 'read_notifications'; limit?: number }
   | { action: 'send_sms'; recipient: string; message: string }
   | { action: 'answer_call' | 'reject_call' | 'silence_call' | 'who_is_calling' }
-  | { action: 'open_settings'; page: string }
-  | { action: 'phone_control'; control: 'back' | 'home' | 'recents' | 'notifications' | 'quick_settings' | 'power_menu' | 'lock_screen' | 'screenshot' }
+  | { action: 'open_settings'; page: string; app?: string }
+  | { action: 'phone_control'; control: 'back' | 'home' | 'recents' | 'last_app' | 'notifications' | 'quick_settings' | 'power_menu' | 'lock_screen' | 'screenshot' }
   | { action: 'read_screen' }
   | { action: 'tap'; target?: string; confirm_token?: string }
   | { action: 'type_text'; text: string; target?: string }
@@ -47,17 +54,20 @@ export const MOBILE_TOOL = {
   name: 'mobile_action',
   description: 'Perform an Android action requested by the user: remember a fact about the user (remember), forget it (forget), say what you remember (list_memories), switch persona (set_persona: friday, gf, professional, venom), turn driving mode on or off (set_driving_mode with on), turn spoken caller names on or off (set_call_announce with on), turn the wake phrase on or off (set_wake_word with on), open an email draft (email with recipient, subject, message; recipient "me" is the user), save, run, list or delete a routine of saved commands (save_routine, run_routine, list_routines, delete_routine), go to sleep and end the Live call when the user says Bye FRIDAY (sleep), give the morning briefing (briefing), list missed calls (missed_calls), set medicine, bill or repeating reminders that ask done? and follow up (care_reminder, list_reminders, delete_reminder, reminder_done when the user says they did it), meeting mode with vibrate and auto-reply (meeting_mode), translator or English practice mode (set_mode), continue the last video, Quran or story from where it stopped (resume_video), set a timer (set_timer), open a calendar event draft (add_event), play a song or video on YouTube and check it really plays (play_youtube with query or url), control playback (media: pause, resume, stop, next, previous), save a document you wrote as a PDF or text file in Downloads (make_document with title, text, format), open an installed app, search YouTube, search the web, send a WhatsApp message or SMS, start a WhatsApp voice or video call (whatsapp_call, video true for video), open a saved contact, place a phone call, answer, reject or silence a ringing call, say who is calling (who_is_calling), set an alarm or reminder, play music, torch, volume, silent/vibrate mode, brightness, battery level, navigation, read recent notifications, open a settings page or panel, or control the app in front (back, home, recents, read_screen, tap a label, type_text, scroll). For phone control, read_screen first, tap the exact label it shows, then read_screen again to check. Never just open WhatsApp when the user wants to message or call someone: use whatsapp_message or whatsapp_call. WhatsApp messages and calls, SMS, phone calls and risky taps return needs_confirmation with a confirm_token first: read the details back, wait for a clear yes, then call again with only action and confirm_token. Never invent recipients, numbers, times or successful actions.',
   parameters: { type: 'OBJECT', properties: {
-    action: { type: 'STRING', enum: ['remember', 'forget', 'list_memories', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'email', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'sleep', 'briefing', 'missed_calls', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'meeting_mode', 'set_mode', 'resume_video', 'set_timer', 'add_event', 'make_document', 'open_dialer', 'open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'play_youtube', 'media', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
-    app: { type: 'STRING', description: 'App name, such as WhatsApp (WP), YouTube or Chrome. Only for open_app.' },
+    action: { type: 'STRING', enum: ['remember', 'forget', 'list_memories', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'email', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'sleep', 'briefing', 'missed_calls', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'meeting_mode', 'health_check', 'network_status', 'action_history', 'upcoming_events', 'set_proactive', 'set_style', 'rename_routine', 'clock', 'copy_text', 'set_mode', 'resume_video', 'set_timer', 'add_event', 'make_document', 'open_dialer', 'open_app', 'search_youtube', 'search_web', 'whatsapp_message', 'whatsapp_call', 'open_contact', 'call', 'set_alarm', 'set_reminder', 'play_music', 'play_youtube', 'media', 'torch', 'volume', 'ringer_mode', 'brightness', 'battery', 'navigate', 'read_notifications', 'send_sms', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'open_settings', 'phone_control', 'read_screen', 'tap', 'type_text', 'scroll'] },
+    app: { type: 'STRING', description: 'App name, such as WhatsApp (WP), YouTube or Chrome. For open_app, or open_settings with page app_notifications or app_info.' },
     recipient: { type: 'STRING', description: 'Saved contact name as spoken, or a full international phone number with country code. For whatsapp_message, whatsapp_call, open_contact, send_sms and call. Contacts and their WhatsApp accounts are resolved locally.' },
     message: { type: 'STRING', description: 'Complete WhatsApp, SMS or email message, exactly as the user said it. Ask for it if missing. For meeting_mode: optional auto-reply text.' },
     subject: { type: 'STRING', description: 'For email: a short subject line.' },
     url: { type: 'STRING', description: 'For play_youtube: a YouTube link the user gave (watch, youtu.be, shorts or music link).' },
     kind: { type: 'STRING', enum: ['video', 'music', 'medicine', 'bill', 'general'], description: 'For play_youtube: music for songs (adds a mix so next/previous work), video otherwise. For care_reminder: medicine, bill or general.' },
-    repeat: { type: 'STRING', enum: ['none', 'daily', 'monthly'], description: 'For care_reminder. Medicine defaults to daily, bills to monthly.' },
-    day: { type: 'INTEGER', description: 'For care_reminder with repeat monthly: day of the month (1-31).' },
+    repeat: { type: 'STRING', enum: ['none', 'daily', 'weekly', 'monthly'], description: 'For care_reminder. Medicine defaults to daily, bills to monthly.' },
+    day: { type: 'INTEGER', description: 'For care_reminder: with repeat monthly the day of the month (1-31); with weekly the weekday, 1 Monday to 7 Sunday. For upcoming_events use days instead.' },
+    days: { type: 'INTEGER', description: 'For upcoming_events: how many days ahead (default 7).' },
+    style: { type: 'STRING', enum: ['normal', 'calm', 'funny', 'serious', 'technical', 'friendly', 'playful'], description: 'For set_style: the speaking style on top of the persona.' },
+    new_name: { type: 'STRING', description: 'For rename_routine: the new routine name.' },
     language: { type: 'STRING', description: 'For set_mode translator: the other person\'s language, like English, Arabic or Chinese.' },
-    command: { type: 'STRING', enum: ['pause', 'resume', 'stop', 'next', 'previous'], description: 'For media: control whatever is playing.' },
+    command: { type: 'STRING', enum: ['pause', 'resume', 'stop', 'next', 'previous', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm'], description: 'For media: pause, resume, stop, next or previous for whatever is playing. For clock: stop_timer, show_timers, show_alarms (to edit or delete alarms) or dismiss_alarm.' },
     title: { type: 'STRING', description: 'For make_document: the document title.' },
     format: { type: 'STRING', enum: ['pdf', 'txt'], description: 'For make_document. Default pdf.' },
     name: { type: 'STRING', description: 'For save_routine, run_routine and delete_routine: the routine name, like morning.' },
@@ -75,15 +85,15 @@ export const MOBILE_TOOL = {
     query: { type: 'STRING', description: 'Exact search, or song/artist/playlist for play_music, or for forget: words from the memory to delete (or "everything").' },
     persona: { type: 'STRING', enum: ['friday', 'gf', 'professional', 'venom'], description: 'For set_persona.' },
     video: { type: 'BOOLEAN', description: 'For whatsapp_call: true for a video call, false or omitted for a voice call.' },
-    on: { type: 'BOOLEAN', description: 'For torch, set_driving_mode, set_call_announce, set_wake_word and meeting_mode: true to turn on, false to turn off.' },
+    on: { type: 'BOOLEAN', description: 'For set_proactive, torch, set_driving_mode, set_call_announce, set_wake_word and meeting_mode: true to turn on, false to turn off.' },
     stream: { type: 'STRING', enum: ['media', 'ring', 'alarm'], description: 'For volume. Default media.' },
     direction: { type: 'STRING', enum: ['up', 'down', 'mute', 'unmute', 'max', 'auto', 'left', 'right'], description: 'For volume or brightness (auto is brightness only), or scroll (up, down, left, right).' },
     percent: { type: 'INTEGER', description: '0-100 for volume or brightness.' },
-    mode: { type: 'STRING', description: 'ringer_mode: silent, vibrate or normal. navigate: driving, walking or bicycling. set_mode: normal, translator or english_practice.' },
+    mode: { type: 'STRING', description: 'ringer_mode: silent, vibrate or normal. navigate: driving, walking or bicycling. set_mode: normal, translator, english_practice or developer.' },
     place: { type: 'STRING', description: 'For navigate: destination name or address.' },
     limit: { type: 'INTEGER', description: 'For read_notifications (1-20) or missed_calls (1-15): how many.' },
-    page: { type: 'STRING', description: 'For open_settings: wifi, internet, bluetooth, hotspot, airplane, location, display, sound, battery, apps, storage, date, language, nfc or settings.' },
-    control: { type: 'STRING', enum: ['back', 'home', 'recents', 'notifications', 'quick_settings', 'power_menu', 'lock_screen', 'screenshot'], description: 'For phone_control.' },
+    page: { type: 'STRING', description: 'For open_settings: wifi, internet, bluetooth, hotspot, airplane, location, display, sound, battery, apps, storage, date, language, nfc, settings, or app_notifications / app_info with app (that app\'s notification settings or app info).' },
+    control: { type: 'STRING', enum: ['back', 'home', 'recents', 'last_app', 'notifications', 'quick_settings', 'power_menu', 'lock_screen', 'screenshot'], description: 'For phone_control.' },
     target: { type: 'STRING', description: 'For tap: the button or item label exactly as read_screen showed it. For type_text: optional label or hint of the text box.' },
   }, required: ['action'] },
 };
@@ -93,6 +103,16 @@ export function parseMobileAction(input: string): MobileAction | null {
   const link = /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:[^\s#]*&)?v=|shorts\/|live\/|embed\/)|youtu\.be\/)[A-Za-z0-9_-]{11}[^\s]*/i.exec(text);
   if (link && text.replace(link[0], ' ').trim().split(/\s+/).filter(Boolean).every(word => /^(?:play|open|this|ye|yeh|is|video|song|gaana|link|karo|chalao|lagao|kholo|please|on|youtube)$/i.test(word))) return { action: 'play_youtube', url: link[0] };
   const bare = text.replace(/[.!?।]+$/u, '');
+  if (/^(?:health check|friday check(?: karo)?|check yourself|system check|sab theek hai\??|diagnostics?)$/i.test(bare)) return { action: 'health_check' };
+  if (/^(?:internet check(?: karo)?|check (?:the )?internet|network status|internet (?:nahi chal raha|kyun nahi chal raha|not working)|wifi check(?: karo)?)$/i.test(bare)) return { action: 'network_status' };
+  if (/^(?:action history|history|recent actions|what did you do|kya kya kiya|abhi kya kiya)$/i.test(bare)) return { action: 'action_history' };
+  if (/^(?:last app|previous app|go back to (?:the )?last app|last opened app(?: wapas)?(?: kholo)?|pichli app(?: kholo)?|wapas pichli app(?: par jao)?)$/i.test(bare)) return { action: 'phone_control', control: 'last_app' };
+  if (/^(?:stop (?:the )?timer|timer (?:band|stop) karo)$/i.test(bare)) return { action: 'clock', command: 'stop_timer' };
+  if (/^(?:show (?:my )?alarms|mere alarms(?: dikhao)?|alarms dikhao)$/i.test(bare)) return { action: 'clock', command: 'show_alarms' };
+  if (/^(?:upcoming events|my events|next events|agle events|calendar (?:events|dikhao))$/i.test(bare)) return { action: 'upcoming_events' };
+  if (/^(?:developer mode|dev mode)(?: on)?$/i.test(bare)) return { action: 'set_mode', mode: 'developer' };
+  const styleMatch = /^(calm|funny|serious|technical|friendly|playful|normal) (?:style|mode)$/i.exec(bare);
+  if (styleMatch && styleMatch[1].toLowerCase() !== 'normal') return { action: 'set_style', style: styleMatch[1].toLowerCase() as 'calm' };
   if (/^(?:who(?:'s| is)? calling(?: me)?|what number is calling|kaun call kar raha hai|kis ki call hai|kiski call hai|call kaun kar raha hai)$/i.test(bare)) return { action: 'who_is_calling' };
   if (/^(?:silence|mute|quiet)(?: the)? (?:call|ringer|ringing|phone call)$|^(?:ringtone|call) (?:band|chup) karo$/i.test(bare)) return { action: 'silence_call' };
   if (/^(?:answer|pick up|accept)(?: the)? call$|^call (?:utha lo|uthao|receive karo)$/i.test(bare)) return { action: 'answer_call' };
