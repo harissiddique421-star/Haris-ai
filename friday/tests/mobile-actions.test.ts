@@ -148,3 +148,17 @@ test('incoming call questions and controls parse locally', () => {
   assert.deepEqual(parseMobileAction('Reject the call'),{action:'reject_call'});
   assert.deepEqual(parseMobileAction('mute'),{action:'volume',direction:'mute'});
 });
+
+test('health, network, history, clock, styles and modes parse locally', () => {
+  assert.deepEqual(parseMobileAction('health check'),{action:'health_check'});
+  assert.deepEqual(parseMobileAction('internet check karo'),{action:'network_status'});
+  assert.deepEqual(parseMobileAction('kya kya kiya'),{action:'action_history'});
+  assert.deepEqual(parseMobileAction('pichli app kholo'),{action:'phone_control',control:'last_app'});
+  assert.deepEqual(parseMobileAction('stop the timer'),{action:'clock',command:'stop_timer'});
+  assert.deepEqual(parseMobileAction('show my alarms'),{action:'clock',command:'show_alarms'});
+  assert.deepEqual(parseMobileAction('upcoming events'),{action:'upcoming_events'});
+  assert.deepEqual(parseMobileAction('developer mode'),{action:'set_mode',mode:'developer'});
+  assert.deepEqual(parseMobileAction('funny style'),{action:'set_style',style:'funny'});
+  assert.deepEqual(parseMobileAction('normal mode'),{action:'set_mode',mode:'normal'});
+  assert.equal(parseMobileAction('history of Pakistan'),null);
+});
