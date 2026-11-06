@@ -1,6 +1,7 @@
 import './mobile.css';
 import { MyraaAudioSession, type LiveState } from '../lib/audio';
-import { MobileLiveTransport } from './LiveTransport';
+import { MobileLiveTransport, liveResume } from './LiveTransport';
+import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
 import { Orchestrator, QUICK } from './agents';
@@ -140,7 +141,7 @@ function liveState(value: LiveState) {
   if (value === 'speaking') { heardUserSinceReply = false; checkinPending = false; if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; } }
   queueMicrotask(() => { if (value === "disconnected") stopVision(); else updateVisionButtons(); });
   const active = value !== 'disconnected';
-  if (value === 'listening') notice('Live voice connected. Speak naturally.');
+  if (value === 'listening') { if (!liveUpSince) liveUpSince = Date.now(); notice('Live voice connected. Speak naturally.'); }
   el('voice').setAttribute('aria-pressed', String(active));
   el('voice').querySelector('span')!.textContent = active ? 'Live' : 'AI';
   el('listen-state').textContent = value === 'connecting' ? 'CONNECTING…' : value === 'speaking' ? 'SPEAKING…' : value === 'listening' ? 'LISTENING…' : '';
@@ -574,9 +575,11 @@ el('send').onclick = send;
 el('health-check').onclick = () => { (el('settings-panel') as HTMLDialogElement).close(); showView('chat'); append('user', 'Health check'); void runTyped({ action: 'health_check' }); };
 el('input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } });
 el('stop').onclick = () => { cancelMobileActions(); stopVoice(); bridge?.cancel(); bridge?.stopSpeech(); busy = false; requestId = ''; notice('Stopped.'); system?.stopBehaviour(); system?.setFrameInput({ activity: 'idle', emotion: 'idle' }); };
-let liveFallbacks = 0, autoRetry = false;
+let liveFallbacks = 0, liveReconnects = 0, liveUpSince = 0, autoRetry = false;
 el('voice').onclick = () => {
-  if (!autoRetry) liveFallbacks = 0; autoRetry = false;
+  // A call the user starts is fresh; an automatic retry keeps its counters and may resume the conversation.
+  if (!autoRetry) { liveFallbacks = 0; liveReconnects = 0; liveResume.handle = ''; liveResume.resuming = false; }
+  autoRetry = false;
   if (liveSession && liveSession.getState() !== 'disconnected') { if (el('listening').hidden) { listeningMinimized = false; showListening(true); } else { stopVoice(); notice('Live voice ended.'); } return; }
   if (!bridge) { notice('Gemini Live voice runs inside the Android app.'); return; }
   if (!state.keyConfigured) { notice('Add a working Gemini key in Settings to start Live voice.'); return; }
@@ -584,6 +587,7 @@ el('voice').onclick = () => {
   if (navigator.onLine === false) { notice('No internet connection. Connect to the internet and try again.'); return; }
   bridge.stopSpeech(); liveCaption = null;
   emotions.reset(); userSpokeThisCall = false; spokeSinceCheckin = true; checkinPending = false; heardUserSinceReply = false; lastActivityAt = Date.now();
+  const resuming = liveResume.resuming; liveUpSince = 0;
   liveSession = new MyraaAudioSession({
     onUserSpeech: userSpeech,
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
@@ -593,10 +597,18 @@ el('voice').onclick = () => {
       callback({ ...result, tone, tone_hint: TONE_HINT[tone], context: { current_app: convo.currentApp || 'unknown', now_playing: convo.media || 'nothing known', last_action: action } }); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
     onError: message => {
       stopVoice();
-      // Google refused this Live model's quota while starting: try the next model once each, then give up.
-      if (/while starting \(code 1011/i.test(message) && /quota/i.test(message) && liveFallbacks < 2 && bridge?.nextLiveModel) {
+      // A call that ran for a minute counts as working, so a later drop gets its own reconnects.
+      if (liveUpSince && Date.now() - liveUpSince > 60_000) liveReconnects = 0;
+      const recovery = liveRecovery(message, { fallbacks: liveFallbacks, reconnects: liveReconnects, online: navigator.onLine !== false, visible: document.visibilityState === 'visible', resuming });
+      // Google refused this Live model (out of quota or not available to the key): try the next model, a fresh call.
+      if (recovery === 'switch_model' && bridge?.nextLiveModel) {
         const next = bridge.nextLiveModel(bridge.liveModel?.() || '');
-        if (next) { liveFallbacks++; notice(`This Live model is out of quota. Trying ${next}…`); state.liveModel = next; autoRetry = true; setTimeout(() => el('voice').click(), 900); return; }
+        if (next) { liveFallbacks++; liveResume.resuming = false; liveResume.handle = ''; notice(`This Live model is unavailable right now. Trying ${next}…`); state.liveModel = next; autoRetry = true; setTimeout(() => el('voice').click(), 900); return; }
+      }
+      // The call dropped or Google ended the session: connect again, resuming the conversation when Google gave a handle.
+      if (recovery === 'reconnect') {
+        liveReconnects++; liveResume.resuming = !(resuming && /while starting/i.test(message)) && !!liveResume.handle; if (!liveResume.resuming) liveResume.handle = '';
+        notice('Connection dropped. Reconnecting…'); autoRetry = true; setTimeout(() => el('voice').click(), 900); return;
       }
       notice(message);
     },

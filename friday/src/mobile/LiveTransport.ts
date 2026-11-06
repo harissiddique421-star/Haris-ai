@@ -2,6 +2,13 @@ import type { AudioSocket } from '../lib/audio';
 import { MOBILE_TOOL } from './actions';
 
 export interface MobileLiveBridge { startLive(id: string): void; endLive(): void; }
+
+/**
+ * Session resumption: Google sends a handle during the call; an automatic reconnect (session ending,
+ * dropped connection) passes it back so the conversation carries on. A call the user starts is fresh.
+ * Turned off for good if Google ever refuses the setting, so calls still start.
+ */
+export const liveResume = { handle: '', resuming: false, off: (() => { try { return localStorage.getItem('friday.resumeOff') === '1'; } catch { return false; } })() };
 /** Adapt the native short-lived token and Gemini Live protocol to the PC audio engine. */
 export class MobileLiveTransport implements AudioSocket {
   readyState = 0;
@@ -44,6 +51,7 @@ export class MobileLiveTransport implements AudioSocket {
         // from interrupting her while she talks), and wait 0.8 s of silence so a brief pause doesn't end the sentence.
         realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', prefixPaddingMs: 200, silenceDurationMs: 800 } },
         inputAudioTranscription: {}, outputAudioTranscription: {}, tools: [{ functionDeclarations: [MOBILE_TOOL] }, { googleSearch: {} }],
+        ...(liveResume.off ? {} : { sessionResumption: liveResume.resuming && liveResume.handle ? { handle: liveResume.handle } : {} }),
       } }));
       this.onopen?.({});
     };
@@ -70,6 +78,8 @@ export class MobileLiveTransport implements AudioSocket {
           if (part.inlineData?.mimeType?.startsWith('audio/pcm') && part.inlineData.data) this.packet({ type: 'audio', audio: part.inlineData.data });
         }
         if (content?.turnComplete) this.packet({ type: 'turnComplete' });
+        const update = data.sessionResumptionUpdate;
+        if (update?.resumable && typeof update.newHandle === 'string' && update.newHandle.length < 4096) liveResume.handle = update.newHandle;
         if (data.goAway) this.fail('This Live session is ending. Tap Talk to start a fresh call.');
       }).catch(() => this.fail('The Live audio connection returned an unreadable message. Reconnect to continue.'));
     };
@@ -80,6 +90,10 @@ export class MobileLiveTransport implements AudioSocket {
         // Show Google's own reason so a rejected setup, quota or model problem can be told apart.
         const reason = String(event.reason || '').replace(/\s+/g, ' ').slice(0, 160);
         const when = this.ready ? 'during the call' : 'while starting';
+        // Google refused the resumption setting itself: stop asking for it so calls keep starting.
+        if (!this.ready && !liveResume.off && (event.code === 1007 || event.code === 1008) && /resum/i.test(reason)) {
+          liveResume.off = true; liveResume.handle = ''; try { localStorage.setItem('friday.resumeOff', '1'); } catch { /* private mode */ }
+        }
         this.fail(`Gemini Live disconnected ${when} (code ${event.code}${reason ? ': ' + reason : ''}). Check your key, quota and Live model in Settings.`);
       }
       else { this.packet({ type: 'status', status: 'session_closed' }); this.close(); }

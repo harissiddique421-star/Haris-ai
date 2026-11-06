@@ -37,7 +37,7 @@
     "build:android": "pwsh -NoProfile -File scripts/build-android.ps1",
     "audit:models": "node --import tsx scripts/inventory-models.ts",
     "import:character": "tsx tools/import-character.ts",
-    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts tests/emotion.test.ts tests/agents.test.ts"
+    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts tests/emotion.test.ts tests/agents.test.ts tests/recovery.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
