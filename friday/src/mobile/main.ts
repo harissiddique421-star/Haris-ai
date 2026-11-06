@@ -10,7 +10,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; guardianRecord?(): void; guardianDelete?(): void; exportBackup?(): void; importBackup?(): void; }
+interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; guardianRecord?(): void; guardianDelete?(): void; exportBackup?(): void; importBackup?(): void; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -165,7 +165,7 @@ app.innerHTML = `
       <label>Your email<input id="user-email" type="email" autocomplete="email" maxlength="120" placeholder="For &quot;email me…&quot; drafts. Stays on this phone."></label>
       <label>Gemini API key<input id="key" type="password" autocomplete="off" placeholder="Enter your own key"></label><p id="key-state" class="muted"></p>
       <label>Text model<input id="model" autocomplete="off" placeholder="Model identifier"></label>
-      <label>Live voice model<input id="live-model" autocomplete="off" placeholder="gemini-3.1-flash-live-preview"></label>
+      <label>Live voice model<input id="live-model" autocomplete="off" placeholder="gemini-3.8-live"></label>
       <label>Language<select id="language"><option value="ur-PK">Urdu / Roman Urdu (Pakistan)</option><option value="hi-IN">Hindi / Hinglish</option><option value="en-IN">English (India)</option><option value="en-US">English</option></select></label>
       <button id="save" class="primary">Save settings</button><button id="check-connection">Check key &amp; model</button><p id="settings-status" class="muted" role="status" aria-live="polite"></p>
     </div>
@@ -353,7 +353,7 @@ function append(role: string, text: string) {
 function renderHistory(all = false) { el('messages').replaceChildren(); for (const turn of (all ? state.history : state.history.slice(-4))) append(turn.role, turn.text); }
 function refreshSettings() {
   el<HTMLInputElement>('model').value = state.model;
-  el<HTMLInputElement>('live-model').value = state.liveModel || 'gemini-3.1-flash-live-preview';
+  el<HTMLInputElement>('live-model').value = state.liveModel || 'gemini-3.8-live';
   el<HTMLSelectElement>('quality').value = state.quality;
   el<HTMLSelectElement>('language').value = state.language;
   el<HTMLInputElement>('spoken').checked = state.spokenReplies === true;
@@ -483,7 +483,9 @@ function send() {
 el('send').onclick = send;
 el('input').addEventListener('keydown', event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); } });
 el('stop').onclick = () => { cancelMobileActions(); stopVoice(); bridge?.cancel(); bridge?.stopSpeech(); busy = false; requestId = ''; notice('Stopped.'); system?.stopBehaviour(); system?.setFrameInput({ activity: 'idle', emotion: 'idle' }); };
+let liveFallbacks = 0, autoRetry = false;
 el('voice').onclick = () => {
+  if (!autoRetry) liveFallbacks = 0; autoRetry = false;
   if (liveSession && liveSession.getState() !== 'disconnected') { if (el('listening').hidden) { listeningMinimized = false; showListening(true); } else { stopVoice(); notice('Live voice ended.'); } return; }
   if (!bridge) { notice('Gemini Live voice runs inside the Android app.'); return; }
   if (!state.keyConfigured) { notice('Add a working Gemini key in Settings to start Live voice.'); return; }
@@ -493,7 +495,15 @@ el('voice').onclick = () => {
     connection: { createSocket: () => new MobileLiveTransport(bridge) },
     onStateChange: liveState, onTranscription: liveTranscription,
     onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } void runMobileAction(name, args).then(result => { notice(result.message); appendAction(String((args as any)?.action || ''), result); callback(result); if (/^(?:set_(?:driving_mode|call_announce|wake_word)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => el('voice').click(), 900); }, 3500); } }); },
-    onError: message => { notice(message); stopVoice(); },
+    onError: message => {
+      stopVoice();
+      // Google refused this Live model's quota while starting: try the next model once each, then give up.
+      if (/while starting \(code 1011/i.test(message) && /quota/i.test(message) && liveFallbacks < 2 && bridge?.nextLiveModel) {
+        const next = bridge.nextLiveModel(bridge.liveModel?.() || '');
+        if (next) { liveFallbacks++; notice(`This Live model is out of quota. Trying ${next}…`); state.liveModel = next; autoRetry = true; setTimeout(() => el('voice').click(), 900); return; }
+      }
+      notice(message);
+    },
   });
   notice('Connecting to FRIDAY Live…'); void liveSession.connect(true);
 };
