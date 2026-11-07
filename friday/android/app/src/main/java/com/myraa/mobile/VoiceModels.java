@@ -31,6 +31,8 @@ final class VoiceModels {
     catch(IOException|RuntimeException e){encoderFailed=true;ControlLog.i("voice: speaker model unavailable ("+e.getClass().getSimpleName()+")");}
     return encoder;
   }
+  /** True only when loading the speaker model was tried and failed (never loads it: cheap enough for app start). */
+  static synchronized boolean encoderFailed(){return encoderFailed;}
   private static byte[] read(Context c,String name) throws IOException {
     try(InputStream in=c.getAssets().open(name)){
       ByteArrayOutputStream out=new ByteArrayOutputStream(1<<20);byte[] buf=new byte[1<<16];int n;

@@ -189,7 +189,12 @@ public class MainActivity extends Activity {
       @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
         android.util.Log.e("MyraaWeb", "Resource error " + error.getErrorCode() + ": " + request.getUrl().getPath());
       }
-      @Override public void onPageFinished(WebView view, String url) { android.util.Log.i("MyraaWeb", "Bundled page ready"); }
+      @Override public void onPageFinished(WebView view, String url) {
+        android.util.Log.i("MyraaWeb", "Bundled page loaded");
+        // If FRIDAY's screen has not started 12 s after loading (a script error on this phone), say so instead of staying blank.
+        final WebView page = view;
+        view.postDelayed(() -> { if (web == page && !isFinishing()) page.evaluateJavascript("window.__fridayReady===true", ready -> { if (web == page && !"true".equals(ready)) startupFailed(); }); }, 12000);
+      }
       @Override public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
         Uri uri = request.getUrl();
         if (!"https".equals(uri.getScheme()) || !"appassets.androidplatform.net".equals(uri.getHost())) return blocked();
@@ -228,7 +233,11 @@ public class MainActivity extends Activity {
     web.setWebChromeClient(new WebChromeClient() {
       @Override public boolean onConsoleMessage(ConsoleMessage message) {
         // Log only errors from bundled scripts, never page data or provider payloads.
-        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) android.util.Log.e("MyraaWeb", "Bundled page reported an error.");
+        if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+          android.util.Log.e("MyraaWeb", "Bundled page reported an error.");
+          // Keep the first script error (code errors only, cut short) to show if the screen fails to start.
+          if (firstPageError == null) { String m = String.valueOf(message.message()); firstPageError = (m.length() > 160 ? m.substring(0, 160) : m) + " (line " + message.lineNumber() + ")"; ControlLog.i("web: " + firstPageError); }
+        }
         return true;
       }
       @Override public boolean onJsConfirm(WebView view, String url, String message, JsResult result) {
@@ -255,6 +264,18 @@ public class MainActivity extends Activity {
     web.loadUrl(ORIGIN + "/assets/mobile.html");
   }
 
+  private String firstPageError;
+  /** FRIDAY's screen did not start: show what failed, with the phone's WebView version, instead of a blank screen. */
+  private void startupFailed() {
+    String version = "unknown";
+    try { android.content.pm.PackageInfo p = WebView.getCurrentWebViewPackage(); if (p != null) version = p.packageName + " " + p.versionName; } catch (RuntimeException ignored) {}
+    String detail = "FRIDAY could not start its screen on this phone.\n\nAndroid " + Build.VERSION.RELEASE + " (" + Build.MANUFACTURER + " " + Build.MODEL + ")\nWebView: " + version + "\nError: " + (firstPageError == null ? "none reported (the screen script did not finish)" : firstPageError)
+      + "\n\nTry: update \"Android System WebView\" and \"Chrome\" in the Play Store, then tap here to retry. Send a screenshot of this screen if it keeps happening.";
+    ControlLog.i("web: screen did not start (" + version + ")");
+    if (web != null) { try { web.destroy(); } catch (RuntimeException ignored) {} web = null; }
+    firstPageError = null;
+    showWebViewError(detail);
+  }
   private void showWebViewError(String text) {
     TextView message = new TextView(this); message.setText(text); message.setTextColor(Color.WHITE);
     message.setBackgroundColor(Color.rgb(16,19,23)); message.setPadding(30,70,30,30);
@@ -329,7 +350,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.37", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "voiceId", VoiceId.state(this), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.38", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "voiceId", VoiceId.state(this), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
