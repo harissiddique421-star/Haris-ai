@@ -160,7 +160,8 @@ export interface AudioSocket {
  * On-device speaker check for the microphone (HARIS Voice ID on the Android app). feed() takes one
  * 16-bit PCM frame (base64) and FRIDAY's activity (0 listening, 1 thinking, 2 speaking) and returns
  * JSON: "a" = audio allowed to reach Gemini, in order (["o", owner pcm base64] or ["z", silent
- * samples]); "e" = events (["owner", score] the owner started talking, ["end"|"lost"|"unknown"|"noise", score]);
+ * samples]); "e" = events (["owner", score] the owner started talking, ["end", score] the owner's turn ended
+ * (even if other people keep talking), ["unclear", score] overlapping voices hid the owner, ["unknown"|"noise", score]);
  * "s" = state; "fail" = the check stopped and the call continues without it.
  */
 export interface VoiceGateLink { feed(pcm: string, ai: number): string; stop(): void; }
@@ -209,6 +210,8 @@ export class MyraaAudioSession {
   private onMemorySync?: (memories: any[]) => void;
   /** Local voice activity: the user started (true) or stopped (false) speaking. */
   private onUserSpeech?: (speaking: boolean) => void;
+  /** Voice ID: the owner's words were hidden by other voices talking at the same time (ask them to repeat). */
+  private onVoiceUnclear?: () => void;
   private onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
   
   private connection?: AudioConnection;
@@ -254,9 +257,11 @@ export class MyraaAudioSession {
     onMemorySync?: (memories: any[]) => void;
     onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
     onUserSpeech?: (speaking: boolean) => void;
+    onVoiceUnclear?: () => void;
     connection?: AudioConnection;
   }) {
     this.onUserSpeech = handlers.onUserSpeech;
+    this.onVoiceUnclear = handlers.onVoiceUnclear;
     this.connection = handlers.connection;
     this.onStateChange = handlers.onStateChange;
     this.onTranscription = handlers.onTranscription;
@@ -721,6 +726,7 @@ export class MyraaAudioSession {
       return;
     }
     if (result.s) this.voiceIdState = result.s;
+    let ownerTurnEnded = false, unclear = false;
     for (const [name] of result.e || []) {
       if (name === "owner") {
         if (!this.userSpeaking) {
@@ -734,13 +740,9 @@ export class MyraaAudioSession {
           this.onUserSpeech?.(true);
         }
       } else if (name === "end" || name === "lost") {
-        if (this.userSpeaking) {
-          this.userSpeaking = false;
-          this.timings.lastSpeechEndAt = Date.now();
-          this.emitConversationEvent("user_stopped_speaking");
-          this.onUserSpeech?.(false);
-        }
+        ownerTurnEnded = true;
       } else if (name === "unknown") this.voiceIdIgnored++;
+      else if (name === "unclear") { this.voiceIdIgnored++; unclear = true; }
     }
     const outputNow = this.currentState === "speaking" || this.activeSources.length > 0;
     for (const [kind, value] of result.a || []) {
@@ -748,6 +750,16 @@ export class MyraaAudioSession {
       // Silence keeps Gemini's timing (it hears when the owner stopped); nothing is sent while FRIDAY talks, as before.
       else if (kind === "z" && typeof value === "number" && value > 0 && !outputNow) this.forwardAudio(this.silence(value));
     }
+    if (ownerTurnEnded && this.userSpeaking) {
+      // The owner stopped talking (other people may still be talking): tell Gemini the turn is over
+      // now, after the owner's audio, instead of waiting for the room to go quiet.
+      this.userSpeaking = false;
+      this.timings.lastSpeechEndAt = Date.now();
+      this.emitConversationEvent("user_stopped_speaking");
+      this.onUserSpeech?.(false);
+      if (this.liveReady && this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "audioEnd" }));
+    }
+    if (unclear && !outputNow) this.onVoiceUnclear?.();
   }
 
   private silence(samples: number): string {

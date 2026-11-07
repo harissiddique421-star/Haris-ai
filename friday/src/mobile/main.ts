@@ -47,6 +47,13 @@ function voiceGateLink() {
   return { feed: (pcm: string, ai: number) => bridge.voiceGateFeed!(id, pcm, ai), stop: () => bridge.voiceGateStop?.(id) };
 }
 let voiceIdCallNote = '';
+let lastUnclearAt = 0;
+/** Voice ID heard the owner but other voices overlapped too much to be sure: FRIDAY asks once to repeat (at most every 10 s). */
+function voiceUnclear() {
+  if (Date.now() - lastUnclearAt < 10_000 || !liveSession || liveSession.getState() === 'disconnected') return;
+  lastUnclearAt = Date.now();
+  liveSession.sendText('[Phone] Voice ID: the owner said something but other people were talking at the same time, so it was not clear enough to accept. In one short line, in the owner\'s language, ask them to repeat. Do not guess what they said.');
+}
 let fullBody = true;
 let liveSession: MyraaAudioSession | null = null;
 let liveCaption: { role: string; body: HTMLElement } | null = null;
@@ -717,6 +724,7 @@ el('voice').onclick = () => {
   const resuming = liveResume.resuming; liveUpSince = 0;
   liveSession = new MyraaAudioSession({
     onUserSpeech: userSpeech,
+    onVoiceUnclear: voiceUnclear,
     connection: { createSocket: () => new MobileLiveTransport(bridge), voiceGate: voiceGateLink },
     onStateChange: liveState, onTranscription: liveTranscription,
     onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, withHeard(args)).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
