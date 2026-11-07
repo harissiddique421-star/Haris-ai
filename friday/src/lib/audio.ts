@@ -156,7 +156,15 @@ export interface AudioSocket {
   send(data: string): void;
   close(): void;
 }
-export interface AudioConnection { createSocket(): AudioSocket; pitch?: number; }
+/**
+ * On-device speaker check for the microphone (HARIS Voice ID on the Android app). feed() takes one
+ * 16-bit PCM frame (base64) and FRIDAY's activity (0 listening, 1 thinking, 2 speaking) and returns
+ * JSON: "a" = audio allowed to reach Gemini, in order (["o", owner pcm base64] or ["z", silent
+ * samples]); "e" = events (["owner", score] the owner started talking, ["end"|"lost"|"unknown"|"noise", score]);
+ * "s" = state; "fail" = the check stopped and the call continues without it.
+ */
+export interface VoiceGateLink { feed(pcm: string, ai: number): string; stop(): void; }
+export interface AudioConnection { createSocket(): AudioSocket; pitch?: number; voiceGate?: () => VoiceGateLink | null; }
 
 export class MyraaAudioSession {
   private ws: AudioSocket | null = null;
@@ -224,6 +232,12 @@ export class MyraaAudioSession {
   /** The last half second while FRIDAY talks, so a barge-in keeps the first words of the user's sentence. */
   private bargeInPreRoll: string[] = [];
   private readonly bargeInPreRollChunks = 8;
+  /** Voice ID: when set, only audio the phone verified as the owner's voice reaches Gemini, and only the owner can interrupt FRIDAY. */
+  private gate: VoiceGateLink | null = null;
+  /** Last Voice ID state ("AUTHORIZED_USER", "UNKNOWN_SPEAKER", ...), for diagnostics. */
+  public voiceIdState = "";
+  public voiceIdIgnored = 0;
+  private silenceCache = new Map<number, string>();
 
   /** Timings only (no audio, no text), shown in Settings diagnostics to see where a delay comes from. */
   public readonly timings: {
@@ -310,6 +324,7 @@ export class MyraaAudioSession {
     this.useMicrophone = useMicrophone;
     this.timings.connectStartedAt = Date.now();
     this.setState("connecting");
+    if (useMicrophone) { try { this.gate = this.connection?.voiceGate?.() ?? null; } catch { this.gate = null; } }
 
     try {
       if (useMicrophone && !this.connection) {
@@ -661,6 +676,7 @@ export class MyraaAudioSession {
   private onMicrophoneFrame(channelData: Float32Array) {
     this.lastMicFrameAt = performance.now();
     if (this.currentState === "disconnected") return;
+    if (this.gate) { this.onGatedFrame(this.gate, channelData); return; }
 
     const shouldForwardMicrophone = this.updateVoiceActivity(channelData);
     if (!shouldForwardMicrophone) {
@@ -682,6 +698,72 @@ export class MyraaAudioSession {
       const preRoll = this.bargeInPreRoll.splice(0);
       // Only a real barge-in sends it; otherwise it is FRIDAY's own voice and is dropped.
       if (this.userSpeaking) for (const chunk of preRoll) this.sendAudio(chunk);
+    }
+    this.sendAudio(base64);
+  }
+
+  /**
+   * Voice ID path: the phone decides what Gemini hears. Owner speech is forwarded (interrupting
+   * FRIDAY if she is talking); anyone else, the TV and FRIDAY's own echo become silence, and never
+   * stop her reply.
+   */
+  private onGatedFrame(gate: VoiceGateLink, channelData: Float32Array) {
+    const myraaOutputActive = this.currentState === "speaking" || this.activeSources.length > 0;
+    let result: { a?: [string, string | number][]; e?: [string, number][]; s?: string; fail?: string };
+    try { result = JSON.parse(gate.feed(base64ArrayBuffer(floatTo16BitPCM(channelData)), myraaOutputActive ? 2 : 0)); }
+    catch { result = { fail: "Voice ID did not answer" }; }
+    if (result.fail) {
+      // Keep the call working without Voice ID; diagnostics show why.
+      this.timings.lastMicIssue = `Voice ID off for this call: ${result.fail}`;
+      this.voiceIdState = "ERROR";
+      try { gate.stop(); } catch { /* stopped */ }
+      this.gate = null;
+      return;
+    }
+    if (result.s) this.voiceIdState = result.s;
+    for (const [name] of result.e || []) {
+      if (name === "owner") {
+        if (!this.userSpeaking) {
+          this.userSpeaking = true;
+          if (myraaOutputActive) {
+            this.emitConversationEvent("user_interrupted_myraa");
+            this.handleInterruption();
+          }
+          this.micRestarts = 0;
+          this.emitConversationEvent("user_started_speaking");
+          this.onUserSpeech?.(true);
+        }
+      } else if (name === "end" || name === "lost") {
+        if (this.userSpeaking) {
+          this.userSpeaking = false;
+          this.timings.lastSpeechEndAt = Date.now();
+          this.emitConversationEvent("user_stopped_speaking");
+          this.onUserSpeech?.(false);
+        }
+      } else if (name === "unknown") this.voiceIdIgnored++;
+    }
+    const outputNow = this.currentState === "speaking" || this.activeSources.length > 0;
+    for (const [kind, value] of result.a || []) {
+      if (kind === "o" && typeof value === "string") this.forwardAudio(value);
+      // Silence keeps Gemini's timing (it hears when the owner stopped); nothing is sent while FRIDAY talks, as before.
+      else if (kind === "z" && typeof value === "number" && value > 0 && !outputNow) this.forwardAudio(this.silence(value));
+    }
+  }
+
+  private silence(samples: number): string {
+    let cached = this.silenceCache.get(samples);
+    if (!cached) {
+      cached = base64ArrayBuffer(new ArrayBuffer(samples * 2));
+      if (this.silenceCache.size < 32) this.silenceCache.set(samples, cached);
+    }
+    return cached;
+  }
+
+  private forwardAudio(base64: string) {
+    if (!this.liveReady) {
+      this.preReadyAudio.push(base64);
+      if (this.preReadyAudio.length > this.preReadyMaxChunks) this.preReadyAudio.shift();
+      return;
     }
     this.sendAudio(base64);
   }
@@ -878,6 +960,7 @@ export class MyraaAudioSession {
     if (this.turnWatchdog) { clearTimeout(this.turnWatchdog); this.turnWatchdog = null; }
     this.preReadyAudio = [];
     this.bargeInPreRoll = [];
+    if (this.gate) { try { this.gate.stop(); } catch { /* already stopped */ } this.gate = null; }
     this.setState("disconnected");
 
     // Close WS socket

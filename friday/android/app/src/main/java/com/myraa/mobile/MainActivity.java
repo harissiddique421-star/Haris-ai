@@ -149,6 +149,19 @@ public class MainActivity extends Activity {
       "status",WakeWordService.status(this),"sensitivity",WakeWordService.sensitivity(this),"nameOnly",WakeWordService.nameOnly(this),"openFromBackground",Settings.canDrawOverlays(this),
       "voiceprint",VoiceGuardian.hasVoiceprint(this),"silenceMs",VoiceGuardian.silenceMs(this));
   }
+  private final Object voiceGateLock = new Object();
+  private VoiceGateSession voiceGate;
+  private int voiceGateId;
+  private void voiceIdEvent(String status,int step,int total,String message){emit(json("type","voiceid","status",status,"step",step,"total",total,"message",message,"voiceId",VoiceId.state(this)));}
+  /** who: null = register, "owner" / "other" = test. Uses the phone's microphone, so not during a Live call. */
+  private void voiceIdRecord(String who){
+    if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},WAKE_MIC_REQUEST);voiceIdEvent("error",0,0,"Allow the microphone, then try again.");return;}
+    if(LiveVoiceService.running){voiceIdEvent("error",0,0,"End the Live call first, then record your voice.");return;}
+    WakeWordService.livePaused(this,true);
+    VoiceId.Progress p=(status,step,total,message)->runOnUiThread(()->voiceIdEvent(status,step,total,message));
+    Runnable done=()->runOnUiThread(()->{WakeWordService.livePaused(MainActivity.this,false);WakeWordService.refresh(MainActivity.this);voiceIdEvent("done",0,0,"");});
+    if(who==null)VoiceId.register(this,p,done);else VoiceId.test(this,who,p,done);
+  }
   private void guardianEvent(String status,int step,String message){emit(json("type","guardian","status",status,"step",step,"message",message,"wake",wakeState()));}
 
   @SuppressWarnings("SetJavaScriptEnabled") private void createWebView() {
@@ -316,7 +329,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.35", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.37", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "voiceId", VoiceId.state(this), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -522,6 +535,31 @@ public class MainActivity extends Activity {
       WakeWordService.livePaused(MainActivity.this, true);
       VoiceGuardian.record(MainActivity.this, (status, step, message) -> runOnUiThread(() -> guardianEvent(status, step, message)), () -> runOnUiThread(() -> { WakeWordService.livePaused(MainActivity.this, false); WakeWordService.refresh(MainActivity.this); guardianEvent("done", 0, ""); }));
     }); }
+    // ---- HARIS Voice ID (see VoiceId): enrollment, tests and the Live call gate
+    @JavascriptInterface public void voiceIdRegister() { runOnUiThread(() -> voiceIdRecord(null)); }
+    @JavascriptInterface public void voiceIdTest(String who) { runOnUiThread(() -> voiceIdRecord("other".equals(who) ? "other" : "owner")); }
+    @JavascriptInterface public void voiceIdDelete() { runOnUiThread(() -> { VoiceId.delete(MainActivity.this); voiceIdEvent("deleted", 0, 0, "Your voice profile is deleted. Anyone's voice can talk to FRIDAY again."); }); }
+    @JavascriptInterface public void voiceIdOptions(String raw) { runOnUiThread(() -> {
+      try { JSONObject in = new JSONObject(raw == null ? "{}" : raw);
+        if (in.has("on")) VoiceId.setWanted(MainActivity.this, in.optBoolean("on"));
+        if (in.has("sensitivity")) VoiceId.setSensitivity(MainActivity.this, in.optString("sensitivity"));
+      } catch (JSONException ignored) {}
+      voiceIdEvent("options", 0, 0, "");
+    }); }
+    /** Starts the gate for a new Live call: {"on":true,"id":n} or {"on":false,"reason":"..."}. */
+    @JavascriptInterface public String voiceGateStart() {
+      synchronized (voiceGateLock) {
+        if (voiceGate != null) voiceGate.stop();
+        String[] why = {""}; voiceGate = VoiceId.startGate(MainActivity.this, why); int id = ++voiceGateId;
+        try { return new JSONObject().put("on", voiceGate != null).put("id", id).put("reason", why[0]).toString(); } catch (JSONException e) { return "{\"on\":false}"; }
+      }
+    }
+    @JavascriptInterface public String voiceGateFeed(int id, String pcm, int ai) {
+      VoiceGateSession g; synchronized (voiceGateLock) { g = id == voiceGateId ? voiceGate : null; }
+      return g == null ? "{\"fail\":\"Voice ID is not running\"}" : g.feed(pcm, ai);
+    }
+    @JavascriptInterface public void voiceGateStop(int id) { synchronized (voiceGateLock) { if (id == voiceGateId && voiceGate != null) { voiceGate.stop(); voiceGate = null; } } }
+    @JavascriptInterface public String voiceGateStatus() { VoiceGateSession g; synchronized (voiceGateLock) { g = voiceGate; } return g == null ? (VoiceId.active(MainActivity.this) ? "Voice ID on (no call running)" : "Voice ID off") : g.diagnostics(); }
     // ---- wake word options and test
     @JavascriptInterface public void wakeOptions(String raw) { runOnUiThread(() -> {
       try { JSONObject in = new JSONObject(raw == null ? "{}" : raw);
@@ -844,6 +882,7 @@ public class MainActivity extends Activity {
     if(activationLocked){super.onDestroy();return;}
     pendingUiAction=null;if(mobileActions!=null)mobileActions.close();try{unregisterReceiver(stopLiveReceiver);}catch(IllegalArgumentException ignored){}
     cancelLive(); liveNetwork.shutdownNow();
+    synchronized (voiceGateLock) { if (voiceGate != null) voiceGate.stop(); voiceGate = null; }
     synchronized (settingsLock) { settingsGeneration.incrementAndGet(); if (settingsConnection != null) settingsConnection.disconnect(); }
     settingsNetwork.shutdownNow();
     generation.incrementAndGet(); if (activeConnection != null) activeConnection.disconnect(); network.shutdownNow();

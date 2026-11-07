@@ -14,7 +14,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; }
+interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -36,6 +36,17 @@ function runMobileAction(name: string, args: unknown): Promise<any> {
     actionRequests.set(id, { resolve, timer }); bridge.mobileAction(id, name, JSON.stringify(args));
   });
 }
+/** HARIS Voice ID for a Live call: the phone checks who is speaking before any audio reaches Gemini (see VoiceGate.java). */
+function voiceGateLink() {
+  if (!bridge?.voiceGateStart || !bridge.voiceGateFeed) return null;
+  let started: { on?: boolean; id?: number; reason?: string };
+  try { started = JSON.parse(bridge.voiceGateStart()); } catch { return null; }
+  voiceIdCallNote = started.on ? '' : String(started.reason || 'off');
+  if (!started.on || typeof started.id !== 'number') return null;
+  const id = started.id;
+  return { feed: (pcm: string, ai: number) => bridge.voiceGateFeed!(id, pcm, ai), stop: () => bridge.voiceGateStop?.(id) };
+}
+let voiceIdCallNote = '';
 let fullBody = true;
 let liveSession: MyraaAudioSession | null = null;
 let liveCaption: { role: string; body: HTMLElement } | null = null;
@@ -52,7 +63,12 @@ function lifecycleDiagnostics() { try { const line = bridge?.lifecycleStatus?.()
 function voiceDiagnostics() {
   const t = liveSession?.timings || lastVoiceTimings; if (!t || !t.connectStartedAt) return '';
   const after = (at: number) => at ? `${at - t.connectStartedAt} ms` : 'not yet';
-  return `\n\nLive voice: online ${navigator.onLine !== false ? 'yes' : 'no'} · microphone ready after ${after(t.micReadyAt)} · Gemini ready after ${after(t.liveReadyAt)} · last reply started ${t.lastReplyLatencyMs >= 0 ? t.lastReplyLatencyMs + ' ms' : '-'} after you stopped speaking · microphone restarts ${t.micRestarts}${t.lastMicIssue ? ' (' + t.lastMicIssue + ')' : ''} · tone ${emotions.emotion}\nAgents: ${orchestrator.summary()}`;
+  return `\n\nLive voice: online ${navigator.onLine !== false ? 'yes' : 'no'} · microphone ready after ${after(t.micReadyAt)} · Gemini ready after ${after(t.liveReadyAt)} · last reply started ${t.lastReplyLatencyMs >= 0 ? t.lastReplyLatencyMs + ' ms' : '-'} after you stopped speaking · microphone restarts ${t.micRestarts}${t.lastMicIssue ? ' (' + t.lastMicIssue + ')' : ''} · tone ${emotions.emotion}\nVoice ID: ${voiceIdDiagnostics()}\nAgents: ${orchestrator.summary()}`;
+}
+function voiceIdDiagnostics() {
+  let line = ''; try { line = bridge?.voiceGateStatus?.() || ''; } catch { /* older app */ }
+  const t = liveSession;
+  return (line || 'not available') + (voiceIdCallNote ? ` (${voiceIdCallNote})` : '') + (t?.voiceIdState ? ` · state ${t.voiceIdState} · ignored this call ${t.voiceIdIgnored}` : '');
 }
 /** Tone of the conversation (see emotion.ts) and what FRIDAY is doing on the phone, for follow-up commands. */
 const emotions = new EmotionEngine();
@@ -282,6 +298,13 @@ app.innerHTML = `
         <label class="check"><input id="guardian-on" type="checkbox"> Only wake for my voice</label>
         <div class="row"><button id="guardian-record" type="button">Record my voice</button><button id="guardian-delete" type="button">Delete my voice</button></div>
         <p id="guardian-note" class="muted"></p></div>
+      <div class="card"><b>HARIS Voice ID</b><small>During a Live call FRIDAY listens only to your registered voice: other people, the TV and her own voice are ignored and cannot interrupt her. Register by reading six short sentences in a quiet place. Only a voice summary is kept, encrypted on this phone; no audio is saved or uploaded. Voice recognition is not perfect, and a recording of your voice could pass it, so FRIDAY still asks before sensitive actions.</small>
+        <p class="wake-status">Voice Profile: <b id="voiceid-status">Not Registered</b></p>
+        <label class="check"><input id="voiceid-on" type="checkbox"> Only respond to my voice in Live calls</label>
+        <label>Voice ID sensitivity<select id="voiceid-sensitivity"><option value="strict">Strict · fewer other voices accepted</option><option value="balanced">Balanced</option><option value="relaxed">Relaxed · fewer of my commands missed</option></select></label>
+        <div class="row"><button id="voiceid-register" type="button">Register My Voice</button><button id="voiceid-test" type="button">Test My Voice</button></div>
+        <div class="row"><button id="voiceid-test-other" type="button">Test someone else</button><button id="voiceid-delete" type="button">Delete Voice Profile</button></div>
+        <p id="voiceid-note" class="muted" role="status" aria-live="polite"></p></div>
       <div class="card"><b>Conversation</b><small>If you go quiet for about 45 seconds during a Live call with FRIDAY on screen, she asks once whether you need anything else, then waits at least 10 minutes before asking again.</small>
         <label class="check"><input id="idle-checkin" type="checkbox"> Check in when I go quiet</label>
         <label class="check"><input id="greet-on-start" type="checkbox"> Say a short hello when FRIDAY starts listening</label></div>
@@ -447,9 +470,28 @@ function renderWake() {
   el('wake-note').textContent = w.status === 'battery_restricted' ? 'Android may stop the wake word in the background. Allow "Battery: no optimization" in Permissions.' : w.status === 'permission_required' ? 'Allow the Microphone and App notifications for FRIDAY in Permissions.' : w.on && w.openFromBackground === false ? 'To open FRIDAY by voice while you use other apps, allow "Display over other apps" in Permissions. Without it you get a "Tap to talk" alert.' : w.locked && w.fullScreen === false ? 'To turn the screen on when locked, allow "Wake up on the lock screen" in Permissions.' : w.available === false ? 'This phone has no speech recognizer. Install or update the Google app to use the wake word.' : w.on && !w.running ? 'Starting… if it does not start, allow the microphone for FRIDAY.' : w.on ? 'Listening while your phone is unlocked.' : '';
   const email = el<HTMLInputElement>('user-email'); if (document.activeElement !== email) email.value = state.assistant?.email || '';
 }
+let voiceIdBusy = false;
+function renderVoiceId() {
+  const v = state.voiceId || {};
+  if (!document.getElementById('voiceid-status')) return;
+  el('voiceid-status').textContent = v.registered ? 'Registered' : v.unreadable ? 'Not Registered (saved profile unreadable, register again)' : 'Not Registered';
+  el<HTMLInputElement>('voiceid-on').checked = !!(v.on && v.registered);
+  el<HTMLInputElement>('voiceid-on').disabled = !v.registered || voiceIdBusy;
+  el<HTMLSelectElement>('voiceid-sensitivity').value = String(v.sensitivity || 'balanced');
+  el<HTMLSelectElement>('voiceid-sensitivity').disabled = !v.registered || voiceIdBusy;
+  el('voiceid-register').textContent = v.registered ? 'Re-register' : 'Register My Voice';
+  for (const id of ['voiceid-register', 'voiceid-test', 'voiceid-test-other', 'voiceid-delete']) el<HTMLButtonElement>(id).disabled = voiceIdBusy || !!v.recording;
+  el('voiceid-test').hidden = !v.registered; el('voiceid-test-other').hidden = !v.registered; el('voiceid-delete').hidden = !v.registered;
+  if (voiceIdBusy) return;
+  const t = v.tests || {};
+  const tests = [t.ownerTests ? `your voice accepted ${t.ownerAccepted || 0} of ${t.ownerTests}` : '', t.otherTests ? `other voices refused ${(t.otherTests || 0) - (t.otherAccepted || 0)} of ${t.otherTests}` : ''].filter(Boolean).join(', ');
+  el('voiceid-note').textContent = v.models === false ? 'The voice model could not be loaded on this phone, so Voice ID cannot run.'
+    : !v.registered ? 'No voice registered. Live calls answer any voice, as before.'
+    : `${v.on ? 'On' : 'Off'}: ${v.summary || ''}.${tests ? ` Tests on this phone: ${tests}.` : ' Use the Test buttons to check it with your voice and someone else\'s.'}`;
+}
 function setAnnounce(change: Record<string, boolean>) { bridge?.setAssistant?.(JSON.stringify(change)); }
 function renderAssistant() {
-  renderAnnounce(); renderWake();
+  renderAnnounce(); renderWake(); renderVoiceId();
   const a = state.assistant || {}; el('hello-name').textContent = a.name || 'there';
   if (!personaTab) personaTab = a.persona || 'friday';
   const tabs = el('persona-tabs'); tabs.replaceChildren();
@@ -556,6 +598,16 @@ window.MyraaEvents = event => {
     const again = event.again === true ? ' They are calling again.' : '';
     const known = event.number === true ? ' This number is not saved in contacts.' : '';
     if (liveSession && liveSession.getState() !== 'disconnected') { orchestrator.phonePrompted(); liveSession.sendText(`[Phone] Incoming call from ${caller}.${again}${known} Say who is calling in one short line and ask whether to pick up or reject.`); }
+    return;
+  }
+  if (event.type === 'voiceid') {
+    if (event.voiceId) state.voiceId = event.voiceId;
+    voiceIdBusy = event.status === 'listen' || event.status === 'heard';
+    const step = event.total ? `(${event.step} of ${event.total}) ` : '';
+    if (event.message) el('voiceid-note').textContent = (event.status === 'listen' ? step : '') + event.message;
+    if (event.status === 'done') { voiceIdBusy = false; const keep = el('voiceid-note').textContent; renderVoiceId(); if (keep) el('voiceid-note').textContent = keep; }
+    else renderVoiceId();
+    if (event.status === 'registered' || event.status === 'deleted' || event.status === 'error') notice(event.message);
     return;
   }
   if (event.type === 'guardian') {
@@ -665,7 +717,7 @@ el('voice').onclick = () => {
   const resuming = liveResume.resuming; liveUpSince = 0;
   liveSession = new MyraaAudioSession({
     onUserSpeech: userSpeech,
-    connection: { createSocket: () => new MobileLiveTransport(bridge) },
+    connection: { createSocket: () => new MobileLiveTransport(bridge), voiceGate: voiceGateLink },
     onStateChange: liveState, onTranscription: liveTranscription,
     onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, withHeard(args)).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
       // Gemini gets the tone to use and what is open/playing now, so follow-ups like "volume kam karo" or "Quran wali video chalao" need no extra questions.
@@ -747,6 +799,13 @@ el('wake-locked').onchange = () => bridge?.setAssistant?.(JSON.stringify({ wakeL
 el('guardian-on').onchange = () => bridge?.setAssistant?.(JSON.stringify({ guardian: el<HTMLInputElement>('guardian-on').checked }));
 el('guardian-record').onclick = () => { guardianBusy = true; el('guardian-note').textContent = 'Get ready…'; el<HTMLButtonElement>('guardian-record').disabled = true; bridge?.guardianRecord?.(); };
 el('guardian-delete').onclick = () => { if (confirm('Delete your saved voice?')) bridge?.guardianDelete?.(); };
+function voiceIdStart(message: string, call: () => void) { voiceIdBusy = true; el('voiceid-note').textContent = message; renderVoiceId(); call(); }
+el('voiceid-register').onclick = () => { if (!bridge?.voiceIdRegister) { notice('Voice ID needs the updated Android app.'); return; } voiceIdStart('Get ready to read six sentences…', () => bridge.voiceIdRegister!()); };
+el('voiceid-test').onclick = () => voiceIdStart('Get ready…', () => bridge?.voiceIdTest?.('owner'));
+el('voiceid-test-other').onclick = () => voiceIdStart('Hand the phone to someone else…', () => bridge?.voiceIdTest?.('other'));
+el('voiceid-delete').onclick = () => { if (confirm('Delete your voice profile? Live calls will answer any voice again.')) bridge?.voiceIdDelete?.(); };
+el('voiceid-on').onchange = () => bridge?.voiceIdOptions?.(JSON.stringify({ on: el<HTMLInputElement>('voiceid-on').checked }));
+el('voiceid-sensitivity').onchange = () => bridge?.voiceIdOptions?.(JSON.stringify({ sensitivity: el<HTMLSelectElement>('voiceid-sensitivity').value }));
 el('wake-word').onchange = () => bridge?.setAssistant?.(JSON.stringify({ wakeWord: el<HTMLInputElement>('wake-word').checked }));
 el('wake-sensitivity').onchange = () => bridge?.wakeOptions?.(JSON.stringify({ sensitivity: el<HTMLSelectElement>('wake-sensitivity').value }));
 el('wake-name-only').onchange = () => bridge?.wakeOptions?.(JSON.stringify({ nameOnly: el<HTMLInputElement>('wake-name-only').checked }));
