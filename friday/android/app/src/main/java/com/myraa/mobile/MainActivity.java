@@ -96,9 +96,10 @@ public class MainActivity extends Activity {
     tts = new TextToSpeech(this, status -> {
       ttsReady = status == TextToSpeech.SUCCESS;
       if (ttsReady) tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-        @Override public void onStart(String id) { emit(json("type", "speech", "active", true)); }
-        @Override public void onDone(String id) { emit(json("type", "speech", "active", false)); }
-        @Override public void onError(String id) { emit(json("type", "speech", "active", false)); error("tts", "The installed speech engine could not speak. Text remains available.", null); }
+        @Override public void onStart(String id) { SelfSpeech.started(); emit(json("type", "speech", "active", true)); }
+        @Override public void onDone(String id) { SelfSpeech.finished(); emit(json("type", "speech", "active", false)); }
+        @Override public void onStop(String id, boolean interrupted) { SelfSpeech.finished(); }
+        @Override public void onError(String id) { SelfSpeech.finished(); emit(json("type", "speech", "active", false)); error("tts", "The installed speech engine could not speak. Text remains available.", null); }
       });
     });
     memory=new AssistantMemory(this);permissionsCenter=new PermissionsCenter(this);
@@ -145,7 +146,8 @@ public class MainActivity extends Activity {
     boolean fullScreen=Build.VERSION.SDK_INT<34||getSystemService(NotificationManager.class).canUseFullScreenIntent();
     return json("on",WakeWordService.wanted(this),"running",WakeWordService.running,"available",android.speech.SpeechRecognizer.isRecognitionAvailable(this)||VoiceGuardian.active(this),
       "locked",WakeWordService.whenLocked(this),"guardian",VoiceGuardian.wanted(this),"enrolled",VoiceGuardian.enrolled(this),"recording",VoiceGuardian.recording,"fullScreen",fullScreen||Settings.canDrawOverlays(this),
-      "status",WakeWordService.status(this),"sensitivity",WakeWordService.sensitivity(this),"nameOnly",WakeWordService.nameOnly(this),"openFromBackground",Settings.canDrawOverlays(this));
+      "status",WakeWordService.status(this),"sensitivity",WakeWordService.sensitivity(this),"nameOnly",WakeWordService.nameOnly(this),"openFromBackground",Settings.canDrawOverlays(this),
+      "voiceprint",VoiceGuardian.hasVoiceprint(this),"silenceMs",VoiceGuardian.silenceMs(this));
   }
   private void guardianEvent(String status,int step,String message){emit(json("type","guardian","status",status,"step",step,"message",message,"wake",wakeState()));}
 
@@ -479,6 +481,7 @@ public class MainActivity extends Activity {
             if ("needs_microphone".equals(status)) requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST);
             else if ("unavailable".equals(status)) { WakeWordService.setWanted(MainActivity.this, false); throw new IllegalArgumentException("This phone has no speech recognizer, so the wake word cannot work. Install or update the Google app."); }
           }
+          if (input.has("silenceMs")) { VoiceGuardian.setSilenceMs(MainActivity.this, input.optInt("silenceMs", 800)); WakeWordService.refresh(MainActivity.this); }
           if (input.has("wakeLocked")) { WakeWordService.setWhenLocked(MainActivity.this, input.optBoolean("wakeLocked")); WakeWordService.refresh(MainActivity.this); }
           if (input.has("guardian")) {
             boolean on = input.optBoolean("guardian");
@@ -791,10 +794,10 @@ public class MainActivity extends Activity {
     emit(json("type","wake-test","status","listening","message","Say \"Wake up FRIDAY\" now…"));
     if(VoiceGuardian.active(this)){
       new Thread(()->{
-        android.media.AudioRecord r=null;short[] u=null;String problem=null;
-        try{Thread.sleep(600);r=VoiceGuardian.open();r.startRecording();u=VoiceGuardian.nextUtterance(r,()->false,8000);}
+        MicInput r=null;short[] u=null;String problem=null;
+        try{Thread.sleep(600);r=VoiceGuardian.open();r.start();final MicInput mic=r;u=VoiceGuardian.segmenter(this,VoiceGuardian.WAKE_MAX_MS).next(mic::readFully,()->false,8000);}
         catch(InterruptedException e){Thread.currentThread().interrupt();}catch(RuntimeException e){problem="The microphone is busy. Close other apps using it and try again.";}
-        finally{if(r!=null){try{r.stop();}catch(RuntimeException ignored){}r.release();}}
+        finally{if(r!=null)r.close();}
         double[] sc=u==null?null:VoiceGuardian.score(this,u);
         final boolean ok=sc!=null&&sc[0]<=1&&sc[1]<=1;final String why=problem;final short[] heard=u;
         runOnUiThread(()->{

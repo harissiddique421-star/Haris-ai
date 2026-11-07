@@ -62,6 +62,13 @@ final class Announcer {
           ready=status==TextToSpeech.SUCCESS;
           if(ready){
             tts.setSpeechRate(0.95f);
+            // FRIDAY's own voice must not wake FRIDAY: the wake listener ignores speech while this talks.
+            tts.setOnUtteranceProgressListener(new android.speech.tts.UtteranceProgressListener(){
+              @Override public void onStart(String id){SelfSpeech.started();}
+              @Override public void onDone(String id){SelfSpeech.finished();}
+              @Override public void onStop(String id,boolean interrupted){SelfSpeech.finished();}
+              @Override public void onError(String id){SelfSpeech.finished();}
+            });
             tts.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build());
             Locale l=Locale.forLanguageTag(prefs(context).getString("language","hi-IN"));
             int r=tts.setLanguage(l);if((r==TextToSpeech.LANG_MISSING_DATA||r==TextToSpeech.LANG_NOT_SUPPORTED)&&l.getLanguage().equals("ur"))r=tts.setLanguage(Locale.forLanguageTag("hi-IN"));if(r==TextToSpeech.LANG_MISSING_DATA||r==TextToSpeech.LANG_NOT_SUPPORTED)tts.setLanguage(Locale.ENGLISH);

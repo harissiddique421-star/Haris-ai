@@ -13,11 +13,17 @@ import java.util.*;
  * Voice Guardian: FRIDAY wakes only when the wake phrase is said in the user's own voice.
  *
  * The user records "Wake up FRIDAY" three times. Each recording becomes a sequence of MFCC
- * frames (a compact description of how the voice sounds over time) plus an average voice
- * colour. At listening time every short burst of speech is compared with the three
- * recordings by dynamic time warping, so it must be the same phrase said in a similar voice.
+ * frames (how the phrase sounds over time) and a voiceprint from the GE2E speaker encoder
+ * (who is speaking; see VoiceEncoder). At listening time Silero VAD cuts the microphone into
+ * bursts of speech (see SpeechSegmenter); each burst must match the phrase (dynamic time warping
+ * against the three recordings) and the voice (cosine similarity of voiceprints above a
+ * threshold set from the user's own recordings and the sensitivity). Anyone else saying the
+ * phrase, or the user saying something else, is ignored.
  * Everything runs on the phone without internet. Only these numbers are kept, in the app's
  * private storage; no audio is saved and nothing is logged except match scores.
+ *
+ * Voices saved by older versions (no voiceprint) keep working with the earlier average-colour
+ * check until the user taps Record again.
  *
  * This is a basic speaker check, not bank-grade security: a recording of the user's voice can
  * pass it. That is why waking on a locked phone still asks for the phone's own unlock.
@@ -36,7 +42,7 @@ final class VoiceGuardian {
   static boolean enrolled(Context c){return new File(c.getFilesDir(),FILE).isFile();}
   /** Guardian decides the wake only when it is turned on and the user's voice is recorded. */
   static boolean active(Context c){return wanted(c)&&enrolled(c);}
-  static void delete(Context c){new File(c.getFilesDir(),FILE).delete();setWanted(c,false);cached=null;}
+  static void delete(Context c){new File(c.getFilesDir(),FILE).delete();setWanted(c,false);synchronized(VoiceGuardian.class){cached=null;nearMisses.clear();}}
 
   // ---- recording the user's voice
   interface Progress { void update(String status,int step,String message); }
@@ -46,13 +52,14 @@ final class VoiceGuardian {
     if(recording){p.update("busy",0,"Already recording.");return;}
     recording=true;Context app=c.getApplicationContext();
     new Thread(()->{
-      AudioRecord r=null;
+      MicInput r=null;
       try{
         Thread.sleep(700); // let the wake word listener release the microphone
-        r=open();r.startRecording();List<short[]> takes=new ArrayList<>();
+        r=open();r.start();List<short[]> takes=new ArrayList<>();
+        SpeechSegmenter seg=segmenter(app,ENROLL_MAX_MS);final MicInput mic=r;
         for(int i=1;i<=3;i++){
           p.update("listen",i,"Say \"Wake up FRIDAY\" now ("+i+" of 3).");
-          short[] u=nextUtterance(r,()->false,7000);
+          short[] u=seg.next(mic::readFully,()->false,7000);
           if(u==null){p.update("error",i,"I didn't hear you. Tap Record my voice and try again in a quiet place.");return;}
           takes.add(u);p.update("heard",i,i<3?"Got it.":"Checking your voice…");Thread.sleep(400);
         }
@@ -60,69 +67,23 @@ final class VoiceGuardian {
         p.update(problem==null?"enrolled":"error",3,problem==null?"Your voice is saved. FRIDAY now wakes only for your voice.":problem);
       }catch(InterruptedException e){Thread.currentThread().interrupt();p.update("error",0,"Recording stopped.");}
       catch(RuntimeException e){p.update("error",0,"The microphone is busy. End any call or recording and try again.");}
-      finally{if(r!=null){try{r.stop();}catch(RuntimeException ignored){}r.release();}recording=false;done.run();}
+      finally{if(r!=null)r.close();recording=false;done.run();}
     },"friday-guardian-enroll").start();
   }
 
   // ---- audio capture
-  static AudioRecord open(){
-    int min=AudioRecord.getMinBufferSize(RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT);
-    AudioRecord r=new AudioRecord(MediaRecorder.AudioSource.VOICE_RECOGNITION,RATE,AudioFormat.CHANNEL_IN_MONO,AudioFormat.ENCODING_PCM_16BIT,Math.max(min,RATE));
-    if(r.getState()!=AudioRecord.STATE_INITIALIZED){r.release();throw new IllegalStateException("microphone busy");}
-    // The phone's own noise suppression (where it has one) takes the edge off fans, traffic and TV.
-    try{if(android.media.audiofx.NoiseSuppressor.isAvailable()){android.media.audiofx.NoiseSuppressor ns=android.media.audiofx.NoiseSuppressor.create(r.getAudioSessionId());if(ns!=null)ns.setEnabled(true);}}catch(RuntimeException ignored){}
-    // The phone's automatic gain (where it has one) lifts a voice from across the room. The voice match ignores loudness.
-    try{if(android.media.audiofx.AutomaticGainControl.isAvailable()){android.media.audiofx.AutomaticGainControl agc=android.media.audiofx.AutomaticGainControl.create(r.getAudioSessionId());if(agc!=null)agc.setEnabled(true);}}catch(RuntimeException ignored){}
-    return r;
-  }
-  interface Stop { boolean now(); }
-  /**
-   * Waits for one burst of speech and returns it, trimmed, or null when stopped or when
-   * nothing was said before the timeout (0 = no timeout). Bursts longer than 3.5 s are steady noise: they are skipped and the noise level is raised to them.
-   */
-  static short[] nextUtterance(AudioRecord r,Stop stop,long timeoutMs){
-    final int pre=25,endSilence=40,minFrames=35,maxFrames=350;
-    short[] hop=new short[HOP];
-    ArrayDeque<short[]> before=new ArrayDeque<>();
-    ArrayList<short[]> speech=new ArrayList<>();ArrayList<Double> levels=new ArrayList<>();
-    double floor=150;int loud=0,quiet=0;boolean inSpeech=false;
-    long deadline=timeoutMs>0?System.currentTimeMillis()+timeoutMs:Long.MAX_VALUE;
-    while(!stop.now()){
-      int got=0;
-      while(got<HOP){int n=r.read(hop,got,HOP-got);if(n<=0){return null;}got+=n;}
-      if(stop.now())return null;
-      double e=rms(hop);short[] copy=hop.clone();
-      // A quieter, farther voice still counts as speech when it stands clearly above the room's own level.
-      boolean voiced=e>Math.max(floor*2.5,120);
-      if(!inSpeech){
-        if(System.currentTimeMillis()>deadline)return null;
-        before.add(copy);if(before.size()>pre)before.poll();
-        if(voiced){if(++loud>=3){inSpeech=true;speech.addAll(before);before.clear();quiet=0;levels.clear();}}
-        else{loud=0;floor=Math.max(40,floor*0.97+e*0.03);}
-        continue;
-      }
-      speech.add(copy);levels.add(e);
-      if(speech.size()>maxFrames){
-        // A "burst" that never ends is steady noise (fan, TV, traffic): raise the floor to it so real speech stands out again.
-        Collections.sort(levels);floor=Math.max(floor,Math.min(4000,levels.get(levels.size()/4)*1.1));
-        speech.clear();levels.clear();inSpeech=false;loud=0;
-        if(timeoutMs>0&&System.currentTimeMillis()>deadline)return null;
-        continue;
-      }
-      quiet=voiced?0:quiet+1;
-      if(quiet>=endSilence){
-        if(speech.size()-quiet>=minFrames){
-          int keep=speech.size()-quiet+10;short[] out=new short[keep*HOP];
-          for(int i=0;i<keep;i++)System.arraycopy(speech.get(i),0,out,i*HOP,HOP);
-          return out;
-        }
-        speech.clear();levels.clear();inSpeech=false;loud=0;
-        if(timeoutMs>0&&System.currentTimeMillis()>deadline)return null;
-      }
-    }
-    return null;
-  }
-  private static double rms(short[] s){double t=0;for(short v:s)t+=(double)v*v;return Math.sqrt(t/s.length);}
+  /** Longest burst checked for the wake phrase, and for an enrollment recording; longer is background talk. */
+  static final int WAKE_MAX_MS=5000,ENROLL_MAX_MS=7000;
+  /** Shortest burst that can hold the wake phrase. */
+  private static final int MIN_BURST_MS=500;
+  /** The microphone with the phone's noise suppression, echo cancellation and gain control. */
+  static MicInput open(){return MicInput.open();}
+  interface Stop extends SpeechSegmenter.Stop {}
+  /** Silence that ends a burst of speech, 700-900 ms (default 800). */
+  static int silenceMs(Context c){return SpeechSegmenter.clampSilence(c.getSharedPreferences(Announcer.PREFS,Context.MODE_PRIVATE).getInt("voiceSilenceMs",SpeechSegmenter.DEFAULT_SILENCE_MS));}
+  static void setSilenceMs(Context c,int ms){c.getSharedPreferences(Announcer.PREFS,Context.MODE_PRIVATE).edit().putInt("voiceSilenceMs",SpeechSegmenter.clampSilence(ms)).apply();}
+  /** A speech detector for one listening session: Silero VAD, or the energy detector if the model is missing. */
+  static SpeechSegmenter segmenter(Context c,int maxMs){return new SpeechSegmenter(VoiceModels.vad(c),silenceMs(c),maxMs);}
 
   // ---- features
   static final class Features { final float[][] frames;final float[] colour; Features(float[][] f,float[] c){frames=f;colour=c;} }
@@ -186,8 +147,11 @@ final class VoiceGuardian {
   private static double distance(float[] a,float[] b){double d=0;for(int i=0;i<a.length;i++){double t=a[i]-b[i];d+=t*t;}return Math.sqrt(d);}
 
   // ---- the saved voice
-  private static final class Voice { float[][][] templates;float[] colour;double limit,colourLimit; }
+  /** templates/limit: the phrase; print/printSelf: the voiceprint (null in voices saved before voiceprints); colour: older voice check. */
+  private static final class Voice { float[][][] templates;float[] colour,print;double limit,colourLimit,printSelf; }
   private static Voice cached;
+  /** Recent voice rejections of the right phrase: someone else, or a recording, trying to wake FRIDAY. */
+  private static final ArrayDeque<Long> nearMisses=new ArrayDeque<>();
 
   /** Builds and saves the voice from three recordings. Returns a short problem message, or null when saved. */
   static String enroll(Context c,List<short[]> takes){
@@ -200,29 +164,79 @@ final class VoiceGuardian {
     double spread=0;for(short[] take:takes)spread=Math.max(spread,distance(features(take).colour,colour));
     Voice v=new Voice();v.templates=t;v.colour=colour;
     v.limit=Math.max(max*1.35,sum/pairs*1.5);v.colourLimit=Math.max(spread*2.5,4.0);
+    // Voiceprint: the average of the three recordings' voiceprints.
+    VoiceEncoder enc=VoiceModels.encoder(c);
+    if(enc!=null){
+      float[][] prints=new float[takes.size()][];float[] mean=new float[VoiceEncoder.DIM];
+      for(int i=0;i<prints.length;i++){prints[i]=enc.embed(VoiceEncoder.toFloat(takes.get(i)));if(prints[i]==null)return "A recording was too short. Say \"Wake up FRIDAY\" clearly each time.";for(int k=0;k<mean.length;k++)mean[k]+=prints[i][k];}
+      v.print=VoiceEncoder.normalize(mean);
+      double self=1;for(float[] e:prints)self=Math.min(self,VoiceEncoder.cosine(e,v.print));
+      if(self<MIN_ENROLL_CONSISTENCY)return "The three recordings didn't sound like the same voice. Record again alone, in a quiet place.";
+      v.printSelf=self;
+    }else ControlLog.i("guardian: speaker model unavailable, saving the basic voice check only");
     try{save(c,v);}catch(IOException|JSONException e){return "Your voice could not be saved on this phone.";}
-    cached=v;setWanted(c,true);
-    ControlLog.i("guardian: voice saved (limit "+String.format(Locale.ROOT,"%.2f",v.limit)+")");
+    synchronized(VoiceGuardian.class){cached=v;nearMisses.clear();}
+    setWanted(c,true);
+    ControlLog.i("guardian: voice saved (phrase limit "+String.format(Locale.ROOT,"%.2f",v.limit)+(v.print!=null?String.format(Locale.ROOT,", voiceprint consistency %.2f, threshold %.2f",v.printSelf,voiceThreshold(v.printSelf,"balanced",0)):"")+")");
     return null;
+  }
+  /** The three enrollment voiceprints must all be at least this close to their average. */
+  static final double MIN_ENROLL_CONSISTENCY=0.70;
+  /**
+   * Lowest voiceprint similarity accepted as the user. It starts from how close the user's own
+   * three recordings were to each other and leaves a margin set by the sensitivity, within fixed
+   * bounds so a sloppy enrollment cannot make it permissive. After repeated near-misses (the
+   * right phrase in another voice, e.g. someone else or a TV) it is stricter for two minutes.
+   */
+  static double voiceThreshold(double enrollSelf,String sensitivity,int recentNearMisses){
+    double margin="low".equals(sensitivity)?0.05:"high".equals(sensitivity)?0.13:0.09;
+    double t=Math.max(0.72,Math.min(0.88,enrollSelf-margin));
+    if(recentNearMisses>=3)t=Math.min(0.92,t+0.05);
+    return t;
   }
   /** True when the burst is the wake phrase in the saved voice. Logs only the scores. */
   static boolean matches(Context c,short[] pcm){double[] r=score(c,pcm);return r!=null&&r[0]<=1&&r[1]<=1;}
   /** Sensitivity: low = stricter (fewer false wakes), high = more forgiving. */
   static double factor(Context c){String s=WakeWordService.sensitivity(c);return "low".equals(s)?1.0:"high".equals(s)?1.5:1.25;}
-  /** {phrase distance / limit, voice distance / limit}; both at or under 1 is a match. Null without a saved voice. */
+  /** {phrase distance / limit, voice score / limit}; both at or under 1 is a match. Null without a saved voice. */
   static double[] score(Context c,short[] pcm){
     Voice v=load(c);if(v==null)return null;
+    double seconds=pcm.length/(double)RATE;
+    // Too short to hold the phrase, or a long stretch of talk: not the wake phrase.
+    if(seconds*1000<MIN_BURST_MS||seconds*1000>WAKE_MAX_MS)return new double[]{Double.POSITIVE_INFINITY,Double.POSITIVE_INFINITY};
     Features f=features(pcm);
     double[] d=new double[v.templates.length];for(int i=0;i<d.length;i++)d[i]=dtw(f.frames,v.templates[i]);
-    Arrays.sort(d);double phrase=d.length>1?(d[0]+d[1])/2:d[0],voice=distance(f.colour,v.colour);
-    double k=factor(c);
-    boolean ok=phrase<=v.limit*k&&voice<=v.colourLimit*k;
-    if(!Double.isInfinite(phrase)&&phrase<=v.limit*1.6)
-      ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.1f/%.1f)",phrase,v.limit,voice,v.colourLimit));
-    return new double[]{phrase/(v.limit*k),voice/(v.colourLimit*k)};
+    Arrays.sort(d);double phrase=d.length>1?(d[0]+d[1])/2:d[0];
+    double k=factor(c),phraseRatio=phrase/(v.limit*k);
+    VoiceEncoder enc=v.print!=null?VoiceModels.encoder(c):null;
+    if(enc==null){
+      // Voices saved before voiceprints (or no speaker model): the earlier average-colour check.
+      double voice=distance(f.colour,v.colour);boolean ok=phraseRatio<=1&&voice<=v.colourLimit*k;
+      if(!Double.isInfinite(phrase)&&phrase<=v.limit*1.6)
+        ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.1f/%.1f, basic check: record again for the voiceprint check)",phrase,v.limit,voice,v.colourLimit));
+      return new double[]{phraseRatio,voice/(v.colourLimit*k)};
+    }
+    // The voiceprint costs more, so it is computed only when the phrase is close.
+    if(phrase>v.limit*1.6)return new double[]{phraseRatio,Double.POSITIVE_INFINITY};
+    float[] e=enc.embed(VoiceEncoder.toFloat(pcm));
+    double sim=e==null?0:VoiceEncoder.cosine(e,v.print);
+    int misses=recentNearMisses();
+    double threshold=voiceThreshold(v.printSelf,WakeWordService.sensitivity(c),misses);
+    boolean ok=phraseRatio<=1&&sim>=threshold;
+    if(phraseRatio<=1&&!ok)nearMiss();
+    ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.2f, needs %.2f%s)",phrase,v.limit*k,sim,threshold,misses>=3?", stricter after repeated misses":""));
+    // Voice ratio: at or under 1 exactly when the similarity reaches the threshold.
+    return new double[]{phraseRatio,(1-sim)/Math.max(1e-6,1-threshold)};
   }
+  private static synchronized int recentNearMisses(){
+    long now=System.currentTimeMillis();while(!nearMisses.isEmpty()&&now-nearMisses.peekFirst()>120_000)nearMisses.pollFirst();return nearMisses.size();
+  }
+  private static synchronized void nearMiss(){nearMisses.addLast(System.currentTimeMillis());while(nearMisses.size()>10)nearMisses.pollFirst();}
+  /** True when the saved voice has a voiceprint (recorded with this version or later). */
+  static boolean hasVoiceprint(Context c){Voice v=load(c);return v!=null&&v.print!=null;}
   private static void save(Context c,Voice v) throws IOException,JSONException {
-    JSONObject o=new JSONObject().put("version",1).put("limit",v.limit).put("colourLimit",v.colourLimit).put("colour",pack(new float[][]{v.colour}));
+    JSONObject o=new JSONObject().put("version",v.print!=null?2:1).put("limit",v.limit).put("colourLimit",v.colourLimit).put("colour",pack(new float[][]{v.colour}));
+    if(v.print!=null)o.put("print",packVector(v.print)).put("printSelf",v.printSelf);
     JSONArray t=new JSONArray();for(float[][] f:v.templates)t.put(pack(f));o.put("templates",t);
     File tmp=new File(c.getFilesDir(),FILE+".tmp");
     try(FileOutputStream out=new FileOutputStream(tmp)){out.write(o.toString().getBytes(StandardCharsets.UTF_8));}
@@ -235,9 +249,18 @@ final class VoiceGuardian {
       byte[] raw=new byte[(int)Math.min(file.length(),4_000_000)];int got=0,n;while(got<raw.length&&(n=in.read(raw,got,raw.length-got))>0)got+=n;
       JSONObject o=new JSONObject(new String(raw,0,got,StandardCharsets.UTF_8));
       Voice v=new Voice();v.limit=o.getDouble("limit");v.colourLimit=o.getDouble("colourLimit");v.colour=unpack(o.getString("colour"))[0];
+      if(o.has("print")){v.print=unpackVector(o.getString("print"));v.printSelf=o.getDouble("printSelf");}
       JSONArray t=o.getJSONArray("templates");v.templates=new float[t.length()][][];for(int i=0;i<t.length();i++)v.templates[i]=unpack(t.getString(i));
       return cached=v;
     }catch(IOException|JSONException|RuntimeException e){ControlLog.i("guardian: saved voice unreadable");return null;}
+  }
+  private static String packVector(float[] f){
+    ByteBuffer b=ByteBuffer.allocate(4+f.length*4);b.putInt(f.length);for(float x:f)b.putFloat(x);
+    return Base64.encodeToString(b.array(),Base64.NO_WRAP);
+  }
+  private static float[] unpackVector(String s){
+    ByteBuffer b=ByteBuffer.wrap(Base64.decode(s,Base64.NO_WRAP));int n=b.getInt();if(n!=VoiceEncoder.DIM)throw new IllegalArgumentException("bad voiceprint");
+    float[] f=new float[n];for(int i=0;i<n;i++)f[i]=b.getFloat();return f;
   }
   private static String pack(float[][] f){
     ByteBuffer b=ByteBuffer.allocate(8+f.length*CEPS*4);b.putInt(f.length).putInt(CEPS);

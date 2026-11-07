@@ -40,3 +40,11 @@ The owner's existing application artwork is also excluded from the source
 export because redistribution rights have not been verified. Private local
 builds preserve it. Source-only builds generate a neutral letter M icon when
 artwork is absent; this does not create or substitute a character model.
+
+## On-device voice models (Android)
+
+The Android app bundles two model weight files in `android/models` (see the README there):
+Silero VAD v5 (MIT licence, Copyright (c) 2020-present Silero Team) for speech detection, and
+the GE2E speaker encoder weights released with Resemblyzer 0.1.4 (Apache-2.0, Resemble AI) for
+Voice Guardian voiceprints. Both are run by FRIDAY's own Java code; neither library's code is
+included. Keep these notices with any distribution of the APK.

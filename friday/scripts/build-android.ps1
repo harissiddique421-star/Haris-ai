@@ -25,6 +25,12 @@ if ($LASTEXITCODE -ne 0) { throw 'Shared personality export failed.' }
 $activationKey = Join-Path $projectRoot 'android\activation-public-key.txt'
 if (-not (Test-Path -LiteralPath $activationKey) -or (Get-Item -LiteralPath $activationKey).Length -eq 0) { throw "Missing $activationKey. Run 'node scripts/friday-activation.mjs init' once (it keeps the private key in your user folder and writes this public key file)." }
 Copy-Item -LiteralPath $activationKey -Destination (Join-Path $assetRoot 'activation_public_key.txt') -Force
+# On-device voice models (Silero VAD, MIT; GE2E speaker encoder from Resemblyzer, Apache-2.0). See android/models/README.md.
+foreach ($voiceModel in @('silero_vad_16k.safetensors', 'voice_encoder.safetensors')) {
+  $voiceModelPath = Join-Path $projectRoot ('android\models\' + $voiceModel)
+  if (-not (Test-Path -LiteralPath $voiceModelPath)) { throw "Missing $voiceModelPath" }
+  Copy-Item -LiteralPath $voiceModelPath -Destination (Join-Path $assetRoot $voiceModel) -Force
+}
 $buildRoot = Join-Path $projectRoot ('android\app\build\local-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 $classes = Join-Path $buildRoot 'classes'
 $dex = Join-Path $buildRoot 'dex'
