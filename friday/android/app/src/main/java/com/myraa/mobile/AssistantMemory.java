@@ -228,7 +228,7 @@ final class AssistantMemory {
     JSONObject v=new JSONObject(),voices=new JSONObject();
     try{
       for(String p:PERSONAS)voices.put(p,voice(p));
-      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("email",email()).put("memories",memories()).put("memoryItems",memoryItems()).put("rememberConversations",rememberConversations()).put("routines",routines());
+      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("email",email()).put("memories",memories()).put("memoryItems",memoryItems()).put("rememberConversations",rememberConversations()).put("routines",routines()).put("conversation",CompanionMode.state(context));
     }catch(JSONException ignored){}
     return v;
   }
