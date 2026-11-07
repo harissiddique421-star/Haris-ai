@@ -3,6 +3,8 @@
 #  - VoiceModelsCheck: Silero VAD, mel spectrogram and GE2E voiceprints match independent
 #    reference outputs (official ONNX model in onnxruntime, librosa, onnxruntime LSTM).
 #  - SpeechSegmenterCheck: speech start/end, pauses, silence timeout, noise and background talk.
+#  - VoiceGateCheck: HARIS Voice ID on real recorded speech: the owner is let through; a friend,
+#    two people at once, the TV and FRIDAY's own voice are not; profile calibration and storage.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=android/app/build/voice-tests; rm -rf "$OUT"; mkdir -p "$OUT/classes"
@@ -12,6 +14,8 @@ echo "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  $JSON" |
 SRC=android/app/src/main/java/com/myraa/mobile
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" \
   "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/VoiceEncoder.java" "$SRC/SpeechSegmenter.java" \
-  android/tests/jvm/com/myraa/mobile/*.java
+  "$SRC/SpeakerProfile.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
+  android/tests/jvm/android/util/Log.java android/tests/jvm/com/myraa/mobile/*.java
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceModelsCheck android/models android/tests/jvm/fixtures
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.SpeechSegmenterCheck android/models android/tests/jvm/fixtures
+java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceGateCheck android/models android/tests/jvm/fixtures/voiceid

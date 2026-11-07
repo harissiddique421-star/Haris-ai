@@ -12,4 +12,5 @@ The Java code (`SileroVad.java`, `VoiceEncoder.java`) is checked against indepen
 outputs by `scripts/test-voice-models.sh`, which CI runs before building the APK. To regenerate
 the reference file after changing a model, see `scripts/voice-models/make_reference.py`.
 
-The test fixtures in `android/tests/jvm/fixtures` are synthetic speech made with espeak-ng.
+The test fixtures in `android/tests/jvm/fixtures` are synthetic speech made with espeak-ng; those in
+`fixtures/voiceid` are 4 s cuts of real LibriSpeech recordings (CC BY 4.0) for the Voice ID checks.

@@ -46,5 +46,9 @@ artwork is absent; this does not create or substitute a character model.
 The Android app bundles two model weight files in `android/models` (see the README there):
 Silero VAD v5 (MIT licence, Copyright (c) 2020-present Silero Team) for speech detection, and
 the GE2E speaker encoder weights released with Resemblyzer 0.1.4 (Apache-2.0, Resemble AI) for
-Voice Guardian voiceprints. Both are run by FRIDAY's own Java code; neither library's code is
+Voice Guardian and HARIS Voice ID voiceprints. Both are run by FRIDAY's own Java code; neither library's code is
 included. Keep these notices with any distribution of the APK.
+
+The Voice ID tests (`android/tests/jvm/fixtures/voiceid`, not part of the APK) use short cuts of
+LibriSpeech utterances (speakers 2609, 3005, 1235, 2518, 4267; CC BY 4.0, Vassil Panayotov et al.,
+http://www.openslr.org/12) as copied in the Resemblyzer repository's `audio_data` folder.

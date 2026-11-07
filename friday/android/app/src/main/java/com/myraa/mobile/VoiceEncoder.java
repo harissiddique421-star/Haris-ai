@@ -94,33 +94,41 @@ final class VoiceEncoder {
     }
     return out;
   }
-  /** One partial (160 mel frames from start) through the LSTM, linear layer, ReLU and L2 norm. */
+  /**
+   * One partial (160 mel frames from start) through the LSTM, linear layer, ReLU and L2 norm.
+   * Float sums with four running totals: the same result to about 1e-6, and several times faster
+   * on a phone than one double sum (this runs for every check of who is speaking).
+   */
   private float[] forward(float[][] mel,int start){
-    float[] input=new float[PARTIAL*MELS];
-    for(int t=0;t<PARTIAL;t++)System.arraycopy(mel[start+t],0,input,t*MELS,MELS);
-    float[] seq=input;int in=MELS;float[] hLast=null;
+    float[] seq=new float[PARTIAL*MELS];
+    for(int t=0;t<PARTIAL;t++)System.arraycopy(mel[start+t],0,seq,t*MELS,MELS);
+    int in=MELS;float[] h=null;
     for(int l=0;l<LAYERS;l++){
-      float[] outSeq=new float[PARTIAL*HID];float[] h=new float[HID],c=new float[HID],g=new float[4*HID];
       float[] wi=wih[l],wh=whh[l],b=bias[l];
+      // Input part of every gate for all time steps first (no dependency between steps).
+      float[] xg=new float[PARTIAL*4*HID];
+      for(int t=0;t<PARTIAL;t++){int xo=t*in,go=t*4*HID;for(int r=0;r<4*HID;r++)xg[go+r]=b[r]+dot(wi,r*in,seq,xo,in);}
+      float[] outSeq=new float[PARTIAL*HID];h=new float[HID];float[] c=new float[HID],g=new float[4*HID];
       for(int t=0;t<PARTIAL;t++){
-        int xo=t*in;
-        for(int r=0;r<4*HID;r++){
-          double s=b[r];int oi=r*in,oh=r*HID;
-          for(int k=0;k<in;k++)s+=wi[oi+k]*seq[xo+k];
-          for(int k=0;k<HID;k++)s+=wh[oh+k]*h[k];
-          g[r]=(float)s;
-        }
+        int go=t*4*HID;
+        for(int r=0;r<4*HID;r++)g[r]=xg[go+r]+dot(wh,r*HID,h,0,HID);
         for(int k=0;k<HID;k++){
           float ig=sig(g[k]),fg=sig(g[HID+k]),cg=(float)Math.tanh(g[2*HID+k]),og=sig(g[3*HID+k]);
           c[k]=fg*c[k]+ig*cg;h[k]=og*(float)Math.tanh(c[k]);
         }
         System.arraycopy(h,0,outSeq,t*HID,HID);
       }
-      seq=outSeq;in=HID;hLast=h;
+      seq=outSeq;in=HID;
     }
     float[] e=new float[DIM];
-    for(int i=0;i<DIM;i++){double s=linB[i];int o=i*HID;for(int k=0;k<HID;k++)s+=linW[o+k]*hLast[k];e[i]=(float)Math.max(0,s);}
+    for(int i=0;i<DIM;i++)e[i]=Math.max(0f,linB[i]+dot(linW,i*HID,h,0,HID));
     return normalize(e);
+  }
+  /** a[ao..ao+n) . x[xo..xo+n), n a multiple of 4. */
+  private static float dot(float[] a,int ao,float[] x,int xo,int n){
+    float s0=0,s1=0,s2=0,s3=0;
+    for(int k=0;k<n;k+=4){s0+=a[ao+k]*x[xo+k];s1+=a[ao+k+1]*x[xo+k+1];s2+=a[ao+k+2]*x[xo+k+2];s3+=a[ao+k+3]*x[xo+k+3];}
+    return (s0+s1)+(s2+s3);
   }
   private static float sig(float v){return (float)(1/(1+Math.exp(-v)));}
   private static float[] normalizeVolume(float[] wav){
