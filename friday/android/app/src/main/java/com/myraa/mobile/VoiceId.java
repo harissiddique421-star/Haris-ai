@@ -64,7 +64,7 @@ final class VoiceId {
     try{
       SpeakerProfile p=registered(c)?load(c):null;
       o.put("registered",p!=null).put("on",wanted(c)).put("sensitivity",sensitivity(c)).put("recording",recording)
-        .put("unreadable",registered(c)&&p==null).put("models",VoiceModels.encoder(c)!=null);
+        .put("unreadable",registered(c)&&p==null).put("models",!VoiceModels.encoderFailed());
       if(p!=null)o.put("threshold",Math.round(p.threshold(sensitivity(c))*100)/100.0).put("summary",p.summary(sensitivity(c)));
       o.put("tests",new JSONObject(prefs(c).getString(PREF_TESTS,"{}")));
     }catch(JSONException ignored){}

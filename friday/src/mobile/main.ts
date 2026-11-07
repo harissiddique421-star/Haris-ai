@@ -945,5 +945,6 @@ window.addEventListener('myraa:lifecycle', event => { if ((event as CustomEvent)
 renderHistory(); refreshSettings(); void loadAvatar();
 el('boot-version').textContent = 'v' + (state.version || '1.0');
 el('connection-pill').textContent = state.keyConfigured ? 'Ready' : 'Setup';
+(window as any).__fridayReady = true;
 setTimeout(() => el('boot').classList.add('done'), 1400); setTimeout(() => el('boot').remove(), 2100);
 if (!bridge) notice('Browser preview — native chat and voice run in the Android app.');
