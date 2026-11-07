@@ -117,6 +117,8 @@ export class MobileLiveTransport implements AudioSocket {
       liveMic.ended = false;
       this.socket.send(JSON.stringify({ realtimeInput: { audio: { data: data.audio, mimeType: 'audio/pcm;rate=16000' } } }));
     }
+    // Voice ID: the owner's turn ended while other people may still be talking; Gemini answers now.
+    else if (data.type === 'audioEnd') { if (!liveMic.muted) this.socket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); }
     else if (data.type === 'text' && data.text) this.socket.send(JSON.stringify({ realtimeInput: { text: data.text } }));
     else if (data.type === 'video' && typeof data.video === 'string' && data.video.length > 0 && data.video.length < 600000) this.socket.send(JSON.stringify({ realtimeInput: { video: { data: data.video, mimeType: 'image/jpeg' } } }));
     else if (data.type === 'toolResponse') {

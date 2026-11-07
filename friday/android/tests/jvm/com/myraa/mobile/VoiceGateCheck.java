@@ -44,6 +44,7 @@ public final class VoiceGateCheck {
     Random rnd=new Random(11);
 
     Result r=run(p,t,cat(sil(1),owner1,sil(1.5)));
+    System.out.printf(Locale.ROOT,"   quiet room events %s (owner speaks 1.0-%.1f s)%n",r.events,1+owner1.length/16000.0);
     scenario("A  owner speaks: allowed (can command and interrupt)",r,true);
     expect("   owner audio reaches Gemini unchanged, nothing lost",r.exact&&r.ownerSamples>=owner1.length);
     scenario("A2 owner, another sentence",run(p,t,cat(sil(1),owner2,sil(1.5))),true);
@@ -59,6 +60,35 @@ public final class VoiceGateCheck {
     float[] over=cat(sil(1),add(tv,cat(sil(4),scaleTo(owner1,rms(tv)*2))),sil(1.5));
     Result ov=run(p,t,over);
     scenario("D2 owner talks over the TV: owner gets through",ov,true);
+
+    // Owner-specific end of turn: other people keep talking in the background (two conversations
+    // at once, 12 dB quieter than the owner, as from across the room) before, during and long after
+    // the owner's command. The owner's turn must end about the silence time after the OWNER stops.
+    float[] room=add(tv,cat(sil(1.5),friend1,sil(0.3),friend2,sil(0.3),friend1));
+    double ownerRms=rms(owner1);
+    float[] babble=scaleTo(cat(room,room),ownerRms*Math.pow(10,-12/20.0));
+    double ownerStart=2.0,ownerEnd=ownerStart+owner1.length/16000.0;
+    Result bg=run(p,t,add(babble,cat(sil(ownerStart),owner1)));
+    double endLag=bg.endAt.isEmpty()?Double.POSITIVE_INFINITY:bg.endAt.get(0)-ownerEnd;
+    System.out.printf(Locale.ROOT,"   events %s (owner speaks %.1f-%.1f s, background talk runs to %.1f s)%n",bg.events,ownerStart,ownerEnd,babble.length/16000.0);
+    scenario("F  owner command while 3 people keep talking 12 dB quieter",bg,true);
+    expect(String.format(Locale.ROOT,"   owner's turn ends %.2f s after the owner stops (room still talking; limit 1.2 s)",endLag),endLag>=0&&endLag<=1.2);
+    expect(String.format(Locale.ROOT,"   only the owner's turn is sent (%.1f s sent for a %.1f s command)",bg.ownerSamples/16000.0,owner1.length/16000.0),bg.ownerSamples/16000.0<=owner1.length/16000.0+0.32+1.6);
+    // Two commands in a row, 2 s apart, with the background never stopping.
+    Result two=run(p,t,add(babble,cat(sil(1),owner1,sil(2),owner2)));
+    System.out.printf(Locale.ROOT,"   events %s%n",two.events);
+    expect("G  two owner commands during non-stop background talk: both accepted, both ended",two.owners>=2&&two.endAt.size()>=2);
+    // Background as loud as the owner (people next to the phone) keeps talking after the owner:
+    // loudness cannot separate them, so the voiceprint re-check must end the owner's turn.
+    float[] loudRoom=scaleTo(cat(room,room),ownerRms*Math.pow(10,-3/20.0));
+    Result loud=run(p,t,add(loudRoom,cat(sil(ownerStart),scaleTo(owner1,ownerRms*1.4))));
+    double loudLag=loud.endAt.isEmpty()?Double.POSITIVE_INFINITY:loud.endAt.get(0)-ownerEnd;
+    System.out.printf(Locale.ROOT,"   events %s%n",loud.events);
+    expect(String.format(Locale.ROOT,"H  background as loud as the owner: owner accepted, turn still ends (%.2f s after; limit 3.5 s)",loudLag),loud.owners>=1&&loudLag>=0&&loudLag<=3.5);
+    // Owner already known in the call, then speaks with someone else talking just as loud on top:
+    // it must never be passed as a confident owner turn of someone else; report what happened.
+    Result ov2=run(p,t,cat(sil(0.5),owner2,sil(1.2),add(owner1,scaleTo(friend1,ownerRms)),sil(1.5)));
+    System.out.printf(Locale.ROOT,"I  owner, then owner + friend equally loud at once: events %s%n",ov2.events);
 
     // The session wrapper: base64 in, ordered JSON out.
     VoiceGateSession s=new VoiceGateSession(gate(p,t));
@@ -78,22 +108,25 @@ public final class VoiceGateCheck {
     System.out.println("All Voice ID scenarios passed.");
   }
 
-  static final class Result { long ownerSamples,silent;int owners,unknowns,checks;boolean exact=true; }
+  static final class Result { long ownerSamples,silent;int owners,unknowns,checks;boolean exact=true;List<Double> ownerAt=new ArrayList<>(),endAt=new ArrayList<>();List<String> events=new ArrayList<>(); }
   static VoiceGate gate(SpeakerProfile p,double t) throws IOException {
     SileroVad vad;try(InputStream in=new FileInputStream(new File(models,SileroVad.ASSET))){vad=new SileroVad(in);}
     return new VoiceGate(vad,w->p.score(enc.embed(w)),t,800);
   }
   /** Streams audio through a fresh gate in 1024-sample frames, as the WebView does. */
   static Result run(SpeakerProfile p,double t,float[] audio) throws IOException {
-    VoiceGate g=gate(p,t);short[] pcm=shorts(audio);Result r=new Result();
+    VoiceGate g=gate(p,t);short[] pcm=shorts(audio);Result r=new Result();long[] at={0};
     // Owner audio must be exactly the input samples (each 32 ms chunk found in the input).
     VoiceGate.Output out=new VoiceGate.Output(){
       @Override public void owner(short[] x){r.ownerSamples+=x.length;if(!contains(pcm,x))r.exact=false;}
       @Override public void silence(int n){r.silent+=n;}
-      @Override public void event(String n,double sc){if("owner".equals(n))r.owners++;if("unknown".equals(n)||"lost".equals(n))r.unknowns++;}
+      @Override public void event(String n,double sc){
+        double sec=at[0]/16000.0;r.events.add(String.format(Locale.ROOT,"%s@%.1fs",n,sec));
+        if("owner".equals(n)){r.owners++;r.ownerAt.add(sec);}if("end".equals(n))r.endAt.add(sec);
+        if("unknown".equals(n)||"unclear".equals(n)||"lost".equals(n))r.unknowns++;}
     };
     short[] buf=new short[1024];
-    for(int i=0;i<pcm.length;i+=1024){int n=Math.min(1024,pcm.length-i);System.arraycopy(pcm,i,buf,0,n);g.push(buf,n,out);}
+    for(int i=0;i<pcm.length;i+=1024){int n=Math.min(1024,pcm.length-i);System.arraycopy(pcm,i,buf,0,n);at[0]=i+n;g.push(buf,n,out);}
     r.checks=g.checks;return r;
   }
   private static final Map<short[],Set<Long>> index=new IdentityHashMap<>();
