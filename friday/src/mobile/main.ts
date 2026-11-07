@@ -5,7 +5,7 @@ import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
 import { Orchestrator, QUICK } from './agents';
-import { ContextualTopicManager, ConversationInitiativeManager, FollowUpQuestionGenerator, normalizeMode } from './initiative';
+import { ConversationContextManager, ConversationCooldownManager, ConversationInitiativeManager, FollowUpQuestionGenerator, TopicSuggestionEngine, inQuietHours, normalizeFrequency, normalizeMode } from './initiative';
 import { drawPattern, patternMessage, closePattern } from './pattern';
 import fridayLogo from '../../branding/friday-icon-small.png';
 import fridayCore from '../../branding/friday-icon.png';
@@ -105,19 +105,23 @@ let lastActivityAt = 0, lastCheckinAt = 0, userSpokeThisCall = false, spokeSince
 let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUserCaption = '';
 function markActivity() { lastActivityAt = Date.now(); }
-const topics = new ContextualTopicManager(), initiative = new ConversationInitiativeManager(topics);
+const topics = new ConversationContextManager();
+const initiative = new ConversationInitiativeManager(topics, new ConversationCooldownManager({ get: () => { try { return localStorage.getItem('friday.initiative'); } catch { return null; } }, set: v => { try { localStorage.setItem('friday.initiative', v); } catch { /* session only */ } } }));
 let checkinsThisCall = 0;
 function conversationMode() { return normalizeMode(state.assistant?.conversation?.mode); }
+function quietHoursNow() { const c = state.assistant?.conversation || {}; return !!c.quietHours && inQuietHours(new Date(), c.quietStart || '22:00', c.quietEnd || '08:00'); }
 setInterval(() => {
   if (!liveSession || liveSession.getState() !== 'listening' || document.hidden || !foreground) return;
   // Never ask twice in a row: after a check-in, wait until the user speaks again.
   if (!userSpokeThisCall || !spokeSinceCheckin || checkinPending || !lastActivityAt) return;
   const now = Date.now(), mode = conversationMode();
-  const move = initiative.decideIdle({ mode, enabled: idleCheckinOn(), quietMs: now - lastActivityAt, sinceLastCheckinMs: lastCheckinAt ? now - lastCheckinAt : Infinity,
+  const move = initiative.decideIdle({ mode, frequency: normalizeFrequency(state.assistant?.conversation?.frequency), quietHours: quietHoursNow(), enabled: idleCheckinOn(), quietMs: now - lastActivityAt, sinceLastCheckinMs: lastCheckinAt ? now - lastCheckinAt : Infinity,
     checkinsThisCall, busy: !!convo.media || actionRequests.size > 0 || topics.endedConversation });
   if (move === 'stay_quiet') return;
   lastCheckinAt = now; checkinPending = true; spokeSinceCheckin = false; checkinsThisCall++; orchestrator.phonePrompted();
-  liveSession.sendText(FollowUpQuestionGenerator.idle(move, topics, TONE_HINT[emotions.emotion]));
+  const seed = move === 'new_topic' ? TopicSuggestionEngine.pick(initiative.cool) : '';
+  initiative.used(move, seed);
+  liveSession.sendText(FollowUpQuestionGenerator.idle(move, topics, TONE_HINT[emotions.emotion], seed));
 }, 5000);
 // Opening line: after the wake phrase or the microphone button starts FRIDAY, she says one short line and listens.
 const GREET_KEY = 'friday.greet';
@@ -337,9 +341,12 @@ app.innerHTML = `
         <div class="row"><button id="voiceid-register" type="button">Register My Voice</button><button id="voiceid-test" type="button">Test My Voice</button></div>
         <div class="row"><button id="voiceid-test-other" type="button">Test someone else</button><button id="voiceid-delete" type="button">Delete Voice Profile</button></div>
         <p id="voiceid-note" class="muted" role="status" aria-live="polite"></p></div>
-      <div class="card"><b>Conversation</b><small>How much FRIDAY talks first. Normal: sometimes one follow-up question. Companion: more questions, follow-ups and topics. Quiet: only answers you. Focus: short, work-only replies. You can also say "companion mode on" or "quiet mode". She never turns the mic on by herself.</small>
-        <label>Conversation mode<select id="conversation-mode"><option value="normal">Normal</option><option value="companion">Companion</option><option value="quiet">Quiet</option><option value="focus">Focus</option></select></label>
-        <label class="check"><input id="companion-checkin" type="checkbox"> Companion mode: one friendly check-in a day at <input id="companion-time" type="time" value="20:00" style="width:auto"></label>
+      <div class="card"><b>Conversation</b><small>How much FRIDAY talks first. Active: starts chats, asks questions, follows up and suggests topics. Normal: mostly answers you. Quiet: only answers you. Focus: no interruptions while you work. You can also say "active mode", "quiet mode" or "focus mode for 1 hour". She never turns the mic on by herself.</small>
+        <label>Conversation mode<select id="conversation-mode"><option value="active">Active · starts chats, asks questions</option><option value="normal">Normal · mostly answers</option><option value="quiet">Quiet · only answers</option><option value="focus">Focus · no interruptions</option></select></label>
+        <label>How often she starts talking (Active)<select id="conversation-frequency"><option value="low">Rarely</option><option value="medium">Sometimes</option><option value="high">Often</option></select></label>
+        <label class="check"><input id="companion-checkin" type="checkbox"> Active mode: one friendly check-in a day at <input id="companion-time" type="time" value="20:00" style="width:auto"></label>
+        <label class="check"><input id="quiet-hours" type="checkbox"> Quiet hours: no chats started and no check-ins</label>
+        <div class="row"><input id="quiet-start" type="time" value="22:00" aria-label="Quiet hours start"><span class="muted">to</span><input id="quiet-end" type="time" value="08:00" aria-label="Quiet hours end"></div>
         <label class="check"><input id="idle-checkin" type="checkbox"> Check in when I go quiet</label>
         <label class="check"><input id="greet-on-start" type="checkbox"> Say a short hello when FRIDAY starts listening</label></div>
       <div class="card"><b>Calls &amp; driving</b><small>Uses the phone's own voice, so it works without a Live call. Needs Notification access. You can also say "driving mode on".</small>
@@ -532,6 +539,10 @@ function renderAssistant() {
   const conv = a.conversation || {};
   el<HTMLSelectElement>('conversation-mode').value = normalizeMode(conv.mode);
   el<HTMLInputElement>('companion-checkin').checked = !!conv.checkin;
+  el<HTMLSelectElement>('conversation-frequency').value = normalizeFrequency(conv.frequency);
+  el<HTMLInputElement>('quiet-hours').checked = !!conv.quietHours;
+  if (conv.quietStart && document.activeElement !== el('quiet-start')) el<HTMLInputElement>('quiet-start').value = conv.quietStart;
+  if (conv.quietEnd && document.activeElement !== el('quiet-end')) el<HTMLInputElement>('quiet-end').value = conv.quietEnd;
   if (conv.checkinTime && document.activeElement !== el('companion-time')) el<HTMLInputElement>('companion-time').value = conv.checkinTime;
   if (!personaTab) personaTab = a.persona || 'friday';
   const tabs = el('persona-tabs'); tabs.replaceChildren();
@@ -838,11 +849,14 @@ el<HTMLInputElement>('idle-checkin').checked = idleCheckinOn();
 el<HTMLInputElement>('greet-on-start').checked = greetOn();
 function saveConversation(extra: Record<string, unknown> = {}) {
   const [h, m] = (el<HTMLInputElement>('companion-time').value || '20:00').split(':').map(Number);
-  bridge?.setAssistant?.(JSON.stringify({ conversation: { mode: el<HTMLSelectElement>('conversation-mode').value, checkin: el<HTMLInputElement>('companion-checkin').checked, hour: h, minute: m || 0, ...extra } }));
+  bridge?.setAssistant?.(JSON.stringify({ conversation: { mode: el<HTMLSelectElement>('conversation-mode').value, checkin: el<HTMLInputElement>('companion-checkin').checked, hour: h, minute: m || 0,
+    frequency: el<HTMLSelectElement>('conversation-frequency').value, quietHours: el<HTMLInputElement>('quiet-hours').checked,
+    quietStart: el<HTMLInputElement>('quiet-start').value || '22:00', quietEnd: el<HTMLInputElement>('quiet-end').value || '08:00', ...extra } }));
 }
 el('conversation-mode').onchange = () => saveConversation();
 el('companion-checkin').onchange = () => saveConversation();
 el('companion-time').onchange = () => saveConversation();
+for (const id of ['conversation-frequency', 'quiet-hours', 'quiet-start', 'quiet-end']) el(id).onchange = () => saveConversation();
 el('greet-on-start').onchange = () => { try { localStorage.setItem(GREET_KEY, el<HTMLInputElement>('greet-on-start').checked ? 'on' : 'off'); } catch { /* setting stays for this session */ } };
 el('idle-checkin').onchange = () => { try { localStorage.setItem(IDLE_KEY, el<HTMLInputElement>('idle-checkin').checked ? 'on' : 'off'); } catch { /* setting stays for this session */ } };
 el('announce-calls').onchange = () => setAnnounce({ announceCalls: el<HTMLInputElement>('announce-calls').checked });
