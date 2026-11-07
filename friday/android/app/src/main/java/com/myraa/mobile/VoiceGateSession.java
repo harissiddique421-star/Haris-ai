@@ -44,6 +44,8 @@ final class VoiceGateSession {
 
   VoiceGateSession(VoiceGate gate){
     this.gate=gate;
+    // More than 1 s of audio waiting: optional re-checks wait until the gate has caught up.
+    gate.behind=()->backlog.get()>VoiceGate.RATE;
     worker=new Thread(this::loop,"friday-voice-gate");
     worker.setPriority(Thread.NORM_PRIORITY+1);
     worker.start();
@@ -68,7 +70,8 @@ final class VoiceGateSession {
       // Audio still queued behind this point arrived after it: the event's audio is that much older.
       long at=System.nanoTime()/1_000_000-backlog.get()*1000L/VoiceGate.RATE;
       synchronized(lock){events.add(new Object[]{name,score,at,gate.checkMs});}
-      ControlLog.i("voice id: "+name+(Double.isNaN(score)?"":String.format(Locale.ROOT," (voice %.2f, needs %.2f, check %d ms)",score,gate.threshold(),gate.checkMs)));
+      ControlLog.i("voice id: "+name+(Double.isNaN(score)?"":String.format(Locale.ROOT," (voice %.2f, needs %.2f, check %d ms)",score,gate.threshold(),gate.checkMs))
+        +("end".equals(name)&&!gate.endInfo.isEmpty()?" · "+gate.endInfo:""));
     }
   };
 
@@ -79,6 +82,7 @@ final class VoiceGateSession {
         if(pcm==null)continue;
         gate.push(pcm,pcm.length,out);
         backlog.addAndGet(-pcm.length);
+        if(!gate.report.isEmpty()){for(String line:gate.report)ControlLog.i("voice id: "+line);gate.report.clear();}
       }
     }catch(InterruptedException e){Thread.currentThread().interrupt();}
     catch(RuntimeException e){failure="Voice ID stopped: "+e.getClass().getSimpleName();ControlLog.i("voice id: "+failure);}

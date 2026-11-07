@@ -102,6 +102,21 @@ public final class VoiceGateCheck {
     }
     endMs=800;
 
+    // Watchdog: even if speech the gate accepts never pauses (here every voice scores as the owner),
+    // the owner's turn is closed after 30 s instead of keeping FRIDAY listening for ever.
+    {
+      SileroVad vad;try(InputStream in=new FileInputStream(new File(models,SileroVad.ASSET))){vad=new SileroVad(in);}
+      // Three conversations at once, at the same level: there is never 1 s without speech.
+      float[] f4=cat(friend1,friend2,friend1,friend2,friend1,friend2,friend1,friend2,friend1),o4=cat(owner2,owner1,owner2,owner1,owner2,owner1,owner2,owner1,owner2);
+      float[] crowd=add(add(cat(tv,tv,tv),scaleTo(f4,rms(tv))),scaleTo(o4,rms(tv)));
+      VoiceGate g=new VoiceGate(vad,w->1.0,t,1000);short[] pcm=shorts(cat(sil(0.5),crowd));List<Double> ends=new ArrayList<>();long[] at={0};
+      VoiceGate.Output o=new VoiceGate.Output(){public void owner(short[] x){}public void silence(int n){}public void event(String n,double sc){if("end".equals(n))ends.add(at[0]/16000.0);}};
+      short[] buf=new short[1024];
+      for(int i=0;i<pcm.length;i+=1024){int n=Math.min(1024,pcm.length-i);System.arraycopy(pcm,i,buf,0,n);at[0]=i+n;g.push(buf,n,o);}
+      expect(String.format(Locale.ROOT,"K  non-stop speech cannot keep a turn open: first end at %.1f s (limit 32 s)",ends.isEmpty()?-1:ends.get(0)),!ends.isEmpty()&&ends.get(0)<=32);
+      System.out.println("   last end: "+g.endInfo);
+    }
+
     // The session wrapper: base64 in, ordered JSON out.
     VoiceGateSession s=new VoiceGateSession(gate(p,t));
     float[] stream=cat(sil(1),owner1,sil(1.5));short[] pcm=shorts(stream);

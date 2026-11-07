@@ -66,6 +66,20 @@ final class VoiceGate {
   static final double SAME_TALKER=0.355,KEEP_TALKER=0.5,JUMP=2.5;
 
   enum State { LISTENING, SPEECH_DETECTED, VERIFYING_SPEAKER, AUTHORIZED_USER, UNKNOWN_SPEAKER }
+  /** True while the gate is behind real time (audio queued): optional re-checks wait, so it catches up. */
+  interface Behind { boolean now(); }
+  Behind behind=()->false;
+  /** Watchdog: an owner turn never stays open longer than this, whatever keeps it open. */
+  static final int MAX_TURN_MS=30_000;
+  private static final int MAX_TURN=MAX_TURN_MS/CHUNK_MS,TURN_REPORT=10_000/CHUNK_MS;
+  /**
+   * Why the last owner turn ended, and what happened during it (for the log): how long the owner
+   * spoke, how many 32 ms chunks of quieter background speech were ignored (they never reset the
+   * end-of-turn timer) and how many chunks at the owner's level reset it.
+   */
+  String endInfo="";
+  /** While an owner turn is open: chunks of the turn, background chunks ignored, timer resets by owner-level speech. */
+  private int turnChunks,bgIgnored,resets;
   /** Similarity of 16 kHz speech (floats -1..1) to the owner's voice; NaN when it cannot be computed. */
   interface Scorer { double score(float[] wav); }
   interface Output {
@@ -173,7 +187,7 @@ final class VoiceGate {
         int need=secondDone?SECOND:CHECK,voicedNow=burst.size()-silence;
         // A pause in a burst whose next check would not come before the turn ends (or only just before):
         // check now, on exactly the audio the end-of-turn check would use, while the silence is timed.
-        if(silence>=EARLY&&!earlyTried&&voicedNow-PRE>=MIN_SPEECH&&burst.size()+silenceChunks-silence<need+LATE){
+        if(silence>=EARLY&&!earlyTried&&!behind.now()&&voicedNow-PRE>=MIN_SPEECH&&burst.size()+silenceChunks-silence<need+LATE){
           earlyTried=true;early=check(burst,voicedNow+EARLY);return;
         }
         // Already scored up to this pause: wait for the end of the turn or for the talker to go on.
@@ -187,17 +201,21 @@ final class VoiceGate {
         return;
       }
       case AUTHORIZED_USER:{
-        out.owner(c);remember(c,level);
+        out.owner(c);remember(c,level);turnChunks++;
+        if(p>=ON){if(level>=talkerLevel*KEEP_TALKER)resets++;else bgIgnored++;}
         // The owner's level over the last 3 s of their speech (their loud syllables, not the room).
         if(p>=ON&&level>=talkerLevel*KEEP_TALKER){turnLevels.add(level);if(turnLevels.size()>TURN_LEVELS)turnLevels.poll();talkerLevel=Math.max(talkerLevel*0.98,voicedLevel(new ArrayList<>(turnLevels),turnLevels.size()));}
         silence=nextSilence(p,level,silence);
         // The owner stopped (quieter talk around them does not count): the turn ends now.
-        if(silence>=silenceChunks){ownerLevel=0.7*ownerLevel+0.3*talkerLevel;out.event("end",lastScore);reset();return;}
-        if(++sinceCheck>=RECHECK_OWNER&&silence==0){
+        if(silence>=silenceChunks){ownerLevel=0.7*ownerLevel+0.3*talkerLevel;endInfo=turnInfo("owner quiet for "+silence*CHUNK_MS+" ms");out.event("end",lastScore);reset();return;}
+        // Watchdog: nothing may keep the owner's turn open for ever (speech at the owner's level kept resetting the timer).
+        if(turnChunks>=MAX_TURN){endInfo=turnInfo("watchdog: turn open "+MAX_TURN_MS/1000+" s");out.event("end",lastScore);toUnknown(new ArrayList<>(recent),new ArrayList<>(recentLevels));return;}
+        if(turnChunks%TURN_REPORT==0)report.add(turnInfo("owner turn still open"));
+        if(++sinceCheck>=RECHECK_OWNER&&silence==0&&!behind.now()){
           sinceCheck=0;double s=check(new ArrayList<>(recent),recent.size());
           // Someone as loud as the owner took over: end the owner's turn here (a little lenient,
           // so the owner is not cut off mid-sentence).
-          if(s<threshold-NEAR){out.event("end",s);toUnknown(new ArrayList<>(recent),new ArrayList<>(recentLevels));}
+          if(s<threshold-NEAR){endInfo=turnInfo(String.format(java.util.Locale.ROOT,"someone else took over (voice %.2f)",s));out.event("end",s);toUnknown(new ArrayList<>(recent),new ArrayList<>(recentLevels));}
         }
         return;
       }
@@ -215,7 +233,9 @@ final class VoiceGate {
           }
         }else jump=0;
         if(p>=ON)talkerLevel=0.9*talkerLevel+0.1*level;
-        if(++sinceCheck>=RECHECK_OTHER&&silence==0){
+        // Re-check someone else's talk every 2 s, less often on a phone whose checks are slow (checks use at most
+        // about a third of the time), and not while the gate is catching up.
+        if(++sinceCheck>=Math.max(RECHECK_OTHER,(int)(3*checkMs/CHUNK_MS))&&silence==0&&!behind.now()){
           sinceCheck=0;double s=check(new ArrayList<>(recent),recent.size());
           if(s>=threshold){
             // The owner is talking over someone else at a similar level: let the owner through from here.
@@ -248,6 +268,7 @@ final class VoiceGate {
     if(l>0)ownerLevel=ownerLevel==0?l:0.7*ownerLevel+0.3*l;
   }
   private void seedTurn(List<Double> levels){
+    turnChunks=0;bgIgnored=0;resets=0;
     turnLevels.clear();double l=voicedLevel(levels,levels.size());
     for(int i=Math.max(0,levels.size()-TURN_LEVELS);i<levels.size();i++)if(levels.get(i)>=l*KEEP_TALKER)turnLevels.add(levels.get(i));
     talkerLevel=Math.max(l,voicedLevel(new ArrayList<>(turnLevels),turnLevels.size()));
@@ -264,6 +285,12 @@ final class VoiceGate {
     double[] v=new double[n];int k=0;for(int i=0;i<n;i++){double x=levels.get(i);if(x>30)v[k++]=x;}
     if(k==0)return 0;
     v=Arrays.copyOf(v,k);Arrays.sort(v);return v[Math.min(k-1,(int)(k*0.7))];
+  }
+  /** Log lines waiting to be written (the session writes them): long-open owner turns. */
+  final List<String> report=new ArrayList<>();
+  private String turnInfo(String why){
+    return String.format(java.util.Locale.ROOT,"%s · owner turn %.1f s · %d chunks of quieter background speech ignored · end timer reset %d times by speech at the owner's level (owner level %.0f)",
+      why,turnChunks*CHUNK_MS/1000.0,bgIgnored,resets,talkerLevel);
   }
   private double check(List<short[]> chunks,int count){
     float[] wav=new float[count*CHUNK];

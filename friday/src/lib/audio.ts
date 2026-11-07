@@ -260,7 +260,7 @@ export class MyraaAudioSession {
   private onError: (error: string) => void;
   private onMemorySync?: (memories: any[]) => void;
   /** Local voice activity: the user started (true) or stopped (false) speaking. */
-  private onUserSpeech?: (speaking: boolean) => void;
+  private onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
   /** Voice ID: the owner's words were hidden by other voices talking at the same time (ask them to repeat). */
   private onVoiceUnclear?: () => void;
   private onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
@@ -309,7 +309,8 @@ export class MyraaAudioSession {
     onError: (error: string) => void;
     onMemorySync?: (memories: any[]) => void;
     onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
-    onUserSpeech?: (speaking: boolean) => void;
+    /** verified: Voice ID confirmed the owner's turn just ended (it will be answered, so FRIDAY is processing). */
+    onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
     onVoiceUnclear?: () => void;
     connection?: AudioConnection;
   }) {
@@ -819,7 +820,7 @@ export class MyraaAudioSession {
       this.userSpeaking = false;
       this.timings.lastSpeechEndAt = Date.now();
       this.emitConversationEvent("user_stopped_speaking");
-      this.onUserSpeech?.(false);
+      this.onUserSpeech?.(false, true);
       const sent = this.liveReady && this.ws && this.ws.readyState === WebSocket.OPEN;
       if (sent) this.ws!.send(JSON.stringify({ type: "audioEnd" }));
       // The owner's last word was the endpoint's quiet time before the gate's "end".

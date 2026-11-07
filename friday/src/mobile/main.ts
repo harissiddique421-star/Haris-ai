@@ -152,12 +152,14 @@ function showThinking(on: boolean) {
   el('presence').textContent = on ? 'Thinking…' : 'Live · listening to you';
   system?.setFrameInput({ activity: on ? 'thinking' : 'listening', emotion: on ? 'thinking' : AVATAR_EMOTION[emotions.emotion] });
   // Gemini may decide the sound was not meant for it: go back to listening if no reply comes.
-  if (on) thinkingTimer = setTimeout(() => showThinking(false), 6000);
+  if (on) thinkingTimer = setTimeout(() => showThinking(false), 10000);
 }
-function userSpeech(speaking: boolean) {
+function userSpeech(speaking: boolean, verified = false) {
   markActivity(); userTalkingNow = speaking;
   if (speaking) { if (thinkingTimer) showThinking(false); return; }
-  if (heardUserSinceReply) showThinking(true);
+  // Voice ID ended the owner's verified turn: it goes to Gemini now, so show Thinking at once
+  // (Gemini's transcript of it usually arrives only after this, so waiting for it kept "Listening").
+  if (verified || heardUserSinceReply) showThinking(true);
 }
 function liveActive() { return !!liveSession && liveSession.getState() !== 'disconnected'; }
 function updateVisionButtons() {
