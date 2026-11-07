@@ -14,7 +14,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; }
+interface Bridge { setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -193,7 +193,7 @@ async function startCamera() {
   notice('Camera on. FRIDAY can see what the camera sees.'); updateVisionButtons();
 }
 function stopVision() { stopCamera(); if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; updateVisionButtons(); }
-function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; lastVoiceTurns = session.turn; cancelMobileActions(); } session?.disconnect(); if (!keepService) bridge?.endLive(); }
+function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; lastVoiceTurns = session.turn; cancelMobileActions(); } session?.disconnect(); if (!keepService) { bridge?.endLive(); flushCallLog(); } }
 /** Builds without the licensed 3D model show the FRIDAY core instead of an error. */
 function showCore() {
   el('avatar-status').textContent = '';
@@ -221,8 +221,16 @@ function liveState(value: LiveState) {
   system?.setFrameInput({ activity: value === 'speaking' ? 'talking' : value === 'listening' ? 'listening' : 'idle', emotion: face,
     outputAnalyser: liveSession?.outputAnalyser ?? null, inputAnalyser: liveSession?.inputAnalyser ?? null });
 }
+/** This call's captions, handed to the phone when the call ends so it can keep a short memory note (if the user allows it). */
+let callLog: { role: 'user' | 'model'; text: string }[] = [];
+function logCaption(role: 'user' | 'model', text: string) {
+  const last = callLog.at(-1);
+  if (last && last.role === role) last.text = (last.text + text).slice(-4000); else callLog.push({ role, text });
+  if (callLog.length > 200) callLog = callLog.slice(-200);
+}
+function flushCallLog() { const log = callLog; callLog = []; if (log.filter(t => t.role === 'user' && t.text.trim()).length >= 2) bridge?.saveConversation?.(JSON.stringify(log)); }
 function liveTranscription(role: 'user' | 'model', text: string) {
-  markActivity();
+  markActivity(); logCaption(role, text);
   if (role === 'user') { orchestrator.userSpoke(); userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; }
   // A finished user sentence (FRIDAY starts answering) sets the tone for the reply.
   if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption); }
@@ -336,7 +344,9 @@ app.innerHTML = `
         <input id="routine-name" maxlength="40" placeholder="Name, e.g. morning">
         <textarea id="routine-steps" rows="4" maxlength="2000" placeholder="One step per line, e.g.&#10;battery&#10;read my notifications&#10;play some Arijit Singh"></textarea>
         <button id="routine-save">Save routine</button></div>
-      <div class="card"><b>Memory</b><small>Stays on this phone. Say "remember that…" or add one here. FRIDAY never saves passwords, PINs or OTPs.</small><div class="row"><input id="memory-new" maxlength="300" placeholder="e.g. My sister's name is Sara"><button id="memory-add">Add</button></div><ul id="memory-list" class="memory-list"></ul></div>
+      <div class="card"><b>Memory</b><small>Stays on this phone, in a private database. Say "remember that…" or add one here. Only memories that fit the conversation are sent to the AI, never the whole list. FRIDAY never saves passwords, PINs or OTPs, and asks before saving health, money, ID or address details.</small><div class="row"><select id="memory-category" aria-label="Category"><option value="">Auto</option><option value="profile">About me</option><option value="preference">Preference</option><option value="project">Project</option></select><input id="memory-new" maxlength="500" placeholder="e.g. My sister's name is Sara"><button id="memory-add">Add</button></div>
+        <label class="check"><input id="remember-conversations" type="checkbox"> Remember conversations (a 2-line note and key facts after each voice call)</label>
+        <ul id="memory-list" class="memory-list"></ul><div class="row"><button id="memory-clear" type="button">Forget everything</button></div></div>
     </div>
     <div class="settings-page" data-page="permissions" hidden><p class="muted">FRIDAY needs these to do things for you. Allow only what you want.</p><div id="permission-list" class="permission-list"></div><div class="row"><button id="health-check" type="button">Run FRIDAY health check</button></div></div>
     <div class="settings-page" data-page="security" hidden>
@@ -424,7 +434,7 @@ function showView(view: 'home' | 'chat') {
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
 const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy' };
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
@@ -531,12 +541,21 @@ function renderAssistant() {
   }
   if (!Object.keys(a.routines || {}).length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'No routines yet.'; routines.append(li); }
   const memories = el('memory-list'); memories.replaceChildren();
-  ((a.memories || []) as string[]).forEach((text, index) => {
-    const li = document.createElement('li'); const span = document.createElement('span'); span.textContent = text;
-    const del = document.createElement('button'); del.textContent = '×'; del.setAttribute('aria-label', 'Forget this');
-    del.onclick = () => bridge?.setAssistant?.(JSON.stringify({ forgetIndex: index })); li.append(span, del); memories.append(li);
-  });
-  if (!(a.memories || []).length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Nothing saved yet.'; memories.append(li); }
+  el<HTMLInputElement>('remember-conversations').checked = a.rememberConversations !== false;
+  const items = (a.memoryItems || []) as { id: number; category: string; text: string; sensitive?: boolean }[];
+  const groups: [string, string][] = [['profile', 'About you'], ['preference', 'Preferences'], ['project', 'Projects'], ['context', 'Past conversations']];
+  for (const [category, heading] of groups) {
+    const list = items.filter(m => m.category === category).reverse(); if (!list.length) continue;
+    const h = document.createElement('li'); h.className = 'muted memory-group'; h.textContent = heading; memories.append(h);
+    for (const m of list) {
+      const li = document.createElement('li'); const span = document.createElement('span'); span.textContent = m.text + (m.sensitive ? ' 🔒' : '');
+      const edit = document.createElement('button'); edit.textContent = '✎'; edit.setAttribute('aria-label', 'Edit this memory');
+      edit.onclick = () => { const next = prompt('Edit memory', m.text); if (next != null && next.trim() && next.trim() !== m.text) bridge?.setAssistant?.(JSON.stringify({ editMemory: { id: m.id, text: next.trim() } })); };
+      const del = document.createElement('button'); del.textContent = '×'; del.setAttribute('aria-label', 'Forget this');
+      del.onclick = () => bridge?.setAssistant?.(JSON.stringify({ forgetId: m.id })); li.append(span, edit, del); memories.append(li);
+    }
+  }
+  if (!items.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Nothing saved yet.'; memories.append(li); }
 }
 function renderPermissions() {
   const list = el('permission-list'); list.replaceChildren();
@@ -924,7 +943,9 @@ el('backup-export').onclick = () => bridge?.exportBackup?.();
 el('backup-import').onclick = () => bridge?.importBackup?.();
 el('driving-pill').onclick = () => { setAnnounce({ drivingMode: false }); notice('Driving mode is off.'); };
 el('use-persona').onclick = () => { bridge?.setAssistant?.(JSON.stringify({ persona: personaTab })); };
-el('memory-add').onclick = () => { const input = el<HTMLInputElement>('memory-new'); const text = input.value.trim(); if (!text) return; bridge?.setAssistant?.(JSON.stringify({ remember: text })); input.value = ''; };
+el('memory-add').onclick = () => { const input = el<HTMLInputElement>('memory-new'); const text = input.value.trim(); if (!text) return; bridge?.setAssistant?.(JSON.stringify({ remember: text, category: el<HTMLSelectElement>('memory-category').value })); input.value = ''; };
+el('remember-conversations').onchange = () => { const on = el<HTMLInputElement>('remember-conversations').checked; if (!on && !confirm('Stop remembering conversations? Saved conversation notes will be deleted.')) { el<HTMLInputElement>('remember-conversations').checked = true; return; } bridge?.setAssistant?.(JSON.stringify({ rememberConversations: on })); };
+el('memory-clear').onclick = () => { if (confirm('Forget everything FRIDAY remembers about you? This cannot be undone.')) bridge?.setAssistant?.(JSON.stringify({ clearMemories: true })); };
 el('nav-chat').onclick = () => showView(el('chat-view').classList.contains('active') ? 'home' : 'chat');
 el('nav-more').onclick = () => el('settings').click();
 el('listen-stop').onclick = () => { stopVoice(); notice('Live voice ended.'); };

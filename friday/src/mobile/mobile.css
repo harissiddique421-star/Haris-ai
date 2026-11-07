@@ -208,3 +208,8 @@ dialog .primary+button{width:100%;margin-top:8px}
 body.app-locked #app,body.app-locked main,body.app-locked .bottom-nav{filter:blur(14px);pointer-events:none}
 .wake-status{margin:6px 0 0}
 @media (prefers-reduced-motion:reduce){.pattern-msg[data-tone=error]{animation:none}}
+.memory-list li.memory-group{background:transparent;border:0;padding:6px 2px 0;font-size:12px;letter-spacing:.06em;text-transform:uppercase}
+.memory-list li span{flex:1;min-width:0;overflow-wrap:anywhere}
+.memory-list li button+button{margin-left:-4px}
+#memory-category{max-width:9em}
+.memory-list li button[aria-label="Edit this memory"]{color:#9fb4ff;font-size:17px}

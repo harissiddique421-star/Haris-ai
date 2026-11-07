@@ -332,7 +332,8 @@ public final class MobileActions {
         waCall(id,args.optString("recipient"),args.optBoolean("video"),args.optBoolean("confirm_on_screen"));return;
       }
       if("open_contact".equals(action)){openContact(id,args.optString("recipient"));return;}
-      if("remember".equals(action)){finish(id,memory().remember(args.optString("fact")));return;}
+      if("remember".equals(action)){finish(id,memory().remember(args.optString("fact"),args.optString("category",""),args.optBoolean("allow_sensitive",false)));return;}
+      if("recall".equals(action)){finish(id,memory().recall(args.optString("query")));return;}
       if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
       if("list_memories".equals(action)){finish(id,memory().listMemories());return;}
       if("set_persona".equals(action)){finish(id,memory().setPersona(args.optString("persona")));return;}
