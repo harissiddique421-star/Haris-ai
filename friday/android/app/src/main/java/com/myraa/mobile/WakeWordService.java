@@ -4,7 +4,6 @@ import android.Manifest;
 import android.app.*;
 import android.content.*;
 import android.content.pm.*;
-import android.media.AudioRecord;
 import android.os.*;
 import android.provider.Settings;
 import android.speech.*;
@@ -42,7 +41,7 @@ public final class WakeWordService extends Service {
   private boolean onDevice=true;
   private BroadcastReceiver screen;
   private PowerManager.WakeLock cpu;
-  private Thread guardian;private volatile boolean guardianRun;private volatile AudioRecord guardianMic;
+  private Thread guardian;private volatile boolean guardianRun;private volatile MicInput guardianMic;
 
   // ---- settings and control from the app
   static boolean wanted(Context c){return c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getBoolean("wakeWord",false);}
@@ -212,17 +211,23 @@ public final class WakeWordService extends Service {
     listening=true;guardianRun=true;
     final Thread[] me=new Thread[1];
     me[0]=new Thread(()->{
-      AudioRecord mic=null;boolean heard=false,failed=false;
+      MicInput mic=null;boolean heard=false,failed=false;
       try{
-        mic=VoiceGuardian.open();guardianMic=mic;mic.startRecording();
-        if(mic.getRecordingState()!=AudioRecord.RECORDSTATE_RECORDING)throw new IllegalStateException("not recording");
+        mic=VoiceGuardian.open();guardianMic=mic;mic.start();
+        SpeechSegmenter seg=VoiceGuardian.segmenter(this,VoiceGuardian.WAKE_MAX_MS);
+        ControlLog.i("wake: guardian listening ("+(seg.usesModel()?"Silero speech detection":"energy speech detection")+"; phone effects: "+mic.effects()+")");
+        final MicInput in=mic;
         while(guardianRun){
-          short[] burst=VoiceGuardian.nextUtterance(mic,()->!guardianRun,0);
+          short[] burst=seg.next(in::readFully,()->!guardianRun,0);
           if(burst==null)break;
+          // FRIDAY's own voice (a reply, a caller name) is never a wake: skip bursts that overlap it.
+          long began=android.os.SystemClock.elapsedRealtime()-burst.length*1000L/MicInput.RATE-VoiceGuardian.silenceMs(this);
+          if(SelfSpeech.overlaps(began)){ControlLog.i("wake: ignored speech while FRIDAY was talking");continue;}
           if(VoiceGuardian.matches(this,burst)){heard=true;break;}
         }
+        if(seg.droppedLong>0)ControlLog.i("wake: ignored "+seg.droppedLong+" long stretch(es) of background talk or TV");
       }catch(RuntimeException e){failed=true;ControlLog.i("wake: guardian microphone unavailable");}
-      finally{guardianMic=null;if(mic!=null){try{mic.stop();}catch(RuntimeException ignored){}mic.release();}}
+      finally{guardianMic=null;if(mic!=null)mic.close();}
       final boolean woke=heard,bad=failed;
       results.post(()->{
         if(guardian!=me[0])return;
@@ -234,12 +239,14 @@ public final class WakeWordService extends Service {
     },"friday-guardian");
     guardian=me[0];guardian.start();
   }
-  private void stopGuardian(){guardianRun=false;AudioRecord mic=guardianMic;if(mic!=null){try{mic.stop();}catch(RuntimeException ignored){}}}
+  private void stopGuardian(){guardianRun=false;MicInput mic=guardianMic;if(mic!=null)mic.stop();}
   private void recreate(long delay){if(recognizer!=null){try{recognizer.destroy();}catch(RuntimeException ignored){}recognizer=null;}listening=false;listenSoon(delay);}
   private boolean check(Bundle results){return check(results,false);}
   private boolean check(Bundle results,boolean finalResult){
     ArrayList<String> heard=results==null?null:results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
     if(heard==null)return false;
+    // FRIDAY's own speech (replies, caller names) must not wake it.
+    if(SelfSpeech.now()){for(String h:heard)if(matches(h)){ControlLog.i("wake: phrase ignored, FRIDAY was talking");break;}return false;}
     // Low recognizer confidence (often TV, music or someone far away) is ignored; unknown confidence (0 or missing) is kept as before.
     float[] conf=results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
     boolean name=nameOnly(this);

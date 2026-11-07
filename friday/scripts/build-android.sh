@@ -16,6 +16,8 @@ node --import tsx scripts/export-mobile-personality.ts
 PUB=android/activation-public-key.txt
 if [ ! -s "$PUB" ]; then echo "Missing $PUB. The owner must run 'node scripts/friday-activation.mjs init' once and commit that file (it is the public key, safe to commit)." >&2; exit 1; fi
 cp "$PUB" "$ASSETS/activation_public_key.txt"
+# On-device voice models (Silero VAD, MIT; GE2E speaker encoder from Resemblyzer, Apache-2.0). See android/models/README.md.
+for m in silero_vad_16k.safetensors voice_encoder.safetensors; do [ -s "android/models/$m" ] || { echo "Missing android/models/$m" >&2; exit 1; }; cp "android/models/$m" "$ASSETS/$m"; done
 OUT=android/app/build/ci; rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/res/drawable"
 javac -encoding UTF-8 -source 8 -target 8 -classpath "$JAR" -d "$OUT/classes" $(find android/app/src/main/java -name '*.java')
 (cd "$OUT/classes" && jar --create --file ../classes.jar .)

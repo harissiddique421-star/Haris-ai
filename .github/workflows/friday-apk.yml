@@ -45,6 +45,8 @@ jobs:
           npx tsc --noEmit
           npm run test:mobile-actions
           npm run test:activation
+      - name: Voice model checks (Silero VAD, speaker encoder, speech segmentation)
+        run: ./scripts/test-voice-models.sh
       - name: Build APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.FRIDAY_KEYSTORE_BASE64 }}
