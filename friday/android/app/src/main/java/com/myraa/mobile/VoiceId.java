@@ -54,6 +54,12 @@ final class VoiceId {
   static void setWanted(Context c,boolean on){prefs(c).edit().putBoolean(PREF_ON,on).apply();}
   static String sensitivity(Context c){return SpeakerProfile.sensitivity(prefs(c).getString(PREF_SENS,"balanced"));}
   static void setSensitivity(Context c,String s){prefs(c).edit().putString(PREF_SENS,SpeakerProfile.sensitivity(s)).apply();}
+  /**
+   * Live call end of turn: how long the speaker must be quiet before FRIDAY answers (400-1000 ms,
+   * default 600). Used by the Voice ID gate and by Gemini's own end-of-speech detection.
+   */
+  static int endMs(Context c){return VoiceGate.clampEnd(prefs(c).getInt("liveEndMs",VoiceGate.DEFAULT_END_MS));}
+  static void setEndMs(Context c,int ms){prefs(c).edit().putInt("liveEndMs",VoiceGate.clampEnd(ms)).apply();}
   static boolean registered(Context c){return new File(c.getFilesDir(),FILE).isFile();}
   /** Live calls are gated only when Voice ID is on and a voice is registered. */
   static boolean active(Context c){return wanted(c)&&registered(c);}
@@ -64,7 +70,7 @@ final class VoiceId {
     try{
       SpeakerProfile p=registered(c)?load(c):null;
       o.put("registered",p!=null).put("on",wanted(c)).put("sensitivity",sensitivity(c)).put("recording",recording)
-        .put("unreadable",registered(c)&&p==null).put("models",!VoiceModels.encoderFailed());
+        .put("unreadable",registered(c)&&p==null).put("models",!VoiceModels.encoderFailed()).put("endMs",endMs(c));
       if(p!=null)o.put("threshold",Math.round(p.threshold(sensitivity(c))*100)/100.0).put("summary",p.summary(sensitivity(c)));
       o.put("tests",new JSONObject(prefs(c).getString(PREF_TESTS,"{}")));
     }catch(JSONException ignored){}
@@ -219,8 +225,8 @@ final class VoiceId {
     SileroVad vad=VoiceModels.vad(c);VoiceEncoder enc=VoiceModels.encoder(c);
     if(vad==null||enc==null){why[0]="voice models unavailable";return null;}
     double t=prof.threshold(sensitivity(c));
-    VoiceGate gate=new VoiceGate(vad,wav->prof.score(enc.embed(wav)),t,VoiceGuardian.silenceMs(c));
-    ControlLog.i(String.format(Locale.ROOT,"voice id: Live call gated (needs %.2f, %s)",t,sensitivity(c)));
+    VoiceGate gate=new VoiceGate(vad,wav->prof.score(enc.embed(wav)),t,endMs(c));
+    ControlLog.i(String.format(Locale.ROOT,"voice id: Live call gated (needs %.2f, %s, turn ends after %d ms of quiet)",t,sensitivity(c),gate.endMs()));
     why[0]="on";return new VoiceGateSession(gate);
   }
 }

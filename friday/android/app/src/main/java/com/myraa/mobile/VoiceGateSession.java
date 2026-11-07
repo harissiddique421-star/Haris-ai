@@ -17,7 +17,9 @@ import org.json.JSONObject;
 /**
  * Runs a VoiceGate for one Live call on a background thread. The WebView hands it each microphone
  * frame (16 kHz 16-bit PCM, base64) with feed() and gets back, in order, what may be sent to
- * Gemini: {"a":[["o","<owner pcm base64>"],["z",<silent samples>]],"e":[["owner",0.81]],"s":"STATE"}.
+ * Gemini: {"a":[["o","<owner pcm base64>"],["z",<silent samples>]],"e":[["owner",0.81,120,95]],"s":"STATE"}.
+ * Each event is [name, score, ms ago, last voice check ms]: "ms ago" is how long before this answer
+ * the audio at the event's position reached the phone (so the WebView can time each stage).
  * Nothing waits on the speaker check: feed() returns at once with whatever is ready.
  *
  * If the gate falls more than 8 s behind (a very slow phone) it reports "fail" and the call goes
@@ -63,7 +65,9 @@ final class VoiceGateSession {
       }
     }
     @Override public void event(String name,double score){
-      synchronized(lock){events.add(new Object[]{name,score});}
+      // Audio still queued behind this point arrived after it: the event's audio is that much older.
+      long at=System.nanoTime()/1_000_000-backlog.get()*1000L/VoiceGate.RATE;
+      synchronized(lock){events.add(new Object[]{name,score,at,gate.checkMs});}
       ControlLog.i("voice id: "+name+(Double.isNaN(score)?"":String.format(Locale.ROOT," (voice %.2f, needs %.2f, check %d ms)",score,gate.threshold(),gate.checkMs)));
     }
   };
@@ -98,7 +102,9 @@ final class VoiceGateSession {
           if("o".equals(item[0]))a.put(new JSONArray().put("o").put(Base64.getEncoder().encodeToString(((ByteArrayOutputStream)item[1]).toByteArray())));
           else a.put(new JSONArray().put("z").put(item[1]));
         }
-        for(Object[] ev:events)e.put(new JSONArray().put(ev[0]).put(Double.isNaN((Double)ev[1])?-1:Math.round((Double)ev[1]*1000)/1000.0));
+        long now=System.nanoTime()/1_000_000;
+        for(Object[] ev:events)e.put(new JSONArray().put(ev[0]).put(Double.isNaN((Double)ev[1])?-1:Math.round((Double)ev[1]*1000)/1000.0)
+          .put(Math.max(0,now-(Long)ev[2])).put((Long)ev[3]));
         audio.clear();events.clear();ownerRun=null;
       }
       if(a.length()>0)result.put("a",a);
@@ -117,9 +123,10 @@ final class VoiceGateSession {
     if(s!=VoiceGate.State.LISTENING)return s.name();
     return ai==2?AI_SPEAKING:ai==1?PROCESSING:LISTENING;
   }
+  int endMs(){return gate.endMs();}
   String diagnostics(){
-    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d · checks %d · last voice %s · needs %.2f · last check %d ms%s",
-      gate.owners,gate.unknowns,gate.checks,Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,failure==null?"":" · "+failure);
+    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet%s",
+      gate.owners,gate.unknowns,gate.checks,Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),failure==null?"":" · "+failure);
   }
   void stop(){running=false;worker.interrupt();input.clear();}
 }

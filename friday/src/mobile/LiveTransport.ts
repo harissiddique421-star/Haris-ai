@@ -18,6 +18,8 @@ export const liveResume = { handle: '', resuming: false, handoff: false, off: ((
  * told the audio stream paused, so it does not wait for the rest of a sentence. Turned off with each new call.
  */
 export const liveMic = { muted: false, ended: false };
+/** Live call end of turn: quiet time before Gemini answers, 400-1000 ms (default 600). */
+function endMs(value: unknown) { const ms = Number(value); return Number.isFinite(ms) && ms > 0 ? Math.max(400, Math.min(1000, Math.round(ms))) : 600; }
 /** Adapt the native short-lived token and Gemini Live protocol to the PC audio engine. */
 export class MobileLiveTransport implements AudioSocket {
   readyState = 0;
@@ -58,8 +60,10 @@ export class MobileLiveTransport implements AudioSocket {
         generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: value.voice || 'Aoede' } } } },
         systemInstruction: { parts: [{ text: value.instruction || 'You are MYRAA. Speak warmly and naturally in the user’s language.' }] },
         // Hear normal and short commands right away (the phone already keeps FRIDAY's own voice and small noises
-        // from interrupting her while she talks), and wait 0.8 s of silence so a brief pause doesn't end the sentence.
-        realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', prefixPaddingMs: 200, silenceDurationMs: 800 } },
+        // from interrupting her while she talks), and end the turn after the configured quiet time (default 0.6 s;
+        // Google recommends 0.5 s or more so a brief pause doesn't split the sentence). With Voice ID the phone
+        // ends the owner's turn itself (audioStreamEnd) as soon as the owner stops, whatever the room does.
+        realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', prefixPaddingMs: 200, silenceDurationMs: endMs(value.endMs) } },
         inputAudioTranscription: {}, outputAudioTranscription: {}, tools: [{ functionDeclarations: [MOBILE_TOOL] }, { googleSearch: {} }],
         ...(liveResume.off ? {} : { sessionResumption: liveResume.resuming && liveResume.handle ? { handle: liveResume.handle } : {} }),
       } }));
