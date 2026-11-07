@@ -354,7 +354,7 @@ public class MainActivity extends Activity {
     JSONObject value = json("model", prefs.getString("model", "gemini-3.5-flash"), "quality", prefs.getString("quality", "low"),
       "language", prefs.getString("language", "hi-IN"), "spokenReplies", prefs.getBoolean("spokenReplies", false),
       "keyConfigured", prefs.contains("keyCipher"), "keyVerified", prefs.getLong("keyVerifiedAt", 0) > 0 && prefs.getString("verifiedModel", "").equals(prefs.getString("model", "gemini-3.5-flash")),
-      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.43", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "voiceId", VoiceId.state(this), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
+      "providerErrorCode", prefs.getString("providerErrorCode", ""), "ttsAvailable", ttsReady, "version", "1.0.0-rc.44", "floatingControlsAllowed", Settings.canDrawOverlays(this), "autoSendEnabled", WhatsAppSender.enabled(this), "notificationAccess", NotificationReader.enabled(this), "phoneControl", PhoneController.enabled(this), "controlStatus", PhoneController.status(this), "controlLog", new JSONArray(ControlLog.recent()), "assistant", memory == null ? new JSONObject() : memory.state(), "permissions", permissionsCenter == null ? new JSONArray() : permissionsCenter.state(), "announce", Announcer.state(this), "wake", wakeState(), "voiceId", VoiceId.state(this), "liveModel", prefs.getString("liveModel", DEFAULT_LIVE_MODEL));
 
     try { value.put("history", new JSONArray(prefs.getString("history", "[]"))); } catch (Exception ignored) { try { value.put("history", new JSONArray()); } catch (Exception unused) {} }
     return value;
@@ -510,7 +510,7 @@ public class MainActivity extends Activity {
           if (input.has("forgetId")) memory.forgetId(input.optLong("forgetId", -1));
           if (input.has("editMemory")) { JSONObject m = input.optJSONObject("editMemory"); if (m != null) memory.editMemory(m.optLong("id", -1), m.optString("text"), m.optString("category", "")); }
           if (input.has("clearMemories")) memory.clearMemories();
-          if (input.has("conversation")) { JSONObject cm = input.optJSONObject("conversation"); if (cm != null) CompanionMode.set(MainActivity.this, cm.optString("mode", ""), cm.has("checkin") ? Boolean.valueOf(cm.optBoolean("checkin")) : null, cm.has("hour") ? cm.optInt("hour", -1) : -1, cm.optInt("minute", 0)); }
+          if (input.has("conversation")) { JSONObject cm = input.optJSONObject("conversation"); if (cm != null) CompanionMode.set(MainActivity.this, cm); }
           if (input.has("rememberConversations")) memory.setRememberConversations(input.optBoolean("rememberConversations"));
           if (input.has("remember")) memory.remember(input.optString("remember"), input.optString("category", ""), true);
           if (input.has("announceCalls")) Announcer.set(MainActivity.this, "announceCalls", input.optBoolean("announceCalls"));
