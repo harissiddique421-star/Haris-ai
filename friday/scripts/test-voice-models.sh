@@ -3,7 +3,8 @@
 #  - VoiceModelsCheck: Silero VAD, mel spectrogram and GE2E voiceprints match independent
 #    reference outputs (official ONNX model in onnxruntime, librosa, onnxruntime LSTM).
 #  - SpeechSegmenterCheck: speech start/end, pauses, silence timeout, noise and background talk.
-#  - VoiceGateCheck: HARIS Voice ID on real recorded speech: the owner is let through; a friend,
+#  - VoiceGateCheck: HARIS Voice ID on real recorded speech: the owner is let through (and the turn
+#    ends 0.6 s after a short command, also with people talking behind); a friend,
 #    two people at once, the TV and FRIDAY's own voice are not; profile calibration and storage.
 set -euo pipefail
 cd "$(dirname "$0")/.."

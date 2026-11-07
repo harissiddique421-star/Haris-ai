@@ -25,7 +25,11 @@ import java.util.List;
  *    (overlapping voices), the event is "unclear" so FRIDAY can ask the owner to repeat.
  * While the owner talks the voiceprint is checked again every 1.5 s on the last 1.2 s. If it no
  * longer matches, someone else (as loud as the owner) has taken over: the owner's turn ends there.
- * The turn ends ("end") after the silence time without owner-level speech, whatever the room does.
+ * The turn ends ("end") after the silence time without owner-level speech (600 ms by default),
+ * whatever the room does. A burst too short for its first check is checked during that silence, on
+ * the same audio, so the check does not add to the wait. If the owner starts, much louder, while
+ * another voice's burst is still being held, the held part is dropped and checking starts again
+ * from the owner.
  * While someone else talks, a jump of 8 dB (the owner starting close to the phone) starts a new
  * burst at once, and the voiceprint is checked every 2 s, so background voices never keep FRIDAY
  * stuck listening and never lock the owner out.
@@ -38,6 +42,17 @@ final class VoiceGate {
   static final int CHUNK=SileroVad.CHUNK,RATE=SileroVad.RATE,CHUNK_MS=CHUNK*1000/RATE;
   static final float ON=0.5f,OFF=0.35f;
   private static final int START=2,PRE=10,MIN_SPEECH=8;
+  /**
+   * After this much silence (96 ms) a burst that has not been checked yet is checked at once, on
+   * exactly the audio the end-of-turn check would use, so a short command's voice check runs while
+   * the end-of-turn silence is still being timed instead of after it.
+   */
+  private static final int EARLY=3;
+  /** A first check that would only come in the last 256 ms before the end of the turn counts as too late. */
+  private static final int LATE=8;
+  /** End-of-turn silence for the Live call: default and limits (Google recommends 500 ms or more). */
+  static final int DEFAULT_END_MS=600,MIN_END_MS=400,MAX_END_MS=1000;
+  static int clampEnd(int ms){return Math.max(MIN_END_MS,Math.min(MAX_END_MS,ms));}
   private static final int CHECK=SpeakerProfile.CHECK_MS/CHUNK_MS+PRE,SECOND=2000/CHUNK_MS+PRE;
   private static final int RECHECK_OWNER=1500/CHUNK_MS,RECHECK_OTHER=2000/CHUNK_MS,WINDOW=SpeakerProfile.CHECK_MS/CHUNK_MS+3;
   /** How far under the threshold a first check may be and still get the longer second check. */
@@ -67,6 +82,9 @@ final class VoiceGate {
   private final Scorer scorer;
   private final double threshold;
   private final int silenceChunks;
+  /** Score of the current burst computed early (EARLY chunks into a pause), NaN when none. */
+  private double early=Double.NaN;
+  private boolean earlyTried;
   private final short[] pending=new short[CHUNK];private int pendingLen;
   private final float[] floats=new float[CHUNK];
   private final ArrayDeque<short[]> before=new ArrayDeque<>();
@@ -79,17 +97,22 @@ final class VoiceGate {
   private final ArrayDeque<Double> turnLevels=new ArrayDeque<>();
   private static final int TURN_LEVELS=3000/CHUNK_MS;
   private State state=State.LISTENING;
-  private int above,silence,sinceCheck,jump;
+  private int above,silence,sinceCheck,jump,voicedChunks;
+  /** A held burst's talker level counts as known after this much speech (640 ms); only then can a louder voice cut in. */
+  private static final int SETTLED=20;
   private boolean secondDone;
   /** Level of the current burst's talker, and of the owner once verified in this call (0 = not known). */
   private double talkerLevel,ownerLevel;
   // Counters for the diagnostics line.
   int owners,unknowns,checks;double lastScore=Double.NaN;long checkMs;
 
+  /** silenceMs: how long the owner must be quiet before the turn ends (clamped to 400-1000 ms). */
   VoiceGate(SileroVad vad,Scorer scorer,double threshold,int silenceMs){
     this.vad=vad;this.scorer=scorer;this.threshold=threshold;
-    silenceChunks=Math.max(1,SpeechSegmenter.clampSilence(silenceMs)/CHUNK_MS);
+    silenceChunks=Math.max(1,(clampEnd(silenceMs)+CHUNK_MS/2)/CHUNK_MS);
   }
+  /** The end-of-turn silence actually used, in milliseconds. */
+  int endMs(){return silenceChunks*CHUNK_MS;}
   State state(){return state;}
   double threshold(){return threshold;}
   double ownerLevel(){return ownerLevel;}
@@ -119,19 +142,42 @@ final class VoiceGate {
         return;
       }
       case SPEECH_DETECTED: case VERIFYING_SPEAKER:{
+        // Someone much louder (the owner, close to the phone) starts while another voice's burst is
+        // still being held: drop the held part (it was the other voice) and verify from here, so the
+        // owner is not judged on the background talker's audio.
+        if(p>=ON&&talkerLevel>0&&voicedChunks>=SETTLED&&level>=talkerLevel*JUMP&&(ownerLevel==0||level>=ownerLevel*SAME_TALKER)){
+          if(++jump>=START){
+            burst.add(c);burstLevels.add(level);
+            int keep=Math.min(burst.size(),PRE);
+            out.silence((burst.size()-keep)*CHUNK);unknowns++;out.event("unknown",Double.NaN);
+            ArrayDeque<short[]> pre=new ArrayDeque<>(burst.subList(burst.size()-keep,burst.size()));
+            ArrayDeque<Double> preL=new ArrayDeque<>(burstLevels.subList(burst.size()-keep,burst.size()));
+            startBurst(pre,preL);return;
+          }
+          burst.add(c);burstLevels.add(level);silence=0;return;
+        }
+        jump=0;
         burst.add(c);burstLevels.add(level);
-        if(p>=ON)talkerLevel=voicedLevel(burstLevels,burst.size());
+        if(p>=ON){talkerLevel=voicedLevel(burstLevels,burst.size());voicedChunks++;}
         silence=nextSilence(p,level,silence);
+        if(silence==0){early=Double.NaN;earlyTried=false;} // the talker went on: an early score no longer covers the burst
         if(silence>=silenceChunks){
           // The burst ended before the first check: a short command, or noise.
           int voiced=burst.size()-silence;
           if(voiced-PRE<MIN_SPEECH){out.silence(burst.size()*CHUNK);out.event("noise",Double.NaN);reset();return;}
-          double s=check(burst,Math.min(burst.size(),voiced+3));
+          double s=!Double.isNaN(early)?early:check(burst,Math.min(burst.size(),voiced+EARLY));
           if(s>=threshold){release(out,s);out.event("end",s);reset();}
           else{out.silence(burst.size()*CHUNK);rejected(out,s);reset();}
           return;
         }
-        int need=secondDone?SECOND:CHECK;
+        int need=secondDone?SECOND:CHECK,voicedNow=burst.size()-silence;
+        // A pause in a burst whose next check would not come before the turn ends (or only just before):
+        // check now, on exactly the audio the end-of-turn check would use, while the silence is timed.
+        if(silence>=EARLY&&!earlyTried&&voicedNow-PRE>=MIN_SPEECH&&burst.size()+silenceChunks-silence<need+LATE){
+          earlyTried=true;early=check(burst,voicedNow+EARLY);return;
+        }
+        // Already scored up to this pause: wait for the end of the turn or for the talker to go on.
+        if(!Double.isNaN(early))return;
         if(burst.size()<need)return;
         state=State.VERIFYING_SPEAKER;
         double s=check(burst,burst.size());
@@ -185,7 +231,7 @@ final class VoiceGate {
   private void startBurst(ArrayDeque<short[]> pre,ArrayDeque<Double> preLevels){
     state=State.SPEECH_DETECTED;burst.clear();burstLevels.clear();
     burst.addAll(pre);burstLevels.addAll(preLevels);before.clear();beforeLevels.clear();
-    talkerLevel=voicedLevel(burstLevels,burst.size());silence=0;secondDone=false;jump=0;above=0;
+    talkerLevel=voicedLevel(burstLevels,burst.size());silence=0;secondDone=false;jump=0;above=0;early=Double.NaN;earlyTried=false;voicedChunks=0;
   }
   private void rejected(Output out,double s){
     unknowns++;
@@ -211,7 +257,7 @@ final class VoiceGate {
     recent.clear();recentLevels.clear();
     for(int i=Math.max(0,chunks.size()-WINDOW);i<chunks.size();i++){recent.add(chunks.get(i));recentLevels.add(levels.get(i));}
     talkerLevel=voicedLevel(levels,levels.size());
-    burst.clear();burstLevels.clear();
+    burst.clear();burstLevels.clear();early=Double.NaN;
   }
   /** Typical level of the loudest talker in the chunks: 70th percentile, ignoring near-silence. */
   static double voicedLevel(List<Double> levels,int n){
@@ -242,6 +288,6 @@ final class VoiceGate {
   }
   private void reset(){
     state=State.LISTENING;burst.clear();burstLevels.clear();recent.clear();recentLevels.clear();before.clear();beforeLevels.clear();
-    turnLevels.clear();above=0;silence=0;sinceCheck=0;jump=0;secondDone=false;talkerLevel=0;
+    turnLevels.clear();above=0;silence=0;sinceCheck=0;jump=0;secondDone=false;talkerLevel=0;early=Double.NaN;
   }
 }

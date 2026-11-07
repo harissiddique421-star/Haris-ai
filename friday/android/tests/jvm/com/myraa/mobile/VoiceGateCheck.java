@@ -90,6 +90,18 @@ public final class VoiceGateCheck {
     Result ov2=run(p,t,cat(sil(0.5),owner2,sil(1.2),add(owner1,scaleTo(friend1,ownerRms)),sil(1.5)));
     System.out.printf(Locale.ROOT,"I  owner, then owner + friend equally loud at once: events %s%n",ov2.events);
 
+    // The app's default end of turn (600 ms): a short command ends 0.6 s after the owner stops, and
+    // its voice check (run during the pause) does not add to that, also with people talking behind.
+    endMs=VoiceGate.DEFAULT_END_MS;
+    float[] cmd=VoiceLatencyBench.cutShort(trim(owner2),17600);double cmdEnd=1+VoiceLatencyBench.lastVoiced(cmd)/16000.0;
+    for(int k=0;k<2;k++){
+      Result sc=run(p,t,k==0?cat(sil(1),cmd,sil(1.5)):add(Arrays.copyOf(babble,(int)(3.6*16000)),cat(sil(1),cmd,sil(1.5))));
+      double lag=sc.endAt.isEmpty()?Double.POSITIVE_INFINITY:sc.endAt.get(0)-cmdEnd;
+      System.out.printf(Locale.ROOT,"   events %s (owner speaks 1.0-%.1f s)%n",sc.events,cmdEnd);
+      expect(String.format(Locale.ROOT,"J%d short command (%.1f s)%s: owner, turn ends %.2f s after (limit 0.70 s)",k+1,cmd.length/16000.0,k==0?"":" with people talking behind",lag),sc.owners==1&&lag>=0&&lag<=0.70);
+    }
+    endMs=800;
+
     // The session wrapper: base64 in, ordered JSON out.
     VoiceGateSession s=new VoiceGateSession(gate(p,t));
     float[] stream=cat(sil(1),owner1,sil(1.5));short[] pcm=shorts(stream);
@@ -109,9 +121,10 @@ public final class VoiceGateCheck {
   }
 
   static final class Result { long ownerSamples,silent;int owners,unknowns,checks;boolean exact=true;List<Double> ownerAt=new ArrayList<>(),endAt=new ArrayList<>();List<String> events=new ArrayList<>(); }
+  static int endMs=800;
   static VoiceGate gate(SpeakerProfile p,double t) throws IOException {
     SileroVad vad;try(InputStream in=new FileInputStream(new File(models,SileroVad.ASSET))){vad=new SileroVad(in);}
-    return new VoiceGate(vad,w->p.score(enc.embed(w)),t,800);
+    return new VoiceGate(vad,w->p.score(enc.embed(w)),t,endMs);
   }
   /** Streams audio through a fresh gate in 1024-sample frames, as the WebView does. */
   static Result run(SpeakerProfile p,double t,float[] audio) throws IOException {

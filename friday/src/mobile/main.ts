@@ -39,12 +39,12 @@ function runMobileAction(name: string, args: unknown): Promise<any> {
 /** HARIS Voice ID for a Live call: the phone checks who is speaking before any audio reaches Gemini (see VoiceGate.java). */
 function voiceGateLink() {
   if (!bridge?.voiceGateStart || !bridge.voiceGateFeed) return null;
-  let started: { on?: boolean; id?: number; reason?: string };
+  let started: { on?: boolean; id?: number; reason?: string; endMs?: number };
   try { started = JSON.parse(bridge.voiceGateStart()); } catch { return null; }
   voiceIdCallNote = started.on ? '' : String(started.reason || 'off');
   if (!started.on || typeof started.id !== 'number') return null;
   const id = started.id;
-  return { feed: (pcm: string, ai: number) => bridge.voiceGateFeed!(id, pcm, ai), stop: () => bridge.voiceGateStop?.(id) };
+  return { feed: (pcm: string, ai: number) => bridge.voiceGateFeed!(id, pcm, ai), stop: () => bridge.voiceGateStop?.(id), endMs: Number(started.endMs) || 600 };
 }
 let voiceIdCallNote = '';
 let lastUnclearAt = 0;
@@ -65,12 +65,18 @@ let screenSharing = false;
 const frameCanvas = document.createElement('canvas');
 /** Last Live call's timings (milliseconds only, no audio or words), for Settings diagnostics. */
 let lastVoiceTimings: MyraaAudioSession['timings'] | null = null;
+let lastVoiceTurns: MyraaAudioSession['turn'] | null = null;
 /** Background lifecycle state from Android (service, wake listener, permissions, battery, audio, network). No audio or words. */
 function lifecycleDiagnostics() { try { const line = bridge?.lifecycleStatus?.(); return line ? `\n\nBackground: ${line}` : ''; } catch { return ''; } }
 function voiceDiagnostics() {
   const t = liveSession?.timings || lastVoiceTimings; if (!t || !t.connectStartedAt) return '';
   const after = (at: number) => at ? `${at - t.connectStartedAt} ms` : 'not yet';
-  return `\n\nLive voice: online ${navigator.onLine !== false ? 'yes' : 'no'} · microphone ready after ${after(t.micReadyAt)} · Gemini ready after ${after(t.liveReadyAt)} · last reply started ${t.lastReplyLatencyMs >= 0 ? t.lastReplyLatencyMs + ' ms' : '-'} after you stopped speaking · microphone restarts ${t.micRestarts}${t.lastMicIssue ? ' (' + t.lastMicIssue + ')' : ''} · tone ${emotions.emotion}\nVoice ID: ${voiceIdDiagnostics()}\nAgents: ${orchestrator.summary()}`;
+  return `\n\nLive voice: online ${navigator.onLine !== false ? 'yes' : 'no'} · microphone ready after ${after(t.micReadyAt)} · Gemini ready after ${after(t.liveReadyAt)} · last reply started ${t.lastReplyLatencyMs >= 0 ? t.lastReplyLatencyMs + ' ms' : '-'} after you stopped speaking · microphone restarts ${t.micRestarts}${t.lastMicIssue ? ' (' + t.lastMicIssue + ')' : ''} · tone ${emotions.emotion}\nVoice ID: ${voiceIdDiagnostics()}${voiceTurnDiagnostics()}\nAgents: ${orchestrator.summary()}`;
+}
+/** Last voice turns, stage by stage (milliseconds only), to see where a slow reply spent its time. */
+function voiceTurnDiagnostics() {
+  const log = (liveSession?.turn || lastVoiceTurns)?.log || [];
+  return log.length ? `\nReply timing (newest last):\n${log.join('\n')}` : '';
 }
 function voiceIdDiagnostics() {
   let line = ''; try { line = bridge?.voiceGateStatus?.() || ''; } catch { /* older app */ }
@@ -185,7 +191,7 @@ async function startCamera() {
   notice('Camera on. FRIDAY can see what the camera sees.'); updateVisionButtons();
 }
 function stopVision() { stopCamera(); if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; updateVisionButtons(); }
-function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; cancelMobileActions(); } session?.disconnect(); if (!keepService) bridge?.endLive(); }
+function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; lastVoiceTurns = session.turn; cancelMobileActions(); } session?.disconnect(); if (!keepService) bridge?.endLive(); }
 /** Builds without the licensed 3D model show the FRIDAY core instead of an error. */
 function showCore() {
   el('avatar-status').textContent = '';

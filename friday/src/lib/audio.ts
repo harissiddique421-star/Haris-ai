@@ -164,8 +164,59 @@ export interface AudioSocket {
  * (even if other people keep talking), ["unclear", score] overlapping voices hid the owner, ["unknown"|"noise", score]);
  * "s" = state; "fail" = the check stopped and the call continues without it.
  */
-export interface VoiceGateLink { feed(pcm: string, ai: number): string; stop(): void; }
+/** endMs: the quiet time after which the gate ends the owner's turn (for the turn timing log). */
+export interface VoiceGateLink { feed(pcm: string, ai: number): string; stop(): void; endMs?: number; }
 export interface AudioConnection { createSocket(): AudioSocket; pitch?: number; voiceGate?: () => VoiceGateLink | null; }
+
+/**
+ * Times one voice turn, stage by stage (milliseconds only, never audio or words): when the speaker
+ * was heard, when Voice ID accepted them, when they stopped, when the phone told Gemini the turn
+ * ended, when Gemini's transcript and reply arrived and when FRIDAY's voice started playing.
+ * Each finished turn is written to the log and kept (last 5) for Settings diagnostics.
+ */
+export class TurnTimer {
+  speechAt = 0; verifiedAt = 0; verifyMs = -1; stoppedAt = 0; endAt = 0; endSentAt = 0;
+  heardAt = 0; heardDoneAt = 0; toolAt = 0; toolDoneAt = 0; replyAt = 0; playAt = 0; doneAt = 0;
+  endMs = 0;
+  readonly log: string[] = [];
+  /** Biggest stage of the last finished turn, and its whole delay from "stopped" to "voice playing". */
+  lastTotalMs = -1; lastBiggest = "";
+
+  start(at: number) { if (this.speechAt && !this.playAt && !this.stoppedAt) return; this.reset(); this.speechAt = at; }
+  verified(at: number, checkMs: number) { if (!this.speechAt) this.speechAt = at; this.verifiedAt = at; this.verifyMs = checkMs; }
+  stopped(stoppedAt: number, endAt: number, sentAt: number) { this.stoppedAt = stoppedAt; this.endAt = endAt; this.endSentAt = sentAt; }
+  heard(at: number) { if (!this.stoppedAt) return; if (!this.heardAt) this.heardAt = at; this.heardDoneAt = at; }
+  tool(at: number) { if (this.stoppedAt && !this.toolAt) this.toolAt = at; }
+  toolDone(at: number) { if (this.toolAt) this.toolDoneAt = at; }
+  reply(at: number) { if (this.stoppedAt && !this.replyAt) this.replyAt = at; }
+  playing(at: number) { if (this.stoppedAt && this.replyAt && !this.playAt) { this.playAt = at; this.finish(); } }
+  complete(at: number) { if (this.stoppedAt) this.doneAt = at; }
+
+  private reset() { this.speechAt = this.verifiedAt = this.stoppedAt = this.endAt = this.endSentAt = this.heardAt = this.heardDoneAt = this.toolAt = this.toolDoneAt = this.replyAt = this.playAt = this.doneAt = 0; this.verifyMs = -1; }
+
+  private finish() {
+    const from = this.stoppedAt;
+    const stages: [string, number][] = [];
+    const add = (name: string, a: number, b: number) => { if (a && b && b >= a) stages.push([name, b - a]); };
+    // End of turn on the phone: the quiet time after the speaker's last word (endpoint), plus the gate's own delay.
+    add("end of speech detected", from, this.endAt || this.endSentAt);
+    add("Gemini heard it (transcript)", this.endSentAt || this.endAt || from, this.heardAt);
+    if (this.toolAt) add("phone action", this.toolAt, this.toolDoneAt || this.replyAt);
+    add("Gemini reply started", this.heardAt || this.endSentAt || this.endAt || from, this.replyAt);
+    add("voice playback started", this.replyAt, this.playAt);
+    this.lastTotalMs = this.playAt - from;
+    const biggest = stages.reduce((m, s) => (s[1] > m[1] ? s : m), ["", -1] as [string, number]);
+    this.lastBiggest = biggest[0];
+    const line = `turn: ${this.lastTotalMs} ms from your last word to FRIDAY's voice`
+      + (this.verifyMs >= 0 ? ` · voice check ${this.verifyMs} ms` : "")
+      + ` · ${stages.map(([n, ms]) => `${n} +${ms} ms`).join(" · ")}`
+      + (this.endMs ? ` (turn ends after ${this.endMs} ms quiet)` : "")
+      + (biggest[0] ? ` · slowest: ${biggest[0]}` : "");
+    console.log(`[Voice latency] ${line}`);
+    this.log.push(line);
+    if (this.log.length > 5) this.log.shift();
+  }
+}
 
 export class MyraaAudioSession {
   private ws: AudioSocket | null = null;
@@ -248,6 +299,8 @@ export class MyraaAudioSession {
     lastSpeechEndAt: number; lastReplyStartAt: number; lastReplyLatencyMs: number;
     micRestarts: number; lastMicIssue: string;
   } = { connectStartedAt: 0, micReadyAt: 0, liveReadyAt: 0, lastSpeechEndAt: 0, lastReplyStartAt: 0, lastReplyLatencyMs: -1, micRestarts: 0, lastMicIssue: "" };
+  /** Stage-by-stage timing of each voice turn (see TurnTimer). */
+  public readonly turn = new TurnTimer();
 
   constructor(handlers: {
     onStateChange: (state: LiveState) => void;
@@ -330,6 +383,7 @@ export class MyraaAudioSession {
     this.timings.connectStartedAt = Date.now();
     this.setState("connecting");
     if (useMicrophone) { try { this.gate = this.connection?.voiceGate?.() ?? null; } catch { this.gate = null; } }
+    this.turn.endMs = this.gate?.endMs ?? 0;
 
     try {
       if (useMicrophone && !this.connection) {
@@ -446,6 +500,7 @@ export class MyraaAudioSession {
 
           // Handle audio payload (24kHzPCM model response)
           if (data.type === "audio" && data.audio) {
+            this.turn.reply(Date.now());
             if (this.currentState !== "speaking" && this.timings.lastSpeechEndAt > 0 && this.timings.lastReplyStartAt < this.timings.lastSpeechEndAt) {
               this.timings.lastReplyStartAt = Date.now();
               this.timings.lastReplyLatencyMs = this.timings.lastReplyStartAt - this.timings.lastSpeechEndAt;
@@ -460,6 +515,7 @@ export class MyraaAudioSession {
 
           // Turn complete
           if (data.type === "turnComplete") {
+            this.turn.complete(Date.now());
             // Once Friday completes speaking, change visual state back to listening
             setTimeout(() => {
               if (this.activeSources.length === 0 && this.currentState === "speaking") {
@@ -471,6 +527,7 @@ export class MyraaAudioSession {
 
           // Handle live captions transcription
           if (data.type === "transcription") {
+            if (data.role === "user") this.turn.heard(Date.now()); else this.turn.reply(Date.now());
             this.onTranscription(data.role, data.text);
           }
 
@@ -484,7 +541,9 @@ export class MyraaAudioSession {
           // Handle Tool Calling
           if (data.type === "toolCall") {
             const { callId, name, args } = data;
+            this.turn.tool(Date.now());
             this.onToolCall(name, args, (result) => {
+              this.turn.toolDone(Date.now());
               // Send back execution result to server bridge
               if (this.ws && this.ws.readyState === WebSocket.OPEN) {
                 this.ws.send(JSON.stringify({
@@ -714,7 +773,7 @@ export class MyraaAudioSession {
    */
   private onGatedFrame(gate: VoiceGateLink, channelData: Float32Array) {
     const myraaOutputActive = this.currentState === "speaking" || this.activeSources.length > 0;
-    let result: { a?: [string, string | number][]; e?: [string, number][]; s?: string; fail?: string };
+    let result: { a?: [string, string | number][]; e?: [string, number, number?, number?][]; s?: string; fail?: string };
     try { result = JSON.parse(gate.feed(base64ArrayBuffer(floatTo16BitPCM(channelData)), myraaOutputActive ? 2 : 0)); }
     catch { result = { fail: "Voice ID did not answer" }; }
     if (result.fail) {
@@ -726,9 +785,13 @@ export class MyraaAudioSession {
       return;
     }
     if (result.s) this.voiceIdState = result.s;
-    let ownerTurnEnded = false, unclear = false;
-    for (const [name] of result.e || []) {
+    let ownerTurnEnded = false, unclear = false, endAgoMs = 0;
+    const now = Date.now();
+    if ((result.s === "SPEECH_DETECTED" || result.s === "VERIFYING_SPEAKER") && !this.userSpeaking) this.turn.start(now);
+    for (const event of result.e || []) {
+      const name = event[0], agoMs = Number(event[2]) || 0, checkMs = Number(event[3]);
       if (name === "owner") {
+        this.turn.verified(now - agoMs, Number.isFinite(checkMs) ? checkMs : -1);
         if (!this.userSpeaking) {
           this.userSpeaking = true;
           if (myraaOutputActive) {
@@ -740,7 +803,7 @@ export class MyraaAudioSession {
           this.onUserSpeech?.(true);
         }
       } else if (name === "end" || name === "lost") {
-        ownerTurnEnded = true;
+        ownerTurnEnded = true; endAgoMs = agoMs;
       } else if (name === "unknown") this.voiceIdIgnored++;
       else if (name === "unclear") { this.voiceIdIgnored++; unclear = true; }
     }
@@ -757,7 +820,11 @@ export class MyraaAudioSession {
       this.timings.lastSpeechEndAt = Date.now();
       this.emitConversationEvent("user_stopped_speaking");
       this.onUserSpeech?.(false);
-      if (this.liveReady && this.ws && this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ type: "audioEnd" }));
+      const sent = this.liveReady && this.ws && this.ws.readyState === WebSocket.OPEN;
+      if (sent) this.ws!.send(JSON.stringify({ type: "audioEnd" }));
+      // The owner's last word was the endpoint's quiet time before the gate's "end".
+      const endAt = Date.now() - endAgoMs;
+      this.turn.stopped(endAt - this.turn.endMs, endAt, sent ? Date.now() : 0);
     }
     if (unclear && !outputNow) this.onVoiceUnclear?.();
   }
@@ -872,6 +939,7 @@ export class MyraaAudioSession {
         this.micRestarts = 0;
         this.emitConversationEvent("user_started_speaking", rms);
         this.onUserSpeech?.(true);
+        this.turn.start(Date.now());
       }
       return !myraaOutputActive || this.userSpeaking;
     }
@@ -882,6 +950,8 @@ export class MyraaAudioSession {
     if (this.userSpeaking && timestamp - this.lastVoiceAt >= this.voiceStopDelayMs) {
       this.userSpeaking = false;
       this.timings.lastSpeechEndAt = Date.now();
+      // No Voice ID: Gemini's own end-of-speech detection ends the turn; time it from the last loud frame.
+      this.turn.stopped(Date.now() - (timestamp - this.lastVoiceAt), 0, 0);
       this.emitConversationEvent("user_stopped_speaking", rms);
       this.onUserSpeech?.(false);
     }
@@ -938,6 +1008,7 @@ export class MyraaAudioSession {
       }
 
       source.start(this.nextStartTime);
+      this.turn.playing(Date.now() + Math.max(0, (this.nextStartTime - currentTime) * 1000));
       this.nextStartTime += buffer.duration;
 
       // Keep reference to handle real-time interruptions
