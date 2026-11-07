@@ -333,6 +333,7 @@ public final class MobileActions {
       }
       if("open_contact".equals(action)){openContact(id,args.optString("recipient"));return;}
       if("remember".equals(action)){finish(id,memory().remember(args.optString("fact"),args.optString("category",""),args.optBoolean("allow_sensitive",false)));return;}
+      if("conversation_mode".equals(action)){finish(id,CompanionMode.set(activity,args.optString("mode",""),args.has("on")?Boolean.valueOf(args.optBoolean("on")):null,args.has("hour")?args.optInt("hour",-1):-1,args.optInt("minute",0)));return;}
       if("recall".equals(action)){finish(id,memory().recall(args.optString("query")));return;}
       if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
       if("list_memories".equals(action)){finish(id,memory().listMemories());return;}

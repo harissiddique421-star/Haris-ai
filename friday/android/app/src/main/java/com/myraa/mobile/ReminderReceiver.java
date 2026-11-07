@@ -14,9 +14,10 @@ public final class ReminderReceiver extends BroadcastReceiver {
       case CareReminders.SKIP:CareReminders.skipped(context,id);break;
       case MeetingMode.END:MeetingMode.stop(context,true);break;
       case Proactive.CHECK:Proactive.check(context);break;
+      case CompanionMode.FIRE:CompanionMode.fire(context);break;
       case Prayer.FIRE:Prayer.fire(context,intent.getStringExtra("prayer"),intent.getStringExtra("at"));break;
       case Intent.ACTION_BOOT_COMPLETED:case Intent.ACTION_MY_PACKAGE_REPLACED:
-        CareReminders.rescheduleAll(context);MeetingMode.afterRestart(context);Proactive.schedule(context);Prayer.scheduleNext(context);WakeWordService.afterBoot(context);break;
+        CareReminders.rescheduleAll(context);MeetingMode.afterRestart(context);Proactive.schedule(context);CompanionMode.schedule(context);Prayer.scheduleNext(context);WakeWordService.afterBoot(context);break;
       default:break;
     }
   }

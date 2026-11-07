@@ -153,5 +153,11 @@ final class MemoryStore extends SQLiteOpenHelper {
     }
     return out;
   }
+  /** The most recently updated memory in a category, or null. */
+  synchronized JSONObject latest(String category) {
+    try (Cursor c = getReadableDatabase().query("memories", new String[]{"id", "category", "text", "updated", "uses", "sensitive"}, "category=? AND sensitive=0", new String[]{category}, null, null, "updated DESC", "1")) {
+      return c.moveToFirst() ? row(c) : null;
+    }
+  }
   synchronized int count() { try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM memories", null)) { return c.moveToFirst() ? c.getInt(0) : 0; } }
 }

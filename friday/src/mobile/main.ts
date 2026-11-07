@@ -5,6 +5,7 @@ import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
 import { Orchestrator, QUICK } from './agents';
+import { ContextualTopicManager, ConversationInitiativeManager, FollowUpQuestionGenerator, normalizeMode } from './initiative';
 import { drawPattern, patternMessage, closePattern } from './pattern';
 import fridayLogo from '../../branding/friday-icon-small.png';
 import fridayCore from '../../branding/friday-icon.png';
@@ -14,7 +15,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -104,19 +105,24 @@ let lastActivityAt = 0, lastCheckinAt = 0, userSpokeThisCall = false, spokeSince
 let thinkingTimer: ReturnType<typeof setTimeout> | null = null;
 let lastUserCaption = '';
 function markActivity() { lastActivityAt = Date.now(); }
+const topics = new ContextualTopicManager(), initiative = new ConversationInitiativeManager(topics);
+let checkinsThisCall = 0;
+function conversationMode() { return normalizeMode(state.assistant?.conversation?.mode); }
 setInterval(() => {
-  if (!idleCheckinOn() || !liveSession || liveSession.getState() !== 'listening' || document.hidden || !foreground) return;
+  if (!liveSession || liveSession.getState() !== 'listening' || document.hidden || !foreground) return;
   // Never ask twice in a row: after a check-in, wait until the user speaks again.
   if (!userSpokeThisCall || !spokeSinceCheckin || checkinPending || !lastActivityAt) return;
-  const now = Date.now();
-  if (now - lastActivityAt < IDLE_AFTER_MS || now - lastCheckinAt < IDLE_COOLDOWN_MS) return;
-  lastCheckinAt = now; checkinPending = true; spokeSinceCheckin = false; orchestrator.phonePrompted();
-  liveSession.sendText('[Phone] The user has been quiet for about 45 seconds with FRIDAY open. Say one short, natural line in their language to check whether they need anything else (for example "Kuch aur karna hai?"). Do not repeat it. If they do not answer, stay silent.');
+  const now = Date.now(), mode = conversationMode();
+  const move = initiative.decideIdle({ mode, enabled: idleCheckinOn(), quietMs: now - lastActivityAt, sinceLastCheckinMs: lastCheckinAt ? now - lastCheckinAt : Infinity,
+    checkinsThisCall, busy: !!convo.media || actionRequests.size > 0 || topics.endedConversation });
+  if (move === 'stay_quiet') return;
+  lastCheckinAt = now; checkinPending = true; spokeSinceCheckin = false; checkinsThisCall++; orchestrator.phonePrompted();
+  liveSession.sendText(FollowUpQuestionGenerator.idle(move, topics, TONE_HINT[emotions.emotion]));
 }, 5000);
 // Opening line: after the wake phrase or the microphone button starts FRIDAY, she says one short line and listens.
 const GREET_KEY = 'friday.greet';
 function greetOn() { try { return localStorage.getItem(GREET_KEY) !== 'off'; } catch { return true; } }
-let callStartedBy: 'wake' | 'mic' | '' = '', wakeStarting = false, noGreeting = false, greetedAt = 0, greetFollowUpDone = false, userTalkingNow = false, greetCount = 0;
+let callStartedBy: 'wake' | 'mic' | 'checkin' | '' = '', wakeStarting = false, checkinStarting = false, noGreeting = false, greetedAt = 0, greetFollowUpDone = false, userTalkingNow = false, greetCount = 0;
 const GREET_EXAMPLES = {
   wake: ['Yes Haris, I\'m here. Kya karna hai?', 'Haan Haris, bolo.', 'Hey Haris, I\'m awake. Batao kya karna hai?', 'Yes Haris, I\'m listening.', 'Ji Haris, main yahin hoon.'],
   mic: ['Haan, bolo.', 'I\'m listening.', 'Okay Haris, bolo.', 'Ji, batao.', 'Bolo Haris, kya karna hai?'],
@@ -124,11 +130,14 @@ const GREET_EXAMPLES = {
 /** Sent once, right after the call is ready, unless the user is already talking (their command comes first). */
 function sendGreeting() {
   const by = callStartedBy; callStartedBy = '';
-  if (!by || !greetOn() || !liveSession || userTalkingNow || userSpokeThisCall) return;
-  const pool = GREET_EXAMPLES[by]; greetCount++;
+  if (!by || (!greetOn() && by !== 'checkin') || !liveSession || userTalkingNow || userSpokeThisCall) return;
+  const pool = GREET_EXAMPLES[by === 'wake' ? 'wake' : 'mic']; greetCount++;
   const examples = [0, 1, 2].map(i => `"${pool[(greetCount + i) % pool.length]}"`).join(', ');
+  // Companion mode may open with a question about the user's day once a day.
+  const today = new Date().toDateString(); let firstToday = false;
+  try { firstToday = localStorage.getItem('friday.lastOpenDay') !== today; localStorage.setItem('friday.lastOpenDay', today); } catch { /* treated as not first */ }
   greetedAt = Date.now(); greetFollowUpDone = false; orchestrator.phonePrompted();
-  liveSession.sendText(`[Phone] FRIDAY was just started by ${by === 'wake' ? 'the wake phrase' : 'the user tapping the microphone, so keep it extra short'}. Say one short opening line in the user's language, like ${examples}, but in your own words and different from last time. Tone: ${TONE_HINT[emotions.emotion]}. Then stop and listen. If the user starts talking, stop and listen.`);
+  liveSession.sendText(FollowUpQuestionGenerator.opening(conversationMode(), by, firstToday, examples, TONE_HINT[emotions.emotion]));
 }
 // If nobody answers the opening line, say one quiet line once, then stay silent (no repeats).
 setInterval(() => {
@@ -233,7 +242,7 @@ function liveTranscription(role: 'user' | 'model', text: string) {
   markActivity(); logCaption(role, text);
   if (role === 'user') { orchestrator.userSpoke(); userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; }
   // A finished user sentence (FRIDAY starts answering) sets the tone for the reply.
-  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption); }
+  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption); topics.heard(lastUserCaption); }
   if (!liveCaption || liveCaption.role !== role) {
     append(role, ''); liveCaption = { role, body: el('messages').lastElementChild!.querySelector('p')! };
   }
@@ -328,7 +337,9 @@ app.innerHTML = `
         <div class="row"><button id="voiceid-register" type="button">Register My Voice</button><button id="voiceid-test" type="button">Test My Voice</button></div>
         <div class="row"><button id="voiceid-test-other" type="button">Test someone else</button><button id="voiceid-delete" type="button">Delete Voice Profile</button></div>
         <p id="voiceid-note" class="muted" role="status" aria-live="polite"></p></div>
-      <div class="card"><b>Conversation</b><small>If you go quiet for about 45 seconds during a Live call with FRIDAY on screen, she asks once whether you need anything else, then waits at least 10 minutes before asking again.</small>
+      <div class="card"><b>Conversation</b><small>How much FRIDAY talks first. Normal: sometimes one follow-up question. Companion: more questions, follow-ups and topics. Quiet: only answers you. Focus: short, work-only replies. You can also say "companion mode on" or "quiet mode". She never turns the mic on by herself.</small>
+        <label>Conversation mode<select id="conversation-mode"><option value="normal">Normal</option><option value="companion">Companion</option><option value="quiet">Quiet</option><option value="focus">Focus</option></select></label>
+        <label class="check"><input id="companion-checkin" type="checkbox"> Companion mode: one friendly check-in a day at <input id="companion-time" type="time" value="20:00" style="width:auto"></label>
         <label class="check"><input id="idle-checkin" type="checkbox"> Check in when I go quiet</label>
         <label class="check"><input id="greet-on-start" type="checkbox"> Say a short hello when FRIDAY starts listening</label></div>
       <div class="card"><b>Calls &amp; driving</b><small>Uses the phone's own voice, so it works without a Live call. Needs Notification access. You can also say "driving mode on".</small>
@@ -434,7 +445,7 @@ function showView(view: 'home' | 'chat') {
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
 const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy' };
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
@@ -518,6 +529,10 @@ function setAnnounce(change: Record<string, boolean>) { bridge?.setAssistant?.(J
 function renderAssistant() {
   renderAnnounce(); renderWake(); renderVoiceId();
   const a = state.assistant || {}; el('hello-name').textContent = a.name || 'there';
+  const conv = a.conversation || {};
+  el<HTMLSelectElement>('conversation-mode').value = normalizeMode(conv.mode);
+  el<HTMLInputElement>('companion-checkin').checked = !!conv.checkin;
+  if (conv.checkinTime && document.activeElement !== el('companion-time')) el<HTMLInputElement>('companion-time').value = conv.checkinTime;
   if (!personaTab) personaTab = a.persona || 'friday';
   const tabs = el('persona-tabs'); tabs.replaceChildren();
   for (const id of Object.keys(personaLabels)) {
@@ -655,6 +670,7 @@ window.MyraaEvents = event => {
   if (event.type === 'pattern-auth') { const waiter = authWaiter; authWaiter = null; waiter?.(!!event.ok, String(event.message || '')); renderSecurity(); return; }
   if (event.type === 'wake-test') { renderWakeTest(event); return; }
   if (event.type === 'wake') { if (bridge?.consumeWake?.()) void wakeUp(); return; }
+  if (event.type === 'companion-checkin') { if (bridge?.consumeCheckin?.()) void checkinTalk(); return; }
   if (event.type === 'companion-mic') { toggleMic(); return; }
   if (event.type === 'backup') {
     if (event.assistant) state.assistant = event.assistant; if (event.announce) state.announce = event.announce; if (event.wake) state.wake = event.wake;
@@ -737,8 +753,8 @@ el('voice').onclick = () => {
   // A call the user starts is fresh; an automatic retry keeps its counters and may resume the conversation.
   if (!autoRetry) { liveFallbacks = 0; liveReconnects = 0; liveResume.handle = ''; liveResume.resuming = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); }
   // Who started this call decides the opening line; an automatic reconnect continues without one.
-  const startedBy: 'wake' | 'mic' | '' = autoRetry || noGreeting ? '' : wakeStarting ? 'wake' : 'mic';
-  wakeStarting = false; noGreeting = false; autoRetry = false;
+  const startedBy: 'wake' | 'mic' | 'checkin' | '' = autoRetry || noGreeting ? '' : wakeStarting ? 'wake' : checkinStarting ? 'checkin' : 'mic';
+  wakeStarting = false; checkinStarting = false; noGreeting = false; autoRetry = false;
   if (liveSession && liveSession.getState() !== 'disconnected') { if (el('listening').hidden) { listeningMinimized = false; showListening(true); } else { stopVoice(); notice('Live voice ended.'); } return; }
   if (!bridge) { notice('Gemini Live voice runs inside the Android app.'); return; }
   if (!state.keyConfigured) { notice('Add a working Gemini key in Settings to start Live voice.'); return; }
@@ -746,7 +762,7 @@ el('voice').onclick = () => {
   if (navigator.onLine === false) { notice('No internet connection. Connect to the internet and try again.'); return; }
   bridge.stopSpeech(); liveCaption = null;
   callStartedBy = startedBy; greetedAt = 0; greetFollowUpDone = false; userTalkingNow = false;
-  if (startedBy) emotions.reset();
+  if (startedBy) { emotions.reset(); topics.reset(); checkinsThisCall = 0; }
   userSpokeThisCall = false; spokeSinceCheckin = true; checkinPending = false; heardUserSinceReply = false; lastActivityAt = Date.now();
   const resuming = liveResume.resuming; liveUpSince = 0;
   liveSession = new MyraaAudioSession({
@@ -820,6 +836,13 @@ el('settings-back').onclick = () => settingsPage('menu');
 el('save-advanced').onclick = () => el('save').click();
 el<HTMLInputElement>('idle-checkin').checked = idleCheckinOn();
 el<HTMLInputElement>('greet-on-start').checked = greetOn();
+function saveConversation(extra: Record<string, unknown> = {}) {
+  const [h, m] = (el<HTMLInputElement>('companion-time').value || '20:00').split(':').map(Number);
+  bridge?.setAssistant?.(JSON.stringify({ conversation: { mode: el<HTMLSelectElement>('conversation-mode').value, checkin: el<HTMLInputElement>('companion-checkin').checked, hour: h, minute: m || 0, ...extra } }));
+}
+el('conversation-mode').onchange = () => saveConversation();
+el('companion-checkin').onchange = () => saveConversation();
+el('companion-time').onchange = () => saveConversation();
 el('greet-on-start').onchange = () => { try { localStorage.setItem(GREET_KEY, el<HTMLInputElement>('greet-on-start').checked ? 'on' : 'off'); } catch { /* setting stays for this session */ } };
 el('idle-checkin').onchange = () => { try { localStorage.setItem(IDLE_KEY, el<HTMLInputElement>('idle-checkin').checked ? 'on' : 'off'); } catch { /* setting stays for this session */ } };
 el('announce-calls').onchange = () => setAnnounce({ announceCalls: el<HTMLInputElement>('announce-calls').checked });
@@ -977,7 +1000,15 @@ async function wakeUp() {
   if (liveActive()) { listeningMinimized = false; showListening(true); return; }
   notice('Yes? Starting FRIDAY Live…'); if (!liveActive()) { wakeStarting = true; el('voice').click(); wakeStarting = false; }
 }
-if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 400); else setTimeout(() => void appGate(), 1500);
+/** The user tapped the daily companion check-in: open FRIDAY and start the chat with a check-in opening. */
+async function checkinTalk() {
+  if (!(await appGate())) return;
+  const dialog = el<HTMLDialogElement>('settings-panel'); if (dialog.open) dialog.close();
+  showView('home');
+  if (liveActive()) { listeningMinimized = false; showListening(true); return; }
+  checkinStarting = true; el('voice').click(); checkinStarting = false;
+}
+if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 400); else if (bridge?.consumeCheckin?.()) setTimeout(() => void checkinTalk(), 400); else setTimeout(() => void appGate(), 1500);
 window.addEventListener('myraa:lifecycle', event => { if ((event as CustomEvent).detail?.active) setTimeout(() => void appGate(), 300); });
 renderHistory(); refreshSettings(); void loadAvatar();
 el('boot-version').textContent = 'v' + (state.version || '1.0');
