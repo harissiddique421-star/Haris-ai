@@ -115,6 +115,14 @@ public final class SelfImprovementCheck {
     check(SelfImprovement.nextTextModel("gemini-3.5-flash", tried).isEmpty(), "no more backups");
     check(SelfImprovement.nextTextModel("my-custom-model", Collections.singletonList("my-custom-model")).equals("gemini-3.5-flash"), "custom saved model falls back to the default first");
 
+    // ---- text models uniqueness and nextTextModel behavior
+    Set<String> uniqueModels = new HashSet<>(Arrays.asList(SelfImprovement.TEXT_MODELS));
+    check(uniqueModels.size() == SelfImprovement.TEXT_MODELS.length, "TEXT_MODELS has no duplicate names");
+    for (String model : SelfImprovement.TEXT_MODELS) {
+      String nextModel = SelfImprovement.nextTextModel(model, new ArrayList<>());
+      check(!nextModel.equals(model), "nextTextModel never returns the given saved model (" + model + ")");
+    }
+
     if (failures > 0) { System.out.println(failures + " self-improvement check(s) failed"); System.exit(1); }
     System.out.println("Self-improvement checks passed.");
   }
