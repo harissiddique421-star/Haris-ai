@@ -123,9 +123,9 @@ Logic: `SelfImprovement.java` (checked by `SelfImprovementCheck` in `scripts/tes
 
 ## Development agent (phase 2)
 
-`.github/workflows/friday-dev-agent.yml` runs Claude Code on GitHub for approved ideas.
+`.github/workflows/friday-dev-agent.yml` runs Google's free Gemini CLI on GitHub for approved ideas.
 
-- **One-time setup (owner):** add the repository secret `ANTHROPIC_API_KEY` (Settings > Secrets and variables > Actions) and create the label `friday-self-improvement` (Issues > Labels). Each run uses that key and costs money.
-- **Start:** approve an idea in Settings > Self-development, tap **Send to developer**, and press Submit on GitHub. Only issues opened by the repository owner with that label start the agent; the owner can also comment `@claude` on such an issue to start it again.
-- **What it does:** reads the issue and code, makes the change on a `friday-dev/…` branch, raises the version, adds a test, runs the typecheck, mobile tests, JVM checks and APK build, pushes the branch and comments with the results and a link to open the PR. The test APK (signed with a throwaway key) is kept as a workflow artifact.
+- **One-time setup (owner):** create a free key at https://aistudio.google.com/apikey and add it as the repository secret `GEMINI_API_KEY` (Settings > Secrets and variables > Actions), and create the label `friday-self-improvement` (Issues > Labels). A separate key from the one inside FRIDAY is best, so the agent never uses up the phone's free quota. The free tier has daily limits; if they run out, the run says so and you can comment `@gemini` the next day.
+- **Start:** approve an idea in Settings > Self-development, tap **Send to developer**, and press Submit on GitHub. Only issues opened by the repository owner with that label start the agent; the owner can also comment `@gemini` on such an issue to start it again (it continues on the same branch).
+- **What it does:** Gemini reads the issue and code and makes the change on the runner, with no GitHub credentials. The workflow then refuses the change if it touches `.github/`, activation, signing or release scripts, or deletes tests; runs the typecheck, mobile tests, JVM checks and APK build itself; pushes a `friday-dev/issue-N` branch; and comments with each check's result and a link to open the PR. The test APK (signed with a throwaway key) is kept as a workflow artifact.
 - **What it never does:** edit `.github/`, weaken signing, activation or key handling, skip tests, merge, or publish. The owner reviews and merges the PR, then runs **Publish FRIDAY update** so phones can install it.
