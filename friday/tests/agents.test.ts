@@ -47,3 +47,14 @@ test('SOS and message replies: owned by communication, never from a phone prompt
   assert.equal(calls.length, 0);
   assert.equal((await o.dispatch('mobile_action', { action: 'prayer_times' })).status, 'needs_confirmation', 'harmless actions still run');
 });
+test('self_report belongs to the health agent and every run is reported for self-development', async () => {
+  assert.equal(agentFor('self_report'), 'health');
+  const seen: [string, boolean][] = [];
+  const o = new Orchestrator(async (_n, args: any) => args.action === 'torch' ? { status: 'done' } : { status: 'failed' });
+  o.onRecord = (agent, _ms, failed) => seen.push([agent, failed]);
+  await o.dispatch('mobile_action', { action: 'torch', on: true }, true);
+  await o.dispatch('mobile_action', { action: 'battery' }, true);
+  assert.deepEqual(seen, [['device', false], ['device', true]]);
+  o.onRecord = () => { throw new Error('broken observer'); };
+  assert.equal((await o.dispatch('mobile_action', { action: 'torch', on: false }, true)).status, 'done');
+});

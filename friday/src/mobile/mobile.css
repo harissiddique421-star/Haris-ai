@@ -213,3 +213,15 @@ body.app-locked #app,body.app-locked main,body.app-locked .bottom-nav{filter:blu
 .memory-list li button+button{margin-left:-4px}
 #memory-category{max-width:9em}
 .memory-list li button[aria-label="Edit this memory"]{color:#9fb4ff;font-size:17px}
+
+/* Self-development page */
+.selfdev-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:12px 0}
+.selfdev-grid div{background:#050a18;border-radius:12px;padding:10px}
+.selfdev-grid b{font-size:18px}
+.selfdev-grid small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+.selfdev-item{border-top:1px solid #2f6bff22;padding:10px 0}
+.selfdev-item:first-child{border-top:0}
+.selfdev-item small{display:block;color:var(--muted);font-size:13px;margin-top:3px;line-height:1.4}
+.selfdev-item .row{margin-top:8px}
+.selfdev-item.sev-high>b{color:#ff8f8f}
+.selfdev-text{white-space:pre-wrap;font-size:14px;line-height:1.5}

@@ -263,6 +263,8 @@ export class MyraaAudioSession {
   private onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
   /** Voice ID: the owner's words were hidden by other voices talking at the same time (ask them to repeat). */
   private onVoiceUnclear?: () => void;
+  /** Time from the end of the user's speech to the start of FRIDAY's spoken reply (self-development measurements). */
+  private onReplyLatency?: (ms: number) => void;
   private onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
   
   private connection?: AudioConnection;
@@ -312,9 +314,11 @@ export class MyraaAudioSession {
     /** verified: Voice ID confirmed the owner's turn just ended (it will be answered, so FRIDAY is processing). */
     onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
     onVoiceUnclear?: () => void;
+    onReplyLatency?: (ms: number) => void;
     connection?: AudioConnection;
   }) {
     this.onUserSpeech = handlers.onUserSpeech;
+    this.onReplyLatency = handlers.onReplyLatency;
     this.onVoiceUnclear = handlers.onVoiceUnclear;
     this.connection = handlers.connection;
     this.onStateChange = handlers.onStateChange;
@@ -505,6 +509,7 @@ export class MyraaAudioSession {
             if (this.currentState !== "speaking" && this.timings.lastSpeechEndAt > 0 && this.timings.lastReplyStartAt < this.timings.lastSpeechEndAt) {
               this.timings.lastReplyStartAt = Date.now();
               this.timings.lastReplyLatencyMs = this.timings.lastReplyStartAt - this.timings.lastSpeechEndAt;
+              this.onReplyLatency?.(this.timings.lastReplyLatencyMs);
             }
             this.playAudioPCMChunk(data.audio);
           }
