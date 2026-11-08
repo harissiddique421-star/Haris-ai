@@ -7,6 +7,7 @@
 #    ends 0.6 s after a short command, also with people talking behind); a friend,
 #    two people at once, the TV and FRIDAY's own voice are not; profile calibration and storage.
 #  - SelfImprovementCheck: health ledger, self-analysis, development memory, approvals, self-healing.
+#  - UpdatePlanCheck: which GitHub releases are offered and which downloaded APKs are accepted.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=android/app/build/voice-tests; rm -rf "$OUT"; mkdir -p "$OUT/classes"
@@ -17,10 +18,11 @@ SRC=android/app/src/main/java/com/myraa/mobile
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" \
   "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/VoiceEncoder.java" "$SRC/SpeechSegmenter.java" \
   "$SRC/SpeakerProfile.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
-  "$SRC/MemoryRank.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" \
+  "$SRC/MemoryRank.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" \
   android/tests/jvm/android/util/Log.java android/tests/jvm/com/myraa/mobile/*.java
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceModelsCheck android/models android/tests/jvm/fixtures
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.SpeechSegmenterCheck android/models android/tests/jvm/fixtures
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceGateCheck android/models android/tests/jvm/fixtures/voiceid
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.MemoryRankCheck
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.SelfImprovementCheck
+java -cp "$OUT/classes:$JSON" com.myraa.mobile.UpdatePlanCheck
