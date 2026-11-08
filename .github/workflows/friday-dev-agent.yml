@@ -14,7 +14,7 @@ name: FRIDAY development agent
 # the next day by commenting "@gemini" on the issue.
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
   issue_comment:
     types: [created]
 
@@ -37,9 +37,7 @@ jobs:
       github.event.issue.pull_request == null &&
       github.event.issue.user.login == github.repository_owner &&
       (
-        (github.event_name == 'issues' &&
-          contains(github.event.issue.labels.*.name, 'friday-self-improvement') &&
-          (github.event.action == 'opened' || github.event.label.name == 'friday-self-improvement')) ||
+        (github.event_name == 'issues' && github.event.label.name == 'friday-self-improvement') ||
         (github.event_name == 'issue_comment' &&
           github.event.comment.user.login == github.repository_owner &&
           contains(github.event.issue.labels.*.name, 'friday-self-improvement') &&
@@ -109,6 +107,9 @@ jobs:
         id: gemini
         continue-on-error: true
         uses: google-github-actions/run-gemini-cli@v0
+        env:
+          # Headless runs need the checkout marked as trusted, or the CLI exits before starting.
+          GEMINI_CLI_TRUST_WORKSPACE: "true"
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           prompt: |
@@ -216,7 +217,7 @@ jobs:
               echo "**Nothing was pushed.** Comment \`@gemini\` to try again."
             fi
             echo
-            if [ "$GEMINI" != "success" ]; then echo "- Gemini didn't finish (the free daily limit may be used up). See the [run log]($RUN_URL)."; fi
+            if [ "$GEMINI" != "success" ]; then echo "- Gemini didn't finish. The reason is in the [run log]($RUN_URL) under \"Gemini makes the change\" (often the free daily limit)."; fi
             if [ "$GUARD" != "success" ] && [ -f "$RUNNER_TEMP/guard.txt" ]; then echo; cat "$RUNNER_TEMP/guard.txt"; fi
             if [ -s "$RUNNER_TEMP/checks.md" ]; then echo; echo "**Checks run by the workflow:**"; cat "$RUNNER_TEMP/checks.md"; fi
             echo
