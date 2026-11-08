@@ -15,7 +15,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -52,7 +52,7 @@ let lastUnclearAt = 0;
 /** Voice ID heard the owner but other voices overlapped too much to be sure: FRIDAY asks once to repeat (at most every 10 s). */
 function voiceUnclear() {
   if (Date.now() - lastUnclearAt < 10_000 || !liveSession || liveSession.getState() === 'disconnected') return;
-  lastUnclearAt = Date.now();
+  lastUnclearAt = Date.now(); metric('voice_unclear');
   liveSession.sendText('[Phone] Voice ID: the owner said something but other people were talking at the same time, so it was not clear enough to accept. In one short line, in the owner\'s language, ask them to repeat. Do not guess what they said.');
 }
 let fullBody = true;
@@ -87,6 +87,9 @@ function voiceIdDiagnostics() {
 /** Tone of the conversation (see emotion.ts) and what FRIDAY is doing on the phone, for follow-up commands. */
 const emotions = new EmotionEngine();
 const orchestrator = new Orchestrator(runMobileAction);
+/** Self-development measurements: counts and timings only, stored on the phone. */
+function metric(kind: string, value = 1) { try { bridge?.selfDevMetric?.(kind, value); } catch { /* never breaks a call */ } }
+orchestrator.onRecord = (agent, _ms, failed) => { metric('agent_run:' + agent); if (failed) metric('agent_fail:' + agent); };
 const convo = { currentApp: '', media: '', lastAction: '', lastStatus: '', pendingConfirmation: false };
 const MEDIA_ACTIONS = new Set(['search_youtube', 'play_music', 'resume_video']);
 function trackAction(action: string, args: any, status: string) {
@@ -306,7 +309,7 @@ app.innerHTML = `
   <dialog id="settings-panel" class="settings"><div class="settings-top"><button id="settings-back" class="icon-button" aria-label="Back">←</button><h2 id="settings-title">Settings</h2><form method="dialog"><button class="icon-button" aria-label="Close settings">×</button></form></div>
     <div class="settings-page" data-page="menu">
       <p class="group">ACCOUNT</p><div class="menu"><button data-go="personal"><b>Personal</b><small>Your name, Gemini key, models, language</small></button></div>
-      <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button></div>
+      <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button><button data-go="selfdev"><b>Self-development</b><small>Health, self-analysis, improvement ideas and approvals</small></button></div>
       <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button><button data-go="security"><b>Security</b><small>FRIDAY Pattern, fingerprint or phone lock</small></button></div>
       <p class="group">SYSTEM</p><div class="menu"><button data-go="advanced"><b>Advanced</b><small>Graphics, read aloud, history, diagnostics</small></button></div>
     </div>
@@ -380,6 +383,13 @@ app.innerHTML = `
         <label class="check"><input type="checkbox" data-protect="developer"> Developer mode</label>
         <p id="pattern-note" class="muted" role="status" aria-live="polite"></p></div>
     </div>
+    <div class="settings-page" data-page="selfdev" hidden>
+      <div class="card"><b>System health</b><small>Measured on this phone over the last 7 days, compared with the week before. Numbers only: no words, contacts or audio are kept.</small><div id="selfdev-health" class="selfdev-grid"></div><p id="selfdev-summary" class="muted" role="status" aria-live="polite"></p><div class="row"><button id="selfdev-analyze" class="primary">Analyse now</button><button id="selfdev-ideas">Ask Gemini for ideas</button></div></div>
+      <div class="card"><b>Weaknesses found</b><small>Clear problems from the measurements, worst first. Level 1 FRIDAY handles alone, level 2 needs a developer build, level 3 needs you.</small><div id="selfdev-findings"></div></div>
+      <div class="card"><b>Improvement ideas and approvals</b><small>Nothing changes until you approve. "Send to developer" opens a prefilled GitHub issue; you press Submit there. New versions are always installed by you, and Android asks you to confirm.</small><div id="selfdev-ideas-list"></div></div>
+      <div class="card" id="selfdev-deep-card" hidden><b>Gemini's ideas</b><small id="selfdev-deep-at"></small><p id="selfdev-deep" class="selfdev-text"></p></div>
+      <div class="card"><b>Development memory</b><small>Bugs, fixes, failed approaches, versions and notes, so the same problem isn't solved twice.</small><div id="selfdev-memory"></div><button id="selfdev-clear">Clear measurements and memory</button></div>
+    </div>
     <div class="settings-page" data-page="advanced" hidden>
       <label>Graphics<select id="quality"><option value="low">Low · save battery</option><option value="balanced">Medium · balanced</option><option value="high">High · sharper</option></select></label>
       <label class="check"><input id="spoken" type="checkbox"> Read text replies with Android voice</label>
@@ -452,7 +462,7 @@ function showView(view: 'home' | 'chat') {
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
 const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy' };
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
@@ -595,11 +605,71 @@ function renderPermissions() {
     card.append(text, action); list.append(card);
   }
 }
-const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', security: 'Security', advanced: 'Advanced' };
+const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', security: 'Security', advanced: 'Advanced', selfdev: 'Self-development' };
 function settingsPage(page: string) {
   for (const section of document.querySelectorAll<HTMLElement>('.settings-page')) section.hidden = section.dataset.page !== page;
   el('settings-title').textContent = pageTitles[page] || 'Settings'; el('settings-back').toggleAttribute('hidden', page === 'menu');
   if (page === 'permissions') refreshState();
+  if (page === 'selfdev') renderSelfDev();
+}
+// ---- Self-development page
+function selfDevCall(input: Record<string, unknown>) {
+  if (!bridge?.selfDevAction) return null;
+  try { return JSON.parse(bridge.selfDevAction(JSON.stringify(input))); } catch { return null; }
+}
+function renderSelfDev(data?: any) {
+  if (!data) { try { data = JSON.parse(bridge?.selfDevState?.() || 'null'); } catch { data = null; } }
+  if (!data) { el('selfdev-summary').textContent = 'Self-development runs inside the Android app.'; return; }
+  const now = data.metrics?.this_week || {}, before = data.metrics?.last_week || {};
+  const rows: [string, string, (v: any) => string][] = [
+    ['Text replies', 'text_replies', v => String(v ?? 0)], ['Text failures', 'text_failures', v => String(v ?? 0)],
+    ['Avg text reply', 'text_avg_ms', v => v ? (v / 1000).toFixed(1) + ' s' : '-'], ['Avg voice reply', 'voice_avg_ms', v => v ? (v / 1000).toFixed(1) + ' s' : '-'],
+    ['Live errors', 'live_errors', v => String(v ?? 0)], ['Reconnects', 'reconnects', v => String(v ?? 0)],
+    ['Backup model used', 'backup_model_used', v => String(v ?? 0)], ['Fixed by itself', 'retries_fixed', v => String(v ?? 0)],
+    ['Crashes', 'crashes', v => String(v ?? 0)], ['Unclear voice', 'voice_unclear', v => String(v ?? 0)],
+  ];
+  const grid = el('selfdev-health'); grid.replaceChildren();
+  for (const [label, key, fmt] of rows) {
+    const cell = document.createElement('div'); const b = document.createElement('b'); b.textContent = fmt(now[key]);
+    const small = document.createElement('small'); small.textContent = `${label} · last week ${fmt(before[key])}`;
+    cell.append(b, small); grid.append(cell);
+  }
+  el('selfdev-summary').textContent = data.message || '';
+  const findings = el('selfdev-findings'); findings.replaceChildren();
+  if (!data.findings?.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'No measured problems right now.'; findings.append(p); }
+  for (const f of data.findings || []) {
+    const item = document.createElement('div'); item.className = `selfdev-item sev-${f.severity}`;
+    const t = document.createElement('b'); t.textContent = `${f.area} · ${f.severity} · level ${f.level}`;
+    const e = document.createElement('small'); e.textContent = f.evidence; const g = document.createElement('small'); g.textContent = f.suggestion;
+    item.append(t, e, g); findings.append(item);
+  }
+  const memory: any[] = data.memory || [];
+  const ideas = el('selfdev-ideas-list'); ideas.replaceChildren();
+  const open = memory.filter(m => m.kind === 'idea' && m.status !== 'dismissed' && m.status !== 'done').reverse();
+  if (!open.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'No ideas waiting. FRIDAY adds one when the measurements show a clear problem.'; ideas.append(p); }
+  for (const idea of open) {
+    const item = document.createElement('div'); item.className = 'selfdev-item';
+    const t = document.createElement('b'); t.textContent = idea.title;
+    const d = document.createElement('small'); d.textContent = `${idea.detail} · status: ${idea.status}${idea.level ? ' · level ' + idea.level : ''}`;
+    const row = document.createElement('div'); row.className = 'row';
+    const button = (label: string, action: string, primary = false) => { const b = document.createElement('button'); b.textContent = label; if (primary) b.className = 'primary'; b.onclick = () => { const r = selfDevCall({ action, id: idea.id }); if (r) { renderSelfDev(r); notice(r.message || ''); } }; row.append(b); };
+    if (idea.status === 'proposed') { button('Approve', 'approve', true); button('Dismiss', 'dismiss'); }
+    if (idea.status === 'approved') { button('Send to developer', 'send', true); button('Mark done', 'done'); button('Dismiss', 'dismiss'); }
+    if (idea.status === 'sent') button('Mark done', 'done');
+    item.append(t, d, row); ideas.append(item);
+  }
+  el('selfdev-deep-card').hidden = !data.deep_ideas;
+  el('selfdev-deep').textContent = data.deep_ideas || '';
+  el('selfdev-deep-at').textContent = data.deep_ideas_at ? 'Written ' + new Date(data.deep_ideas_at).toLocaleString() + ' from the measured numbers only. Approve an idea above before anything is built.' : '';
+  const log = el('selfdev-memory'); log.replaceChildren();
+  const recent = memory.filter(m => m.kind !== 'idea').slice(-25).reverse();
+  if (!recent.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'Empty so far.'; log.append(p); }
+  for (const m of recent) {
+    const item = document.createElement('div'); item.className = 'selfdev-item';
+    const t = document.createElement('b'); t.textContent = `${m.kind}${m.status ? ' (' + m.status + ')' : ''}: ${m.title}`;
+    const d = document.createElement('small'); d.textContent = `${m.detail || ''}${m.count > 1 ? ' · seen ' + m.count + ' times' : ''} · ${new Date(m.last).toLocaleDateString()}`;
+    item.append(t, d); log.append(item);
+  }
 }
 function append(role: string, text: string) {
   const item = document.createElement('article'); item.className = `message ${role}`;
@@ -712,9 +782,10 @@ window.MyraaEvents = event => {
   }
   if (event.type === 'state') { state = event.state; refreshSettings(); renderHistory(); renderAssistant(); }
   if (event.type === 'assistant') { state.assistant = event.assistant; if (event.announce) state.announce = event.announce; if (event.wake) state.wake = event.wake; renderAssistant(); if (event.message) notice(event.message); }
+  if (event.type === 'selfdev') { if (event.message) notice(event.message); if (event.refresh && !el('settings-panel').querySelector<HTMLElement>('[data-page="selfdev"]')!.hidden) renderSelfDev(); }
   if (event.type === 'permissions') { state.permissions = event.permissions; renderPermissions(); if (event.message) notice(event.message); }
   if (event.type === 'reply' && event.id === requestId) {
-    busy = false; lastReply = event.text; append('model', event.text); notice('');
+    busy = false; lastReply = event.text; append('model', event.text); notice(event.note || '');
     pendingText = '';
     state = bridge ? JSON.parse(bridge.getState()) : state;
     el('presence').textContent = 'Here with you'; system?.setFrameInput({ activity: 'idle', emotion: 'happy' });
@@ -779,6 +850,7 @@ el('voice').onclick = () => {
   liveSession = new MyraaAudioSession({
     onUserSpeech: userSpeech,
     onVoiceUnclear: voiceUnclear,
+    onReplyLatency: ms => { if (ms >= 0 && ms < 60_000) { metric('live_reply'); metric('live_reply_ms', ms); } },
     connection: { createSocket: () => new MobileLiveTransport(bridge), voiceGate: voiceGateLink },
     onStateChange: liveState, onTranscription: liveTranscription,
     onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, withHeard(args)).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
@@ -787,6 +859,7 @@ el('voice').onclick = () => {
     onError: message => {
       // A call that ran for a minute counts as working, so a later drop gets its own reconnects.
       if (liveUpSince && Date.now() - liveUpSince > 60_000) liveReconnects = 0;
+      metric('live_error');
       const inBackground = backgroundLive;
       const recovery = liveRecovery(message, { fallbacks: liveFallbacks, reconnects: liveReconnects, online: navigator.onLine !== false, visible: document.visibilityState === 'visible' || inBackground, resuming });
       // Recovering keeps the phone's call service (and the paused wake word) running, so it also works in the background.
@@ -798,11 +871,11 @@ el('voice').onclick = () => {
       if (recovery === 'switch_model' && bridge?.nextLiveModel) {
         const next = bridge.nextLiveModel(bridge.liveModel?.() || '');
         if (!next) { liveResume.handoff = false; bridge?.endLive(); }
-        if (next) { liveFallbacks++; liveResume.resuming = false; liveResume.handle = ''; notice(`This Live model is unavailable right now. Trying ${next}…`); state.liveModel = next; autoRetry = true; retryCall(); return; }
+        if (next) { metric('live_switch'); liveFallbacks++; liveResume.resuming = false; liveResume.handle = ''; notice(`This Live model is unavailable right now. Trying ${next}…`); state.liveModel = next; autoRetry = true; retryCall(); return; }
       }
       // The call dropped or Google ended the session: connect again, resuming the conversation when Google gave a handle.
       if (recovery === 'reconnect') {
-        liveReconnects++; liveResume.resuming = !(resuming && /while starting/i.test(message)) && !!liveResume.handle; if (!liveResume.resuming) liveResume.handle = '';
+        metric('live_reconnect'); liveReconnects++; liveResume.resuming = !(resuming && /while starting/i.test(message)) && !!liveResume.handle; if (!liveResume.resuming) liveResume.handle = '';
         notice('Connection dropped. Reconnecting…'); bridge?.companion?.('connecting', '', 0); autoRetry = true; retryCall(); return;
       }
       notice(message);
@@ -843,6 +916,9 @@ el('camera').onclick = () => { if (cameraStream) { stopCamera(); notice('Camera 
 el('screen').onclick = () => { if (screenSharing) bridge?.stopScreenShare?.(); else if (!liveActive()) notice('Start a Live call first, then share your screen.'); else bridge?.startScreenShare?.(); };
 el('camera-preview').onclick = () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; stopCamera(); bridge?.requestCamera ? bridge.requestCamera() : void startCamera(); };
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = async () => { if (button.dataset.go === 'memory' && !(await unlockFor('memory'))) return; if (button.dataset.go === 'security') renderSecurity(); settingsPage(button.dataset.go!); };
+el('selfdev-analyze').onclick = () => { const r = selfDevCall({ action: 'analyze' }); if (r) { renderSelfDev(); notice('Self-analysis updated.'); } };
+el('selfdev-ideas').onclick = () => { if (!bridge?.selfDevIdeas) return notice('This runs inside the Android app.'); notice('Asking Gemini for ideas from the measured numbers…'); bridge.selfDevIdeas(); };
+el('selfdev-clear').onclick = () => { if (!confirm('Clear all self-development measurements, ideas and the development memory on this phone?')) return; const r = selfDevCall({ action: 'clear' }); if (r) { renderSelfDev(r); notice(r.message || ''); } };
 el('settings-back').onclick = () => settingsPage('menu');
 el('save-advanced').onclick = () => el('save').click();
 el<HTMLInputElement>('idle-checkin').checked = idleCheckinOn();

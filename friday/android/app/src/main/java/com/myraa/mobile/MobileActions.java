@@ -343,7 +343,8 @@ public final class MobileActions {
       if("list_routines".equals(action)){finish(id,memory().listRoutines());return;}
       if("delete_routine".equals(action)){finish(id,memory().deleteRoutine(args.optString("name")));return;}
       if("reminder_skip".equals(action)){finish(id,CareReminders.skip(activity,args.optString("text")));return;}
-      if("health_check".equals(action)){SharedPreferences p=activity.getSharedPreferences(Announcer.PREFS,0);finish(id,Diagnostics.health(activity,p.contains("keyCipher"),p.getString("liveModel",MainActivity.DEFAULT_LIVE_MODEL)));return;}
+      if("health_check".equals(action)){SharedPreferences p=activity.getSharedPreferences(Announcer.PREFS,0);JSONObject h=Diagnostics.health(activity,p.contains("keyCipher"),p.getString("liveModel",MainActivity.DEFAULT_LIVE_MODEL));SelfDevelopment.record(activity,"health_check",1);JSONArray problems=h.optJSONArray("problems");SelfDevelopment.record(activity,"health_problem",problems==null?0:problems.length());finish(id,h);return;}
+      if("self_report".equals(action)){JSONObject r=SelfDevelopment.analyze(activity,false);try{r.put("message",r.optString("message")+" The full list is in Settings > Self-development.");}catch(JSONException ignored){}finish(id,r);return;}
       if("network_status".equals(action)){finish(id,Diagnostics.network(activity));return;}
       if("action_history".equals(action)){finish(id,Diagnostics.history(args.optInt("limit",10)));return;}
       if("upcoming_events".equals(action)){finish(id,Briefing.upcoming(activity,args.optInt("days",7)));return;}

@@ -100,3 +100,16 @@ script grants model rights.
 Compilation/signing, startup, actual rendering, permissions, lifecycle and voice
 checks must be recorded in `../docs/V2-TEST-REPORT.md`. Successful compilation
 alone does not establish device compatibility or a production-ready release.
+
+## Self-development (rc.45)
+
+Settings > Self-development shows FRIDAY's own health and improvement ideas. Everything stays on the phone.
+
+- **Measurements:** daily counters for text replies, failures by reason, reply time, Live errors and reconnects, voice reply time, unclear voice, agent failures and crashes. Numbers only; no words, contacts or audio. Kept 28 days.
+- **Self-analysis:** the last 7 days against the 7 before. Clear problems become findings with the measured evidence, a suggestion and an approval level (1 FRIDAY alone, 2 developer build, 3 owner). Say "self report" or "apna analysis karo" to hear it.
+- **Self-healing (text chat):** a timeout or Google outage is retried once; quota or "model unavailable" switches to a backup text model (`SelfImprovement.TEXT_MODELS`) and the reply says which model answered. Key problems stop at once.
+- **Development memory:** bugs (crashes are recorded by type and place only), fixes, versions and notes. A bug with no repeat for 7 days is marked "quiet", never "fixed".
+- **Approvals:** ideas are proposed, then approved or dismissed by the owner. "Send to developer" opens a prefilled GitHub issue that the owner submits. FRIDAY never installs or replaces itself.
+- **Ask Gemini for ideas:** sends only the numbers, findings and memory titles to Gemini for suggestions. Nothing changes from it.
+
+Logic: `SelfImprovement.java` (checked by `SelfImprovementCheck` in `scripts/test-voice-models.sh`); storage and Android hooks: `SelfDevelopment.java`.

@@ -151,6 +151,9 @@ test('incoming call questions and controls parse locally', () => {
 
 test('health, network, history, clock, styles and modes parse locally', () => {
   assert.deepEqual(parseMobileAction('health check'),{action:'health_check'});
+  assert.deepEqual(parseMobileAction('self report'),{action:'self_report'});
+  assert.deepEqual(parseMobileAction('what can you improve?'),{action:'self_report'});
+  assert.deepEqual(parseMobileAction('apna analysis karo'),{action:'self_report'});
   assert.deepEqual(parseMobileAction('internet check karo'),{action:'network_status'});
   assert.deepEqual(parseMobileAction('kya kya kiya'),{action:'action_history'});
   assert.deepEqual(parseMobileAction('pichli app kholo'),{action:'phone_control',control:'last_app'});

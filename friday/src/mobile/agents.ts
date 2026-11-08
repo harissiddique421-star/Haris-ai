@@ -15,7 +15,7 @@ const OWNERS: Record<AgentName, string[]> = {
   memory: ['remember', 'recall', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
   document: ['make_document'],
   research: ['search_web'],
-  health: ['health_check', 'network_status', 'set_proactive'],
+  health: ['health_check', 'network_status', 'set_proactive', 'self_report'],
   core: ['briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
 };
 const OWNER = new Map<string, AgentName>();
@@ -25,7 +25,7 @@ export function agentFor(action: string): AgentName { return OWNER.get(action) ?
 /** Actions that reach other people, change calls or remove data: only on the user's own words. */
 const HIGH_RISK = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine', 'emergency', 'emergency_contact', 'reply_message']);
 /** Actions that change no screen: a routine can run the next step right away. */
-export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
+export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
 
 export interface AgentStats { runs: number; failures: number; totalMs: number; lastMs: number; }
 export type Runner = (name: string, args: unknown) => Promise<any>;
@@ -38,6 +38,9 @@ export class Orchestrator {
   /** Time the user last spoke, and the time the phone itself last prompted Gemini (check-in, call or message notice). */
   private userSpokeAt = 0;
   private phonePromptAt = 0;
+
+  /** Called after every agent run (self-development measurements: counts and failures only). */
+  onRecord?: (agent: AgentName, ms: number, failed: boolean) => void;
 
   constructor(private run: Runner) {}
 
@@ -89,6 +92,7 @@ export class Orchestrator {
     const s = this.stats.get(agent) ?? { runs: 0, failures: 0, totalMs: 0, lastMs: 0 };
     s.runs++; if (failed) s.failures++; s.totalMs += ms; s.lastMs = Math.round(ms);
     this.stats.set(agent, s);
+    try { this.onRecord?.(agent, ms, failed); } catch { /* measurements never break an action */ }
   }
 
   /** One line per agent for Settings diagnostics. */
