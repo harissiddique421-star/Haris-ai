@@ -120,3 +120,12 @@ Logic: `SelfImprovement.java` (checked by `SelfImprovementCheck` in `scripts/tes
 - **On the phone:** Settings > Self-development > Updates. FRIDAY checks GitHub at most once a day (can be turned off) and only looks. Download and check verifies the published SHA-256, package name, newer version and that the APK is signed with the same key as the installed FRIDAY; a file that fails is deleted. Install first saves the installed APK and a data backup to `Downloads/FRIDAY` (Android 10+), then Android's own installer asks you to confirm. App data is kept.
 - **Rollback:** Android doesn't install an older version over a newer one, so: uninstall FRIDAY, install the saved `FRIDAY-<version>.apk` from `Downloads/FRIDAY`, activate it again, and restore the saved backup in Settings > Advanced. The API key and chats are not in the backup.
 - Logic: `UpdatePlan.java` (checked by `UpdatePlanCheck`); Android side: `Updater.java`.
+
+## Development agent (phase 2)
+
+`.github/workflows/friday-dev-agent.yml` runs Claude Code on GitHub for approved ideas.
+
+- **One-time setup (owner):** add the repository secret `ANTHROPIC_API_KEY` (Settings > Secrets and variables > Actions) and create the label `friday-self-improvement` (Issues > Labels). Each run uses that key and costs money.
+- **Start:** approve an idea in Settings > Self-development, tap **Send to developer**, and press Submit on GitHub. Only issues opened by the repository owner with that label start the agent; the owner can also comment `@claude` on such an issue to start it again.
+- **What it does:** reads the issue and code, makes the change on a `friday-dev/…` branch, raises the version, adds a test, runs the typecheck, mobile tests, JVM checks and APK build, pushes the branch and comments with the results and a link to open the PR. The test APK (signed with a throwaway key) is kept as a workflow artifact.
+- **What it never does:** edit `.github/`, weaken signing, activation or key handling, skip tests, merge, or publish. The owner reviews and merges the PR, then runs **Publish FRIDAY update** so phones can install it.
