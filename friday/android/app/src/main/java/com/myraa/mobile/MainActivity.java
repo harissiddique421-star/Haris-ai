@@ -82,13 +82,16 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.45";
+  static final String VERSION = "1.0.0-rc.46";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
+    Updater.afterStart(this);
     if (!Activation.isActivated(this)) { activationLocked = true; Activation.showGate(this, this::recreate); return; }
     prefs = getSharedPreferences("myraa.mobile.v1", MODE_PRIVATE);
     Proactive.schedule(this);
+    // Update check: at most about once a day and only when allowed in Self-development. It only looks; nothing downloads or installs.
+    if (Updater.dueForAutoCheck(this)) memoryNetwork.execute(() -> { JSONObject u = Updater.check(MainActivity.this); if (u.has("latest")) emit(json("type", "update", "state", u, "notify", true)); });
     CompanionMode.schedule(this);
     if (getIntent() != null && CompanionMode.OPEN.equals(getIntent().getAction())) pendingCheckin = true;
     // The old preview Live model now fails with a quota error on free keys: move saved settings to the current model once.
@@ -654,6 +657,12 @@ public class MainActivity extends Activity {
         emit(json("type", "selfdev", "message", "New improvement ideas are ready.", "refresh", true));
       });
     }
+    // ---- Updates and rollback (Settings > Self-development). Android always asks the owner before installing.
+    @JavascriptInterface public String updateState() { return Updater.state(MainActivity.this).toString(); }
+    @JavascriptInterface public void updateCheck() { memoryNetwork.execute(() -> emit(json("type", "update", "state", Updater.check(MainActivity.this)))); }
+    @JavascriptInterface public void updateDownload() { memoryNetwork.execute(() -> emit(json("type", "update", "state", Updater.download(MainActivity.this)))); }
+    @JavascriptInterface public void updateInstall() { runOnUiThread(() -> { JSONObject backup = null; try { backup = memory.backup(MainActivity.this); } catch (Exception ignored) {} emit(json("type", "update", "state", Updater.install(MainActivity.this, backup))); }); }
+    @JavascriptInterface public String updateOptions(String raw) { try { return Updater.options(MainActivity.this, new JSONObject(raw == null ? "{}" : raw)).toString(); } catch (JSONException e) { return Updater.state(MainActivity.this).toString(); } }
     @JavascriptInterface public void openSettings() { runOnUiThread(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName())))); }
   }
 

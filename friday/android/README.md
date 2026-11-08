@@ -113,3 +113,10 @@ Settings > Self-development shows FRIDAY's own health and improvement ideas. Eve
 - **Ask Gemini for ideas:** sends only the numbers, findings and memory titles to Gemini for suggestions. Nothing changes from it.
 
 Logic: `SelfImprovement.java` (checked by `SelfImprovementCheck` in `scripts/test-voice-models.sh`); storage and Android hooks: `SelfDevelopment.java`.
+
+## Updates and rollback (rc.46)
+
+- **Publishing (owner only):** GitHub > Actions > **Publish FRIDAY update** > Run workflow. It runs the tests, builds `main`, refuses to publish without the `FRIDAY_KEYSTORE_BASE64` secret or when the version tag already exists, and publishes release `friday-v<versionName>` with the APK, its SHA-256, the signing certificate and a list of changes (`scripts/publish-friday-release.sh`). Raise `versionCode`/`versionName` in the manifest before each publish.
+- **On the phone:** Settings > Self-development > Updates. FRIDAY checks GitHub at most once a day (can be turned off) and only looks. Download and check verifies the published SHA-256, package name, newer version and that the APK is signed with the same key as the installed FRIDAY; a file that fails is deleted. Install first saves the installed APK and a data backup to `Downloads/FRIDAY` (Android 10+), then Android's own installer asks you to confirm. App data is kept.
+- **Rollback:** Android doesn't install an older version over a newer one, so: uninstall FRIDAY, install the saved `FRIDAY-<version>.apk` from `Downloads/FRIDAY`, activate it again, and restore the saved backup in Settings > Advanced. The API key and chats are not in the backup.
+- Logic: `UpdatePlan.java` (checked by `UpdatePlanCheck`); Android side: `Updater.java`.

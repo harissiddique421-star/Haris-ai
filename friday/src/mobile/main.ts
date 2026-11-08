@@ -15,7 +15,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -385,6 +385,13 @@ app.innerHTML = `
     </div>
     <div class="settings-page" data-page="selfdev" hidden>
       <div class="card"><b>System health</b><small>Measured on this phone over the last 7 days, compared with the week before. Numbers only: no words, contacts or audio are kept.</small><div id="selfdev-health" class="selfdev-grid"></div><p id="selfdev-summary" class="muted" role="status" aria-live="polite"></p><div class="row"><button id="selfdev-analyze" class="primary">Analyse now</button><button id="selfdev-ideas">Ask Gemini for ideas</button></div></div>
+      <div class="card"><b>Updates and rollback</b><small>New tested versions are published on GitHub only when you run "Publish FRIDAY update" there. FRIDAY checks the file's SHA-256 and that it's signed with your key, saves the current version and a data backup to Downloads/FRIDAY, and Android asks you before installing. Your data is kept.</small>
+        <p id="update-status" class="muted" role="status" aria-live="polite"></p>
+        <div id="update-latest" hidden><b id="update-version"></b><p id="update-notes" class="selfdev-text"></p></div>
+        <div class="row"><button id="update-check">Check for updates</button><button id="update-download" class="primary" hidden>Download and check</button><button id="update-install" class="primary" hidden>Install</button></div>
+        <label class="check"><input id="update-auto" type="checkbox"> Check GitHub once a day (only looks; never downloads or installs by itself)</label>
+        <details><summary>How to roll back</summary><p class="selfdev-text">Android doesn't allow installing an older FRIDAY over a newer one. To go back: 1) Uninstall FRIDAY. 2) Open Downloads/FRIDAY and install the saved FRIDAY-&lt;version&gt;.apk. 3) Activate it with your key again, then Settings &gt; Advanced &gt; Restore from file and pick the saved FRIDAY-backup-before-update file. Your API key and chats are not in the backup, so add the key again.</p><div id="update-rollback"></div></details>
+      </div>
       <div class="card"><b>Weaknesses found</b><small>Clear problems from the measurements, worst first. Level 1 FRIDAY handles alone, level 2 needs a developer build, level 3 needs you.</small><div id="selfdev-findings"></div></div>
       <div class="card"><b>Improvement ideas and approvals</b><small>Nothing changes until you approve. "Send to developer" opens a prefilled GitHub issue; you press Submit there. New versions are always installed by you, and Android asks you to confirm.</small><div id="selfdev-ideas-list"></div></div>
       <div class="card" id="selfdev-deep-card" hidden><b>Gemini's ideas</b><small id="selfdev-deep-at"></small><p id="selfdev-deep" class="selfdev-text"></p></div>
@@ -610,7 +617,24 @@ function settingsPage(page: string) {
   for (const section of document.querySelectorAll<HTMLElement>('.settings-page')) section.hidden = section.dataset.page !== page;
   el('settings-title').textContent = pageTitles[page] || 'Settings'; el('settings-back').toggleAttribute('hidden', page === 'menu');
   if (page === 'permissions') refreshState();
-  if (page === 'selfdev') renderSelfDev();
+  if (page === 'selfdev') { renderSelfDev(); renderUpdate(); }
+}
+function renderUpdate(data?: any) {
+  if (!data) { try { data = JSON.parse(bridge?.updateState?.() || 'null'); } catch { data = null; } }
+  if (!data) { el('update-status').textContent = 'Updates work inside the Android app.'; return; }
+  const latest = data.latest;
+  el('update-status').textContent = `Installed: FRIDAY ${data.installedVersion}. ${data.message || ''}${data.checkedAt ? ' Last checked ' + new Date(data.checkedAt).toLocaleString() + '.' : ''}`;
+  el('update-latest').hidden = !latest;
+  el('update-version').textContent = latest ? `FRIDAY ${latest.versionName}${latest.size ? ' · ' + (latest.size / 1048576).toFixed(1) + ' MB' : ''}` : '';
+  el('update-notes').textContent = latest?.notes || '';
+  el('update-download').hidden = !latest || !!data.downloaded;
+  el('update-install').hidden = !latest || !data.downloaded;
+  const busyNow = data.status === 'checking' || data.status === 'downloading';
+  for (const id of ['update-check', 'update-download', 'update-install']) el<HTMLButtonElement>(id).disabled = busyNow;
+  el<HTMLInputElement>('update-auto').checked = data.auto !== false;
+  const list = el('update-rollback'); list.replaceChildren();
+  for (const r of [...(data.rollback || [])].reverse()) { const p = document.createElement('small'); p.textContent = `Before leaving ${r.version} (${new Date(r.at).toLocaleDateString()}): ${(r.files || []).join(', ') || 'no files saved'}`; list.append(p); }
+  if (!data.rollbackCopies) { const p = document.createElement('small'); p.textContent = 'This Android version can\'t save rollback copies by itself: save a backup in Settings > Advanced before updating.'; list.append(p); }
 }
 // ---- Self-development page
 function selfDevCall(input: Record<string, unknown>) {
@@ -782,6 +806,7 @@ window.MyraaEvents = event => {
   }
   if (event.type === 'state') { state = event.state; refreshSettings(); renderHistory(); renderAssistant(); }
   if (event.type === 'assistant') { state.assistant = event.assistant; if (event.announce) state.announce = event.announce; if (event.wake) state.wake = event.wake; renderAssistant(); if (event.message) notice(event.message); }
+  if (event.type === 'update') { renderUpdate(event.state); if (event.notify && event.state?.latest) notice(`FRIDAY ${event.state.latest.versionName} is ready. See Settings > Self-development to read what changed and install it.`); else if (event.state?.message && !el<HTMLDialogElement>('settings-panel').open) notice(event.state.message); }
   if (event.type === 'selfdev') { if (event.message) notice(event.message); if (event.refresh && !el('settings-panel').querySelector<HTMLElement>('[data-page="selfdev"]')!.hidden) renderSelfDev(); }
   if (event.type === 'permissions') { state.permissions = event.permissions; renderPermissions(); if (event.message) notice(event.message); }
   if (event.type === 'reply' && event.id === requestId) {
@@ -916,6 +941,10 @@ el('camera').onclick = () => { if (cameraStream) { stopCamera(); notice('Camera 
 el('screen').onclick = () => { if (screenSharing) bridge?.stopScreenShare?.(); else if (!liveActive()) notice('Start a Live call first, then share your screen.'); else bridge?.startScreenShare?.(); };
 el('camera-preview').onclick = () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; stopCamera(); bridge?.requestCamera ? bridge.requestCamera() : void startCamera(); };
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = async () => { if (button.dataset.go === 'memory' && !(await unlockFor('memory'))) return; if (button.dataset.go === 'security') renderSecurity(); settingsPage(button.dataset.go!); };
+el('update-check').onclick = () => { if (!bridge?.updateCheck) return notice('Updates work inside the Android app.'); el('update-status').textContent = 'Checking GitHub…'; bridge.updateCheck(); };
+el('update-download').onclick = () => { el('update-status').textContent = 'Downloading and checking…'; bridge?.updateDownload?.(); };
+el('update-install').onclick = () => { if (!confirm('Install the new FRIDAY? The current version and a data backup are saved to Downloads/FRIDAY first, and Android will ask you to confirm.')) return; bridge?.updateInstall?.(); };
+el('update-auto').onchange = () => { try { renderUpdate(JSON.parse(bridge?.updateOptions?.(JSON.stringify({ auto: el<HTMLInputElement>('update-auto').checked })) || 'null')); } catch { /* keep */ } };
 el('selfdev-analyze').onclick = () => { const r = selfDevCall({ action: 'analyze' }); if (r) { renderSelfDev(); notice('Self-analysis updated.'); } };
 el('selfdev-ideas').onclick = () => { if (!bridge?.selfDevIdeas) return notice('This runs inside the Android app.'); notice('Asking Gemini for ideas from the measured numbers…'); bridge.selfDevIdeas(); };
 el('selfdev-clear').onclick = () => { if (!confirm('Clear all self-development measurements, ideas and the development memory on this phone?')) return; const r = selfDevCall({ action: 'clear' }); if (r) { renderSelfDev(r); notice(r.message || ''); } };
