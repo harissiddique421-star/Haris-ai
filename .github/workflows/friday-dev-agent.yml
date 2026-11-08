@@ -103,6 +103,17 @@ jobs:
             if [ -n "$COMMENT" ]; then echo; echo "## Owner's latest comment"; printf '%s\n' "$COMMENT"; fi
           } > friday-dev-issue.md
 
+      # A quick call with the key tells a network problem (000), a rejected key (400/401/403) and the
+      # free limit (429) apart, so the issue comment can say which one it was.
+      - name: Check that the Gemini API answers
+        env:
+          KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          code=$(curl -sS -4 --max-time 30 -o /dev/null -w '%{http_code}' -H "x-goog-api-key: $KEY" \
+            "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1") || code=000
+          echo "Gemini API answered HTTP $code"
+          echo "PROBE=$code" >> "$GITHUB_ENV"
+
       - name: Gemini makes the change
         id: gemini
         continue-on-error: true
@@ -110,6 +121,9 @@ jobs:
         env:
           # Headless runs need the checkout marked as trusted, or the CLI exits before starting.
           GEMINI_CLI_TRUST_WORKSPACE: "true"
+          # The first run failed every request with "fetch failed sending request"; prefer IPv4 and
+          # give slow connections longer before Node gives up on an address.
+          NODE_OPTIONS: --dns-result-order=ipv4first --network-family-autoselection-attempt-timeout=2000
         with:
           gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
           prompt: |
@@ -217,7 +231,16 @@ jobs:
               echo "**Nothing was pushed.** Comment \`@gemini\` to try again."
             fi
             echo
-            if [ "$GEMINI" != "success" ]; then echo "- Gemini didn't finish. The reason is in the [run log]($RUN_URL) under \"Gemini makes the change\" (often the free daily limit)."; fi
+            if [ "$GEMINI" != "success" ]; then
+              case "$PROBE" in
+                000) why="GitHub's runner couldn't reach Google's Gemini servers (network). Comment \`@gemini\` later to try again." ;;
+                400|401|403) why="Google rejected the key (HTTP $PROBE). Check the GEMINI_API_KEY secret." ;;
+                429) why="the free Gemini limit is used up (HTTP 429). Comment \`@gemini\` tomorrow." ;;
+                200) why="the key works (HTTP 200), so Gemini itself stopped; the reason is in the [run log]($RUN_URL) under \"Gemini makes the change\"." ;;
+                *) why="the Gemini API answered HTTP $PROBE; see the [run log]($RUN_URL)." ;;
+              esac
+              echo "- Gemini didn't finish: $why"
+            fi
             if [ "$GUARD" != "success" ] && [ -f "$RUNNER_TEMP/guard.txt" ]; then echo; cat "$RUNNER_TEMP/guard.txt"; fi
             if [ -s "$RUNNER_TEMP/checks.md" ]; then echo; echo "**Checks run by the workflow:**"; cat "$RUNNER_TEMP/checks.md"; fi
             echo
