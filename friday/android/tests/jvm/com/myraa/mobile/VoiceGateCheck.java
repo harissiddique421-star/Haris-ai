@@ -18,19 +18,34 @@ public final class VoiceGateCheck {
     models=new File(a[0]);fx=new File(a[1]);
     try(InputStream in=new FileInputStream(new File(models,VoiceEncoder.ASSET))){enc=new VoiceEncoder(in);}
     // Enrollment exactly as VoiceId.register does it: whole sentence and its first CHECK_MS.
-    List<float[]> full=new ArrayList<>(),shortPrints=new ArrayList<>();
+    // Since rc.50 each sentence also adds a room-echo copy (SpeakerProfile.roomEcho), as VoiceId.register does.
+    List<float[]> full=new ArrayList<>(),shortPrints=new ArrayList<>(),echo=new ArrayList<>();
     for(int i=1;i<=5;i++){
-      float[] w=wav("owner_enroll_"+i);full.add(enc.embed(w));
+      float[] w=wav("owner_enroll_"+i);full.add(enc.embed(w));echo.add(enc.embed(SpeakerProfile.roomEcho(w)));
       shortPrints.add(enc.embed(Arrays.copyOf(w,Math.min(w.length,SpeakerProfile.CHECK_MS*16+10*SileroVad.CHUNK))));
     }
-    SpeakerProfile p=SpeakerProfile.build(full,shortPrints,1);
+    SpeakerProfile closeOnly=SpeakerProfile.build(full,shortPrints,1);
+    SpeakerProfile p=SpeakerProfile.build(full,shortPrints,echo,1);
+    System.out.printf(Locale.ROOT,"profile without room-echo training (before rc.50): %s%n",closeOnly.summary("balanced"));
     double t=p.threshold("balanced");
     System.out.printf(Locale.ROOT,"profile: %s%n",p.summary("balanced"));
     expect("threshold within the calibrated bounds",t>=SpeakerProfile.MIN_THRESHOLD&&t<=SpeakerProfile.MAX_THRESHOLD);
     expect("strict is stricter than relaxed",p.threshold("strict")>=p.threshold("balanced")&&p.threshold("balanced")>=p.threshold("relaxed"));
     expect("an accepted other voice raises the threshold above it",p.withImpostor(0.79).threshold("balanced")>=0.83-1e-9);
     SpeakerProfile back=SpeakerProfile.fromJson(new org.json.JSONObject(p.toJson().toString()));
-    expect("profile survives save and load",Math.abs(back.threshold("balanced")-t)<1e-9&&VoiceEncoder.cosine(back.print,p.print)>0.999999);
+    expect("profile survives save and load",Math.abs(back.threshold("balanced")-t)<1e-9&&VoiceEncoder.cosine(back.print,p.print)>0.99999&&back.samples.size()==5&&back.canAdd());
+    SpeakerProfile v1=SpeakerProfile.fromJson(new org.json.JSONObject(closeOnly.toJson().toString()));
+    expect("an older profile (no kept samples) still loads; adding samples needs a new registration",!v1.canAdd()&&Math.abs(v1.threshold("balanced")-closeOnly.threshold("balanced"))<1e-9);
+    SpeakerProfile more=p.withImpostor(0.6).withSamples(Arrays.asList(enc.embed(wav("owner_test_2"))),Arrays.asList(enc.embed(Arrays.copyOf(wav("owner_test_2"),24320))),Arrays.asList(enc.embed(SpeakerProfile.roomEcho(wav("owner_test_2")))),2);
+    expect("adding a sample keeps the other-voice scores and grows the profile",more.samples.size()==6&&more.impostor.size()==1);
+    {
+      // One bad take (someone else) among the owner's sentences is left out instead of failing the enrollment.
+      List<float[]> f=new ArrayList<>(full),sh=new ArrayList<>(shortPrints),e=new ArrayList<>(echo);
+      for(String o:new String[]{"owner_test_1","owner_test_2","friend_1"}){float[] w=wav(o);f.add(enc.embed(w));sh.add(enc.embed(Arrays.copyOf(w,24320)));e.add(enc.embed(SpeakerProfile.roomEcho(w)));}
+      SpeakerProfile one=SpeakerProfile.build(f,sh,e,1);
+      System.out.printf(Locale.ROOT,"   with one take by someone else: %s%n",one.summary("balanced"));
+      expect("one take by someone else among 8 is left out, the profile is still built",one.dropped==1&&one.samples.size()==7);
+    }
     boolean refused=false;
     try{List<float[]> mixed=new ArrayList<>(full.subList(0,3)),ms=new ArrayList<>(shortPrints.subList(0,3));
       mixed.add(enc.embed(wav("friend_1")));ms.add(enc.embed(Arrays.copyOf(wav("friend_1"),24320)));
@@ -90,6 +105,39 @@ public final class VoiceGateCheck {
     Result ov2=run(p,t,cat(sil(0.5),owner2,sil(1.2),add(owner1,scaleTo(friend1,ownerRms)),sil(1.5)));
     System.out.printf(Locale.ROOT,"I  owner, then owner + friend equally loud at once: events %s%n",ov2.events);
 
+    // Far field: the owner first speaks close to the phone (the call learns that level), then from
+    // across the room: 14 dB quieter with room echo. It must still be heard and accepted.
+    for(int db:new int[]{10,14,18}){
+      float[] far=reverb(scaleTo(owner1,ownerRms*Math.pow(10,-db/20.0)),0.35,rnd);
+      Result fr=run(p,t,cat(sil(0.5),owner2,sil(2),far,sil(1.5)));
+      System.out.printf(Locale.ROOT,"   far %d dB events %s%n",db,fr.events);
+      expect(String.format(Locale.ROOT,"L%d owner close, then %d dB quieter with room echo (across the room): both accepted",db,db),fr.owners>=2);
+    }
+
+    // Measured accept/reject rates by distance, for the old (close only) and new (with room echo)
+    // enrollment. Decision as in a call: first 1.2 s, with the second look on 2 s when close.
+    {
+      String[] owners={"owner_test_1","owner_test_2"},others={"friend_1","friend_2","tv_1","tv_2","tv_3"};
+      double[][] cond={{0,0},{6,0.03},{10,0.05},{14,0.08}};String[] names={"close","1 m","2 m","3 m"};
+      for(int which=0;which<2;which++){
+        SpeakerProfile prof=which==0?closeOnly:p;double th=prof.threshold("balanced");
+        StringBuilder line=new StringBuilder(which==0?"   before rc.50 (close-only enrollment):":"   rc.50 (with room-echo enrollment):   ");
+        int far=0,farOk=0,fa=0,imp=0;
+        for(int c=0;c<cond.length;c++){
+          int ok=0,n=0;
+          for(int seed=0;seed<3;seed++)for(String o:owners){n++;if(accepts(prof,th,distant(wav(o),cond[c],seed)))ok++;}
+          for(int seed=0;seed<3;seed++)for(String o:others){imp++;if(accepts(prof,th,distant(wav(o),cond[c],seed)))fa++;}
+          if(c>0){far+=n;farOk+=ok;}
+          line.append(String.format(Locale.ROOT," %s %d/%d",names[c],ok,n));
+        }
+        System.out.println(line+String.format(Locale.ROOT,"  · other voices accepted %d/%d",fa,imp));
+        if(which==1){
+          expect(String.format(Locale.ROOT,"M  owner recognised from 1-3 m with room echo: %d/%d (need 90%%)",farOk,far),farOk>=0.9*far);
+          expect(String.format(Locale.ROOT,"M  other voices accepted at any distance: %d/%d (need 0)",fa,imp),fa==0);
+        }
+      }
+    }
+
     // The app's default end of turn (600 ms): a short command ends 0.6 s after the owner stops, and
     // its voice check (run during the pause) does not add to that, also with people talking behind.
     endMs=VoiceGate.DEFAULT_END_MS;
@@ -135,6 +183,27 @@ public final class VoiceGateCheck {
     System.out.println("All Voice ID scenarios passed.");
   }
 
+  /** Speech as from further away: quieter by cond[0] dB and with room echo of strength cond[1]. */
+  static float[] distant(float[] x,double[] cond,int seed){
+    float[] y=cond[1]>0?reverb(x,0.35,cond[1],new Random(100+seed)):x;
+    return scaleTo(y,rms(x)*Math.pow(10,-cond[0]/20.0));
+  }
+  static boolean accepts(SpeakerProfile p,double t,float[] w){
+    int cut=SpeakerProfile.CHECK_MS*16+10*SileroVad.CHUNK;
+    double first=p.score(enc.embed(Arrays.copyOf(w,Math.min(w.length,cut))));
+    if(first>=t)return true;
+    return first>=t-VoiceGate.NEAR&&p.score(enc.embed(Arrays.copyOf(w,Math.min(w.length,32000+10*SileroVad.CHUNK))))>=t;
+  }
+  /** Simple room echo: the signal plus exponentially decaying random reflections (rt60 seconds). */
+  static float[] reverb(float[] x,double rt60,Random rnd){return reverb(x,rt60,0.05,rnd);}
+  /** gain 0.05: reflections about as loud as the direct sound (a few metres away in a furnished room). */
+  static float[] reverb(float[] x,double rt60,double gain,Random rnd){
+    int n=(int)(rt60*16000);float[] h=new float[n];h[0]=1;
+    for(int i=1;i<n;i++)h[i]=(float)(rnd.nextGaussian()*gain*Math.pow(10,-3.0*i/n));
+    float[] y=new float[x.length+n];
+    for(int i=0;i<x.length;i++){float v=x[i];if(v==0)continue;for(int k=0;k<n;k+=1)y[i+k]+=v*h[k];}
+    return scaleTo(Arrays.copyOf(y,x.length),rms(x));
+  }
   static final class Result { long ownerSamples,silent;int owners,unknowns,checks;boolean exact=true;List<Double> ownerAt=new ArrayList<>(),endAt=new ArrayList<>();List<String> events=new ArrayList<>(); }
   static int endMs=800;
   static VoiceGate gate(SpeakerProfile p,double t) throws IOException {

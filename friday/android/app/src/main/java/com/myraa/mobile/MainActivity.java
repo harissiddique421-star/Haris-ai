@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.49";
+  static final String VERSION = "1.0.0-rc.50";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -188,14 +188,14 @@ public class MainActivity extends Activity {
   private VoiceGateSession voiceGate;
   private int voiceGateId;
   private void voiceIdEvent(String status,int step,int total,String message){emit(json("type","voiceid","status",status,"step",step,"total",total,"message",message,"voiceId",VoiceId.state(this)));}
-  /** who: null = register, "owner" / "other" = test. Uses the phone's microphone, so not during a Live call. */
+  /** who: null = register, "add" = add samples, "owner" / "other" = test. Uses the phone's microphone, so not during a Live call. */
   private void voiceIdRecord(String who){
     if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO},WAKE_MIC_REQUEST);voiceIdEvent("error",0,0,"Allow the microphone, then try again.");return;}
     if(LiveVoiceService.running){voiceIdEvent("error",0,0,"End the Live call first, then record your voice.");return;}
     WakeWordService.livePaused(this,true);
     VoiceId.Progress p=(status,step,total,message)->runOnUiThread(()->voiceIdEvent(status,step,total,message));
     Runnable done=()->runOnUiThread(()->{WakeWordService.livePaused(MainActivity.this,false);WakeWordService.refresh(MainActivity.this);voiceIdEvent("done",0,0,"");});
-    if(who==null)VoiceId.register(this,p,done);else VoiceId.test(this,who,p,done);
+    if(who==null)VoiceId.register(this,p,done);else if("add".equals(who))VoiceId.addSamples(this,p,done);else VoiceId.test(this,who,p,done);
   }
   private void guardianEvent(String status,int step,String message){emit(json("type","guardian","status",status,"step",step,"message",message,"wake",wakeState()));}
 
@@ -605,6 +605,7 @@ public class MainActivity extends Activity {
     }); }
     // ---- HARIS Voice ID (see VoiceId): enrollment, tests and the Live call gate
     @JavascriptInterface public void voiceIdRegister() { runOnUiThread(() -> voiceIdRecord(null)); }
+    @JavascriptInterface public void voiceIdAddSamples() { runOnUiThread(() -> voiceIdRecord("add")); }
     @JavascriptInterface public void voiceIdTest(String who) { runOnUiThread(() -> voiceIdRecord("other".equals(who) ? "other" : "owner")); }
     @JavascriptInterface public void voiceIdDelete() { runOnUiThread(() -> { VoiceId.delete(MainActivity.this); voiceIdEvent("deleted", 0, 0, "Your voice profile is deleted. Anyone's voice can talk to FRIDAY again."); }); }
     @JavascriptInterface public void voiceIdOptions(String raw) { runOnUiThread(() -> {

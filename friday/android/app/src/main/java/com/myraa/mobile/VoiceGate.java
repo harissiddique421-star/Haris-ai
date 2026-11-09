@@ -10,12 +10,13 @@ import java.util.List;
  * voice, and the owner's turn ends when the OWNER stops talking, not when the whole room is quiet.
  * Runs on the phone, on its own thread, one check at a time.
  *
- * Speech: Silero VAD (32 ms chunks) plus loudness. The owner talks close to the phone, so their
- * speech is louder at the microphone than people across the room. Each burst learns its talker's
+ * Speech: Silero VAD (32 ms chunks) plus loudness. Loudness only separates talkers inside a turn:
+ * any speech up to 20 dB quieter than the owner's usual level is checked by voiceprint, so the
+ * owner is heard from across the room too. Each burst learns its talker's
  * level (70th percentile of its voiced chunks); after the owner has been verified once, the call
  * remembers the owner's level. A chunk counts as the talker still speaking only when the VAD hears
- * speech AND it is within 6 dB of that level (9 dB to start a burst), so quieter background talk
- * does not keep a turn open, does not reset the end-of-turn timer and does not start a new burst.
+ * speech AND it is within 6 dB of that level, so quieter background talk does not keep a turn open
+ * and does not reset the end-of-turn timer.
  *
  * Each burst is held back until its first 1.2 s (SpeakerProfile.CHECK_MS) has been compared with
  * the owner's voiceprint:
@@ -60,10 +61,12 @@ final class VoiceGate {
   /** A rejected burst this close to the threshold, and as loud as the owner, is "unclear" (overlap). */
   static final double UNCLEAR=0.10;
   /**
-   * Within 9 dB of the owner's level may start a burst; a turn continues only on speech within 6 dB
-   * of its talker's level (quieter voices around count as silence); 8 dB above the background starts a new burst.
+   * Within 20 dB of the owner's level may start a burst (the voiceprint, not loudness, decides who it
+   * is: before rc.50 this was 9 dB, so once the owner had spoken close to the phone, the same owner
+   * from across the room was never even checked); a turn continues only on speech within 6 dB of its
+   * talker's level (quieter voices around count as silence); 8 dB above the background starts a new burst.
    */
-  static final double SAME_TALKER=0.355,KEEP_TALKER=0.5,JUMP=2.5;
+  static final double START_LEVEL=0.1,KEEP_TALKER=0.5,JUMP=2.5;
 
   enum State { LISTENING, SPEECH_DETECTED, VERIFYING_SPEAKER, AUTHORIZED_USER, UNKNOWN_SPEAKER }
   /** True while the gate is behind real time (audio queued): optional re-checks wait, so it catches up. */
@@ -150,7 +153,7 @@ final class VoiceGate {
         out.silence(CHUNK);
         before.add(c);beforeLevels.add(level);if(before.size()>PRE){before.poll();beforeLevels.poll();}
         // Once the owner's level is known, quieter background talk does not start a burst at all.
-        boolean candidate=p>=ON&&(ownerLevel==0||level>=ownerLevel*SAME_TALKER);
+        boolean candidate=p>=ON&&(ownerLevel==0||level>=ownerLevel*START_LEVEL);
         if(candidate){if(++above>=START)startBurst(before,beforeLevels);}
         else above=0;
         return;
@@ -159,7 +162,7 @@ final class VoiceGate {
         // Someone much louder (the owner, close to the phone) starts while another voice's burst is
         // still being held: drop the held part (it was the other voice) and verify from here, so the
         // owner is not judged on the background talker's audio.
-        if(p>=ON&&talkerLevel>0&&voicedChunks>=SETTLED&&level>=talkerLevel*JUMP&&(ownerLevel==0||level>=ownerLevel*SAME_TALKER)){
+        if(p>=ON&&talkerLevel>0&&voicedChunks>=SETTLED&&level>=talkerLevel*JUMP&&(ownerLevel==0||level>=ownerLevel*START_LEVEL)){
           if(++jump>=START){
             burst.add(c);burstLevels.add(level);
             int keep=Math.min(burst.size(),PRE);
@@ -224,7 +227,7 @@ final class VoiceGate {
         if(silence>=silenceChunks){reset();return;}
         // Someone suddenly much louder than the current talker (the owner, close to the phone):
         // start a new burst from here instead of waiting for the room to go quiet.
-        if(p>=ON&&level>=talkerLevel*JUMP&&(ownerLevel==0||level>=ownerLevel*SAME_TALKER)){
+        if(p>=ON&&level>=talkerLevel*JUMP&&(ownerLevel==0||level>=ownerLevel*START_LEVEL)){
           if(++jump>=START){
             ArrayDeque<short[]> pre=new ArrayDeque<>();ArrayDeque<Double> preL=new ArrayDeque<>();
             List<short[]> r=new ArrayList<>(recent);List<Double> rl=new ArrayList<>(recentLevels);

@@ -140,6 +140,41 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Voice ID 2.0: far-field and enrollment (rc.50)
+
+Audit of why Voice ID missed the owner (all on the phone, Live call and wake word):
+
+1. **Enrollment at one distance.** Registration used six sentences, all said
+   close to the phone. A voice from across a room has room echo, so its
+   voiceprint drifts. Measured on real recorded speech (LibriSpeech owner, with
+   simulated distance and room echo): before, the owner was accepted close 6/6,
+   at about 1 m 4/6, at 2 m 0/6 and at 3 m 0/6.
+2. **Loudness gate.** After the owner had spoken once close to the phone, any
+   speech more than 9 dB quieter was never even checked, so the same owner from
+   across the room was silently ignored ("keeps listening, does nothing").
+
+Changes:
+
+- Registration is twelve sentences: close, arm's length, phone on a table one
+  or two metres away, quietly, and with a little noise. Each one is also learned
+  as heard across a room (`SpeakerProfile.roomEcho`, computed on the phone). A
+  take that does not match the rest (someone else, a cough) is left out instead
+  of failing the whole registration. **Add more samples** records four more
+  (far, quiet, noisy) without starting over.
+- The gate checks any speech up to 20 dB quieter than the owner by voiceprint;
+  loudness still separates talkers inside a turn, and the turn watchdog stays.
+- Measured with the same tests after the change: owner accepted close 6/6, 1 m
+  6/6, 2 m 6/6, 3 m 6/6; other voices (a friend, TV speakers) accepted 0 of 60
+  at all distances; a short command's turn still ends 0.54 s after the owner
+  stops (0.60 s with people talking behind).
+
+These are simulated distances on a small set of recorded voices, not phone
+measurements. On a real phone, use **Test my voice** at different distances and
+**Test someone else**; Settings shows the counts. Older profiles keep working;
+re-register once to be able to add samples. The profile (voiceprints only, no
+audio) stays encrypted with the Android Keystore. Voice ID is never used alone
+for payments, unlocking or other sensitive actions.
+
 ## Asset licensing
 
 **The local APK includes the existing Evelyn model for private testing only. Do

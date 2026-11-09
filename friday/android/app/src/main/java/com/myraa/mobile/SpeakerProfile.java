@@ -31,15 +31,29 @@ final class SpeakerProfile {
   static final double MIN_THRESHOLD=0.70,MAX_THRESHOLD=0.80,MAX_WITH_IMPOSTORS=0.86;
   /** The enrollment sentences must all be at least this close to the average of the others. */
   static final double MIN_CONSISTENCY=0.62;
+  /** A recording this far below the median agreement of all of them is left out (measured: the owner's own 0.81-0.90, another person 0.72). */
+  static final double OUTLIER_GAP=0.10;
   static final int MAX_IMPOSTORS=12;
 
   final float[] print;
   final double[] genuine;
   final List<Double> impostor;
   final long created;
+  /**
+   * Per recording (version 2): voiceprint of the whole sentence, of its first CHECK_MS, and of a
+   * room-echo copy (see roomEcho). Kept so more samples can be added later without recording all
+   * again. These are 256 numbers each, not audio. Empty for a version 1 profile.
+   */
+  final List<float[]> samples,shortSamples,echoSamples;
+  /** Recordings left out when the profile was built because they did not match the others. */
+  final int dropped;
 
   SpeakerProfile(float[] print,double[] genuine,List<Double> impostor,long created){
+    this(print,genuine,impostor,created,new ArrayList<float[]>(),new ArrayList<float[]>(),new ArrayList<float[]>(),0);
+  }
+  SpeakerProfile(float[] print,double[] genuine,List<Double> impostor,long created,List<float[]> samples,List<float[]> shortSamples,List<float[]> echoSamples,int dropped){
     this.print=print;this.genuine=genuine;this.impostor=new ArrayList<>(impostor);this.created=created;
+    this.samples=new ArrayList<>(samples);this.shortSamples=new ArrayList<>(shortSamples);this.echoSamples=new ArrayList<>(echoSamples);this.dropped=dropped;
   }
 
   /** Sensitivity: strict = fewer strangers accepted, relaxed = fewer of your own commands missed. */
@@ -48,6 +62,8 @@ final class SpeakerProfile {
 
   double meanGenuine(){double s=0;for(double g:genuine)s+=g;return genuine.length==0?0:s/genuine.length;}
   double maxImpostor(){double m=-1;for(double x:impostor)m=Math.max(m,x);return m;}
+  /** More samples can be added (the per-recording voiceprints are kept). */
+  boolean canAdd(){return !samples.isEmpty()&&samples.size()<MAX_SAMPLES;}
 
   /** Lowest similarity accepted as the owner. */
   double threshold(String sensitivity){
@@ -63,49 +79,114 @@ final class SpeakerProfile {
   SpeakerProfile withImpostor(double score){
     List<Double> list=new ArrayList<>(impostor);list.add(score);
     while(list.size()>MAX_IMPOSTORS)list.remove(0);
-    return new SpeakerProfile(print,genuine,list,created);
+    return new SpeakerProfile(print,genuine,list,created,samples,shortSamples,echoSamples,dropped);
   }
 
+  /** Most recordings a profile keeps (adding more drops the oldest). */
+  static final int MAX_SAMPLES=30;
+
+  /** Adds recordings to a version 2 profile and builds it again; the "other voice" scores are kept. */
+  SpeakerProfile withSamples(List<float[]> full,List<float[]> shortPrints,List<float[]> echo,long now){
+    List<float[]> f=new ArrayList<>(samples),sh=new ArrayList<>(shortSamples),e=new ArrayList<>(echoSamples);
+    f.addAll(full);sh.addAll(shortPrints);e.addAll(echo);
+    while(f.size()>MAX_SAMPLES){f.remove(0);sh.remove(0);e.remove(0);}
+    SpeakerProfile p=build(f,sh,e,now);
+    return new SpeakerProfile(p.print,p.genuine,impostor,p.created,p.samples,p.shortSamples,p.echoSamples,p.dropped);
+  }
+
+  static SpeakerProfile build(List<float[]> full,List<float[]> shortPrints,long now){return build(full,shortPrints,new ArrayList<float[]>(),now);}
+
   /**
-   * Builds the profile from each sentence's voiceprint over the whole sentence (full) and over its
-   * first CHECK_MS (short). Throws IllegalArgumentException with a message for the user when the
-   * recordings cannot make a reliable profile.
+   * Builds the profile from each recording's voiceprint over the whole sentence (full), over its
+   * first CHECK_MS (short) and, optionally, of a room-echo copy (echo, same order). The echo copies
+   * only widen the voiceprint so the owner still matches from across a room; they are never used
+   * as "genuine" trials, and a recording is always compared with the others without its own copy.
+   *
+   * A recording that does not match the rest (a cough, someone else talking, a bad take) is left
+   * out, as long as at least three quarters of them (and four) remain. Throws IllegalArgumentException
+   * with a message for the user when the recordings cannot make a reliable profile.
    */
-  static SpeakerProfile build(List<float[]> full,List<float[]> shortPrints,long now){
+  static SpeakerProfile build(List<float[]> full,List<float[]> shortPrints,List<float[]> echo,long now){
     int n=full.size();
     if(n<4||shortPrints.size()!=n)throw new IllegalArgumentException("I need at least four clear sentences.");
-    float[] sum=new float[VoiceEncoder.DIM];
-    for(float[] e:full)for(int k=0;k<sum.length;k++)sum[k]+=e[k];
-    double[] genuine=new double[n];double worst=1;
-    for(int i=0;i<n;i++){
-      float[] others=new float[VoiceEncoder.DIM];
-      for(int k=0;k<others.length;k++)others[k]=sum[k]-full.get(i)[k];
-      others=VoiceEncoder.normalize(others);
-      genuine[i]=VoiceEncoder.cosine(shortPrints.get(i),others);
-      worst=Math.min(worst,VoiceEncoder.cosine(full.get(i),others));
+    boolean withEcho=!echo.isEmpty();
+    if(withEcho&&echo.size()!=n)throw new IllegalArgumentException("Voice samples are incomplete. Record again.");
+    List<Integer> kept=new ArrayList<>();for(int i=0;i<n;i++)kept.add(i);
+    int minKeep=Math.max(4,(int)Math.ceil(n*0.75));
+    while(true){
+      float[] sum=sum(full,echo,kept);double worst=1;int worstAt=-1;double[] c=new double[kept.size()];
+      for(int k=0;k<kept.size();k++){int i=kept.get(k);c[k]=VoiceEncoder.cosine(full.get(i),others(sum,full,echo,i));if(c[k]<worst){worst=c[k];worstAt=i;}}
+      double[] sorted=c.clone();Arrays.sort(sorted);double median=sorted[sorted.length/2];
+      // An outlier: far from the others in absolute terms, or clearly below how well the rest agree.
+      if(worst>=MIN_CONSISTENCY&&worst>=median-OUTLIER_GAP)break;
+      if(kept.size()<=minKeep)throw new IllegalArgumentException("Your sentences didn't sound like the same voice. Record again alone, in a quiet place.");
+      kept.remove(Integer.valueOf(worstAt));
     }
-    if(worst<MIN_CONSISTENCY)throw new IllegalArgumentException("Your sentences didn't sound like the same voice. Record again alone, in a quiet place, at your normal speaking distance.");
-    return new SpeakerProfile(VoiceEncoder.normalize(sum),genuine,new ArrayList<Double>(),now);
+    float[] sum=sum(full,echo,kept);
+    double[] genuine=new double[kept.size()];
+    List<float[]> f=new ArrayList<>(),sh=new ArrayList<>(),e=new ArrayList<>();
+    for(int k=0;k<kept.size();k++){
+      int i=kept.get(k);
+      genuine[k]=VoiceEncoder.cosine(shortPrints.get(i),others(sum,full,echo,i));
+      f.add(full.get(i));sh.add(shortPrints.get(i));if(withEcho)e.add(echo.get(i));
+    }
+    return new SpeakerProfile(VoiceEncoder.normalize(sum),genuine,new ArrayList<Double>(),now,withEcho?f:new ArrayList<float[]>(),withEcho?sh:new ArrayList<float[]>(),e,n-kept.size());
+  }
+  private static float[] sum(List<float[]> full,List<float[]> echo,List<Integer> kept){
+    float[] s=new float[VoiceEncoder.DIM];
+    for(int i:kept){add(s,full.get(i),1);if(!echo.isEmpty())add(s,echo.get(i),1);}
+    return s;
+  }
+  private static float[] others(float[] sum,List<float[]> full,List<float[]> echo,int i){
+    float[] o=sum.clone();add(o,full.get(i),-1);if(!echo.isEmpty())add(o,echo.get(i),-1);
+    return VoiceEncoder.normalize(o);
+  }
+  private static void add(float[] to,float[] x,int sign){for(int k=0;k<to.length;k++)to[k]+=sign*x[k];}
+
+  /**
+   * A copy of 16 kHz speech as heard from a few metres away in a furnished room: the direct sound
+   * plus sparse reflections about as loud in total, dying away over 0.35 s. Training on these
+   * copies keeps the owner's voice recognisable from across the room (measured in VoiceGateCheck);
+   * it is deterministic and computed on the phone. Same loudness as the input.
+   */
+  static float[] roomEcho(float[] x){
+    int n=(int)(0.35*16000),step=8;java.util.Random r=new java.util.Random(7);
+    int taps=n/step;int[] at=new int[taps];float[] g=new float[taps];
+    for(int k=0;k<taps;k++){at[k]=1+k*step+r.nextInt(step-1);g[k]=(float)(r.nextGaussian()*0.05*Math.sqrt(step)*Math.pow(10,-3.0*at[k]/n));}
+    float[] y=x.clone();
+    for(int k=0;k<taps;k++){int d=at[k];float gk=g[k];for(int i=0;i+d<y.length;i++)y[i+d]+=gk*x[i];}
+    double a=0,b=0;for(float v:x)a+=v*v;for(float v:y)b+=v*v;
+    float s=(float)Math.sqrt(a/Math.max(1e-12,b));for(int i=0;i<y.length;i++)y[i]*=s;
+    return y;
   }
 
   String summary(String sensitivity){
-    return String.format(Locale.ROOT,"%d sentences, your score %.2f, needs %.2f%s",genuine.length,meanGenuine(),threshold(sensitivity),
+    return String.format(Locale.ROOT,"%d sentences%s, your score %.2f, needs %.2f%s",genuine.length,dropped>0?" ("+dropped+" unclear left out)":"",meanGenuine(),threshold(sensitivity),
       impostor.isEmpty()?"":String.format(Locale.ROOT,", %d other voice%s (highest %.2f)",impostor.size(),impostor.size()==1?"":"s",maxImpostor()));
   }
 
   JSONObject toJson() throws JSONException {
-    JSONArray p=new JSONArray();for(float x:print)p.put((double)x);
-    JSONArray g=new JSONArray();for(double x:genuine)g.put(x);
     JSONArray i=new JSONArray();for(double x:impostor)i.put(x);
-    return new JSONObject().put("version",1).put("model","ge2e-resemblyzer").put("print",p).put("genuine",g).put("impostor",i).put("created",created);
+    JSONArray g=new JSONArray();for(double x:genuine)g.put(x);
+    return new JSONObject().put("version",samples.isEmpty()?1:2).put("model","ge2e-resemblyzer").put("print",vec(print)).put("genuine",g).put("impostor",i).put("created",created)
+      .put("dropped",dropped).put("samples",vecs(samples)).put("short",vecs(shortSamples)).put("echo",vecs(echoSamples));
   }
+  private static JSONArray vec(float[] v) throws JSONException {JSONArray a=new JSONArray();for(float x:v)a.put(Math.round(x*1e5)/1e5);return a;}
+  private static JSONArray vecs(List<float[]> l) throws JSONException {JSONArray a=new JSONArray();for(float[] v:l)a.put(vec(v));return a;}
+  private static float[] readVec(JSONArray p) throws JSONException {
+    if(p.length()!=VoiceEncoder.DIM)throw new JSONException("bad voiceprint");
+    float[] v=new float[p.length()];for(int k=0;k<v.length;k++)v[k]=(float)p.getDouble(k);return v;
+  }
+  private static List<float[]> readVecs(JSONArray a) throws JSONException {List<float[]> l=new ArrayList<>();if(a!=null)for(int k=0;k<a.length();k++)l.add(readVec(a.getJSONArray(k)));return l;}
   static SpeakerProfile fromJson(JSONObject o) throws JSONException {
-    if(o.optInt("version")!=1||!"ge2e-resemblyzer".equals(o.optString("model")))throw new JSONException("unknown voice profile");
-    JSONArray p=o.getJSONArray("print");if(p.length()!=VoiceEncoder.DIM)throw new JSONException("bad voiceprint");
-    float[] print=new float[p.length()];for(int k=0;k<print.length;k++)print[k]=(float)p.getDouble(k);
+    int version=o.optInt("version");
+    if((version!=1&&version!=2)||!"ge2e-resemblyzer".equals(o.optString("model")))throw new JSONException("unknown voice profile");
+    float[] print=readVec(o.getJSONArray("print"));
     JSONArray g=o.getJSONArray("genuine");double[] genuine=new double[g.length()];for(int k=0;k<genuine.length;k++)genuine[k]=g.getDouble(k);
     JSONArray i=o.optJSONArray("impostor");List<Double> imp=new ArrayList<>();if(i!=null)for(int k=0;k<i.length();k++)imp.add(i.getDouble(k));
-    return new SpeakerProfile(print,genuine,imp,o.optLong("created"));
+    List<float[]> f=readVecs(o.optJSONArray("samples")),sh=readVecs(o.optJSONArray("short")),e=readVecs(o.optJSONArray("echo"));
+    if(f.size()!=sh.size()||(!e.isEmpty()&&e.size()!=f.size()))throw new JSONException("bad samples");
+    return new SpeakerProfile(print,genuine,imp,o.optLong("created"),f,sh,e,o.optInt("dropped"));
   }
   @Override public String toString(){return "SpeakerProfile"+Arrays.toString(genuine);}
 }
