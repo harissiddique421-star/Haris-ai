@@ -195,18 +195,29 @@ final class VoiceGuardian {
     return t;
   }
   /** True when the burst is the wake phrase in the saved voice. Logs only the scores. */
-  static boolean matches(Context c,short[] pcm){double[] r=score(c,pcm);return r!=null&&r[0]<=1&&r[1]<=1;}
+  static boolean matches(Context c,short[] pcm){return matches(c,pcm,null);}
+  /** Same, and in steady background noise (noise learnt between bursts) also checks a copy with that noise turned down. */
+  static boolean matches(Context c,short[] pcm,NoiseReducer noise){double[] r=score(c,pcm,noise);return r!=null&&r[0]<=1&&r[1]<=1;}
   /** Sensitivity: low = stricter (fewer false wakes), high = more forgiving. */
   static double factor(Context c){String s=WakeWordService.sensitivity(c);return "low".equals(s)?1.0:"high".equals(s)?1.5:1.25;}
   /** {phrase distance / limit, voice score / limit}; both at or under 1 is a match. Null without a saved voice. */
-  static double[] score(Context c,short[] pcm){
+  static double[] score(Context c,short[] pcm){return score(c,pcm,null);}
+  /**
+   * With a noise reducer that has learnt steady noise (fan, AC, traffic, hiss), the phrase and the
+   * voice are also measured on a copy with that noise turned down, and the closer of the two counts.
+   * Removing steady noise does not make someone else's voice more like the owner's (measured in
+   * VoiceGateCheck), so this helps the owner in noise without letting others in.
+   */
+  static double[] score(Context c,short[] pcm,NoiseReducer noise){
     Voice v=load(c);if(v==null)return null;
+    short[] cleanPcm=null;
+    if(noise!=null&&noise.active()){float[] cf=noise.clean(VoiceEncoder.toFloat(pcm));cleanPcm=new short[cf.length];for(int i=0;i<cf.length;i++)cleanPcm[i]=(short)Math.max(-32768,Math.min(32767,Math.round(cf[i]*32768)));}
     double seconds=pcm.length/(double)RATE;
     // Too short to hold the phrase, or a long stretch of talk: not the wake phrase.
     if(seconds*1000<MIN_BURST_MS||seconds*1000>WAKE_MAX_MS)return new double[]{Double.POSITIVE_INFINITY,Double.POSITIVE_INFINITY};
     Features f=features(pcm);
-    double[] d=new double[v.templates.length];for(int i=0;i<d.length;i++)d[i]=dtw(f.frames,v.templates[i]);
-    Arrays.sort(d);double phrase=d.length>1?(d[0]+d[1])/2:d[0];
+    double phrase=phraseDistance(f,v);
+    if(cleanPcm!=null)phrase=Math.min(phrase,phraseDistance(features(cleanPcm),v));
     double k=factor(c),phraseRatio=phrase/(v.limit*k);
     VoiceEncoder enc=v.print!=null?VoiceModels.encoder(c):null;
     if(enc==null){
@@ -220,13 +231,19 @@ final class VoiceGuardian {
     if(phrase>v.limit*1.6)return new double[]{phraseRatio,Double.POSITIVE_INFINITY};
     float[] e=enc.embed(VoiceEncoder.toFloat(pcm));
     double sim=e==null?0:VoiceEncoder.cosine(e,v.print);
+    boolean cleaned=false;
+    if(cleanPcm!=null){float[] ce=enc.embed(VoiceEncoder.toFloat(cleanPcm));double cs=ce==null?0:VoiceEncoder.cosine(ce,v.print)-NoiseReducer.PENALTY;if(cs>sim){sim=cs;cleaned=true;}}
     int misses=recentNearMisses();
     double threshold=voiceThreshold(v.printSelf,WakeWordService.sensitivity(c),misses);
     boolean ok=phraseRatio<=1&&sim>=threshold;
     if(phraseRatio<=1&&!ok)nearMiss();
-    ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.2f, needs %.2f%s)",phrase,v.limit*k,sim,threshold,misses>=3?", stricter after repeated misses":""));
+    ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.2f, needs %.2f%s%s)",phrase,v.limit*k,sim,threshold,cleaned?", with background noise removed":"",misses>=3?", stricter after repeated misses":""));
     // Voice ratio: at or under 1 exactly when the similarity reaches the threshold.
     return new double[]{phraseRatio,(1-sim)/Math.max(1e-6,1-threshold)};
+  }
+  private static double phraseDistance(Features f,Voice v){
+    double[] d=new double[v.templates.length];for(int i=0;i<d.length;i++)d[i]=dtw(f.frames,v.templates[i]);
+    Arrays.sort(d);return d.length>1?(d[0]+d[1])/2:d[0];
   }
   private static synchronized int recentNearMisses(){
     long now=System.currentTimeMillis();while(!nearMisses.isEmpty()&&now-nearMisses.peekFirst()>120_000)nearMisses.pollFirst();return nearMisses.size();

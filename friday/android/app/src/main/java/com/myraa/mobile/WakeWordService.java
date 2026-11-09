@@ -226,7 +226,7 @@ public final class WakeWordService extends Service {
           // FRIDAY's own voice (a reply, a caller name) is never a wake: skip bursts that overlap it.
           long began=android.os.SystemClock.elapsedRealtime()-burst.length*1000L/MicInput.RATE-VoiceGuardian.silenceMs(this);
           if(SelfSpeech.overlaps(began)){ControlLog.i("wake: ignored speech while FRIDAY was talking");continue;}
-          if(VoiceGuardian.matches(this,burst)){heard=true;break;}
+          if(VoiceGuardian.matches(this,burst,seg.noise)){heard=true;break;}
         }
         if(seg.droppedLong>0)ControlLog.i("wake: ignored "+seg.droppedLong+" long stretch(es) of background talk or TV");
       }catch(RuntimeException e){failed=true;ControlLog.i("wake: guardian microphone unavailable");}

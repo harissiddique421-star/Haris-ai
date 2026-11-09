@@ -140,6 +140,17 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Voice ID in loud noise (rc.59)
+
+Voice ID (the Live call) and Voice Guardian (the wake phrase) now also recognise you in loud steady noise: a fan, AC, traffic, a pressure cooker, or hiss.
+
+- While nobody is speaking, the phone learns what the background noise sounds like. When you speak, your voice is checked twice: as recorded, and on a copy with that noise turned down. The better of the two counts. The cleaned copy's score is lowered a little (0.03), because without that, one other person's voice in the checks reached the threshold.
+- This copy is only used for the voice check. Gemini still hears the microphone as before.
+- Nothing changes in a quiet room: the noise removal stays off and no extra check runs.
+- Settings diagnostics now show "noise removal on, helped N checks" or "off (quiet)".
+- Measured on a JVM with recorded speech (LibriSpeech; one owner, 2 test sentences × 3 noise positions, at 20, 10, 5 and 0 dB signal-to-noise). The owner was accepted 94 of 96 times, up from 82 of 96. In hiss at 5 and 0 dB: 12 of 12, up from 0 of 12. Two friends and three TV voices stayed at 0.66 or below against a threshold of 0.71 in every noise tested.
+- Limits: this removes steady noise, not other people's voices. A TV or people talking as loudly as you is still handled by the voiceprint alone (the owner was accepted 11 of 12 times at 0 dB in those tests). The tests used a recorded speaker, not your voice or your phone's microphone. If it still misses you, send the Voice ID diagnostics line from Settings.
+
 ## Second Brain notes (rc.58)
 
 FRIDAY can now keep notes, ideas, tasks and decisions for you, in the same private database on the phone as her memories (database version 2; existing memories are kept as they are).
