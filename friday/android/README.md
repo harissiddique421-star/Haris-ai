@@ -140,6 +140,14 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Typed commands during a Live call, and old WhatsApp confirmations (rc.61)
+
+Your screenshot showed two bugs:
+
+- **"This request did not come from the user":** a message typed into the box during a Live call was not counted as you talking. If FRIDAY had just checked in, or a call or message notice had arrived, the security check then blocked the WhatsApp message you asked for. Typing now counts exactly like speaking. Check-ins and notices still cannot send anything on their own.
+- **"That confirmation expired or was already used":** saying "Confirm" after the 2-minute window, or after the token was used, was a dead end. Now, when the request still has the recipient and the message, FRIDAY asks for a fresh confirmation right away. Nothing is sent without your new yes.
+- Tested with the TypeScript tests (50 pass) and a compile of all Java sources. Not yet tested on a phone.
+
 ## Faster Voice ID checks in noise, and a tip when your voice is just under the limit (rc.60)
 
 Your rc.59 diagnostics showed two problems. First, your own voice in calls scored 0.66 to 0.73 against a limit of 0.70. Second, each voice check took 1.5 to 3 seconds on your phone.

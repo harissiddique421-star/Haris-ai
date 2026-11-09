@@ -1022,7 +1022,8 @@ function send() {
   const mobile = parseMobileAction(text);
   if (mobile) { input.value = ''; append('user', text); void runTyped(mobile); showView('chat'); return; }
   showView('chat');
-  if (liveSession && liveSession.getState() !== 'disconnected') { liveSession.sendText(text); input.value = ''; append('user', text); return; }
+  // Typed into a Live call: this is the user's own request, exactly like speaking it (so the security check lets it act).
+  if (liveSession && liveSession.getState() !== 'disconnected') { orchestrator.userSpoke(); userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; liveSession.sendText(text); input.value = ''; append('user', text); return; }
   const command = parseCharacterCommand(text);
   if (command) {
     input.value = ''; append('user', text);
