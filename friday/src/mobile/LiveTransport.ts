@@ -12,7 +12,10 @@ export interface MobileLiveBridge { startLive(id: string): void; endLive(): void
  * handoff: an automatic reconnect is replacing this connection, so closing it must not end the phone's
  * call service (which keeps FRIDAY running while she is in the background); the next connection reuses it.
  */
-export const liveResume = { handle: '', resuming: false, handoff: false, off: (() => { try { return localStorage.getItem('friday.resumeOff') === '1'; } catch { return false; } })() };
+export const liveResume = { handle: '', resuming: false, handoff: false, off: (() => { try { return localStorage.getItem('friday.resumeOff') === '1'; } catch { return false; } })(),
+  // Without context compression Google ends a Live session after about 2 minutes once screen or camera images are
+  // sent (15 minutes for voice only). The sliding window lifts both limits, so a shared screen does not end the call.
+  compressOff: (() => { try { return localStorage.getItem('friday.compressOff') === '1'; } catch { return false; } })() };
 /**
  * Microphone mute for the Live call: while muted no microphone audio leaves the phone, and Google is
  * told the audio stream paused, so it does not wait for the rest of a sentence. Turned off with each new call.
@@ -65,6 +68,7 @@ export class MobileLiveTransport implements AudioSocket {
         // ends the owner's turn itself (audioStreamEnd) as soon as the owner stops, whatever the room does.
         realtimeInputConfig: { automaticActivityDetection: { startOfSpeechSensitivity: 'START_SENSITIVITY_HIGH', prefixPaddingMs: 200, silenceDurationMs: endMs(value.endMs) } },
         inputAudioTranscription: {}, outputAudioTranscription: {}, tools: [{ functionDeclarations: [MOBILE_TOOL] }, { googleSearch: {} }],
+        ...(liveResume.compressOff ? {} : { contextWindowCompression: { slidingWindow: {} } }),
         ...(liveResume.off ? {} : { sessionResumption: liveResume.resuming && liveResume.handle ? { handle: liveResume.handle } : {} }),
       } }));
       this.onopen?.({});
@@ -107,6 +111,10 @@ export class MobileLiveTransport implements AudioSocket {
         // Google refused the resumption setting itself: stop asking for it so calls keep starting.
         if (!this.ready && !liveResume.off && (event.code === 1007 || event.code === 1008) && /resum/i.test(reason)) {
           liveResume.off = true; liveResume.handle = ''; try { localStorage.setItem('friday.resumeOff', '1'); } catch { /* private mode */ }
+        }
+        // Google refused context compression: start without it (calls with a shared screen then end after ~2 minutes).
+        if (!this.ready && !liveResume.compressOff && (event.code === 1007 || event.code === 1008) && /compress|sliding/i.test(reason)) {
+          liveResume.compressOff = true; try { localStorage.setItem('friday.compressOff', '1'); } catch { /* private mode */ }
         }
         this.fail(`Gemini Live disconnected ${when} (code ${event.code}${reason ? ': ' + reason : ''}). Check your key, quota and Live model in Settings.`);
       }
