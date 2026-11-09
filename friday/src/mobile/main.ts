@@ -1,3 +1,4 @@
+import { noteMatches, noteGroups, type Note } from './notes';
 import './mobile.css';
 import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, type LiveState } from '../lib/audio';
 import { MobileLiveTransport, liveResume, liveMic } from './LiveTransport';
@@ -439,6 +440,10 @@ app.innerHTML = `
       <div class="card"><b>Memory</b><small>Stays on this phone, in a private database. Say "remember that…" or add one here. Only memories that fit the conversation are sent to the AI, never the whole list. FRIDAY never saves passwords, PINs or OTPs, and asks before saving health, money, ID or address details.</small><div class="row"><select id="memory-category" aria-label="Category"><option value="">Auto</option><option value="profile">About me</option><option value="preference">Preference</option><option value="project">Project</option></select><input id="memory-new" maxlength="500" placeholder="e.g. My sister's name is Sara"><button id="memory-add">Add</button></div>
         <label class="check"><input id="remember-conversations" type="checkbox"> Remember conversations (a 2-line note and key facts after each voice call)</label>
         <ul id="memory-list" class="memory-list"></ul><div class="row"><button id="memory-clear" type="button">Forget everything</button></div></div>
+      <div class="card"><b>Second Brain</b><small>Notes, ideas, tasks and decisions, saved only on this phone. Say "note down…", "idea: …", "task: …" or "what is pending?". Open tasks and recent decisions are shown to FRIDAY so the next conversation can continue. Search matches words and small typos, not meaning. Passwords, PINs and OTPs are never saved.</small>
+        <div class="row"><select id="note-kind" aria-label="Kind"><option value="">Auto</option><option value="note">Note</option><option value="idea">Idea</option><option value="task">Task</option><option value="decision">Decision</option></select><input id="note-new" maxlength="1000" placeholder="e.g. task: send the invoice #work"><button id="note-add">Add</button></div>
+        <input id="note-search" maxlength="100" placeholder="Search notes">
+        <ul id="note-list" class="memory-list"></ul></div>
     </div>
     <div class="settings-page" data-page="permissions" hidden><p class="muted">FRIDAY needs these to do things for you. Allow only what you want.</p><div id="permission-list" class="permission-list"></div><div class="row"><button id="health-check" type="button">Run FRIDAY health check</button></div></div>
     <div class="settings-page" data-page="security" hidden>
@@ -692,6 +697,31 @@ function renderAssistant() {
     }
   }
   if (!items.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Nothing saved yet.'; memories.append(li); }
+  renderNotes();
+}
+function renderNotes() {
+  const list = el('note-list'); list.replaceChildren();
+  const all = ((state.assistant || {}).notes || []) as Note[];
+  const q = el<HTMLInputElement>('note-search').value.trim();
+  const notes = q ? all.filter(n => noteMatches(n, q)) : all;
+  for (const [heading, group] of noteGroups(notes)) {
+    const h = document.createElement('li'); h.className = 'muted memory-group'; h.textContent = heading; list.append(h);
+    for (const n of group) {
+      const li = document.createElement('li'); const span = document.createElement('span');
+      span.textContent = n.text + (n.tags?.length ? ` (${n.tags.map(t => '#' + t).join(' ')})` : '');
+      if (n.done) span.style.textDecoration = 'line-through';
+      if (n.kind === 'task') {
+        const tick = document.createElement('button'); tick.textContent = n.done ? '↺' : '✓'; tick.setAttribute('aria-label', n.done ? 'Open again' : 'Mark done');
+        tick.onclick = () => bridge?.setAssistant?.(JSON.stringify({ noteDone: { id: n.id, done: !n.done } })); li.append(span, tick);
+      } else li.append(span);
+      const edit = document.createElement('button'); edit.textContent = '✎'; edit.setAttribute('aria-label', 'Edit this note');
+      edit.onclick = () => { const next = prompt('Edit note', n.text); if (next != null && next.trim() && next.trim() !== n.text) bridge?.setAssistant?.(JSON.stringify({ editNote: { id: n.id, text: next.trim() } })); };
+      const del = document.createElement('button'); del.textContent = '×'; del.setAttribute('aria-label', 'Delete this note');
+      del.onclick = () => { if (confirm('Delete this note?')) bridge?.setAssistant?.(JSON.stringify({ deleteNote: n.id })); };
+      li.append(edit, del); list.append(li);
+    }
+  }
+  if (!notes.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = q ? 'No note matches.' : 'No notes yet.'; list.append(li); }
 }
 function renderPermissions() {
   const list = el('permission-list'); list.replaceChildren();
@@ -1265,6 +1295,8 @@ el('driving-pill').onclick = () => { setAnnounce({ drivingMode: false }); notice
 el('use-persona').onclick = () => { bridge?.setAssistant?.(JSON.stringify({ persona: personaTab })); };
 el('memory-add').onclick = () => { const input = el<HTMLInputElement>('memory-new'); const text = input.value.trim(); if (!text) return; bridge?.setAssistant?.(JSON.stringify({ remember: text, category: el<HTMLSelectElement>('memory-category').value })); input.value = ''; };
 el('remember-conversations').onchange = () => { const on = el<HTMLInputElement>('remember-conversations').checked; if (!on && !confirm('Stop remembering conversations? Saved conversation notes will be deleted.')) { el<HTMLInputElement>('remember-conversations').checked = true; return; } bridge?.setAssistant?.(JSON.stringify({ rememberConversations: on })); };
+el('note-add').onclick = () => { const input = el<HTMLInputElement>('note-new'); const text = input.value.trim(); if (!text) return; bridge?.setAssistant?.(JSON.stringify({ addNote: { text, kind: el<HTMLSelectElement>('note-kind').value } })); input.value = ''; };
+el('note-search').oninput = () => renderNotes();
 el('memory-clear').onclick = () => { if (confirm('Forget everything FRIDAY remembers about you? This cannot be undone.')) bridge?.setAssistant?.(JSON.stringify({ clearMemories: true })); };
 el('nav-chat').onclick = () => showView(el('chat-view').classList.contains('active') ? 'home' : 'chat');
 el('nav-more').onclick = () => el('settings').click();

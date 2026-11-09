@@ -173,3 +173,11 @@ test('namaz times, qibla and emergency parse locally; unclear words never trigge
   assert.deepEqual(parseMobileAction('emergency contacts'), { action: 'emergency_contact', command: 'list' });
   for (const s of ['help me', 'what is an emergency', 'emergency room near me', 'sos meaning']) assert.notEqual(parseMobileAction(s)?.action, 'emergency', s);
 });
+test('second brain typed commands',()=>{
+  assert.deepEqual(parseMobileAction('task: send the invoice #work'),{action:'note',command:'save',kind:'task',text:'send the invoice #work'});
+  assert.deepEqual(parseMobileAction('todo: call the bank'),{action:'note',command:'save',kind:'task',text:'call the bank'});
+  assert.deepEqual(parseMobileAction('idea: voice diary'),{action:'note',command:'save',kind:'idea',text:'voice diary'});
+  assert.deepEqual(parseMobileAction('kya pending hai?'),{action:'note',command:'pending'});
+  assert.deepEqual(parseMobileAction('find my notes about invoice'),{action:'note',command:'find',query:'invoice'});
+  assert.deepEqual(parseMobileAction('notes dikhao'),{action:'note',command:'list'});
+});

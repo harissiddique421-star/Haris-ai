@@ -363,6 +363,7 @@ public final class MobileActions {
       if("remember".equals(action)){finish(id,memory().remember(args.optString("fact"),args.optString("category",""),args.optBoolean("allow_sensitive",false)));return;}
       if("conversation_mode".equals(action)){finish(id,CompanionMode.set(activity,args));return;}
       if("recall".equals(action)){finish(id,memory().recall(args.optString("query")));return;}
+      if("note".equals(action)){finish(id,memory().note(args));return;}
       if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
       if("list_memories".equals(action)){finish(id,memory().listMemories());return;}
       if("set_persona".equals(action)){finish(id,memory().setPersona(args.optString("persona")));return;}
