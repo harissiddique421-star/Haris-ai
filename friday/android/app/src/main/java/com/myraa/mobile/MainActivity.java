@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.50";
+  static final String VERSION = "1.0.0-rc.51";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -195,7 +195,11 @@ public class MainActivity extends Activity {
     WakeWordService.livePaused(this,true);
     VoiceId.Progress p=(status,step,total,message)->runOnUiThread(()->voiceIdEvent(status,step,total,message));
     Runnable done=()->runOnUiThread(()->{WakeWordService.livePaused(MainActivity.this,false);WakeWordService.refresh(MainActivity.this);voiceIdEvent("done",0,0,"");});
-    if(who==null)VoiceId.register(this,p,done);else if("add".equals(who))VoiceId.addSamples(this,p,done);else VoiceId.test(this,who,p,done);
+    // Recorded through the Live call's own microphone chain (the page captures and hands the audio over).
+    CallMicPcm pcm=CallMicPcm.open();
+    emit(json("type","voiceid-capture","on",true));
+    Runnable finish=()->{runOnUiThread(()->emit(json("type","voiceid-capture","on",false)));done.run();};
+    if(who==null)VoiceId.register(this,pcm,p,finish);else if("add".equals(who))VoiceId.addSamples(this,pcm,p,finish);else VoiceId.test(this,pcm,who,p,finish);
   }
   private void guardianEvent(String status,int step,String message){emit(json("type","guardian","status",status,"step",step,"message",message,"wake",wakeState()));}
 
@@ -606,6 +610,9 @@ public class MainActivity extends Activity {
     // ---- HARIS Voice ID (see VoiceId): enrollment, tests and the Live call gate
     @JavascriptInterface public void voiceIdRegister() { runOnUiThread(() -> voiceIdRecord(null)); }
     @JavascriptInterface public void voiceIdAddSamples() { runOnUiThread(() -> voiceIdRecord("add")); }
+    /** Audio for a Voice ID recording, from the page's Live-call microphone chain (16 kHz 16-bit PCM, base64). */
+    @JavascriptInterface public void voiceIdPcm(String b64) { CallMicPcm.feed(b64); }
+    @JavascriptInterface public void voiceIdPcmFailed(String why) { CallMicPcm.fail(why == null ? null : why.replaceAll("[^A-Za-z0-9 .,:'-]", "").substring(0, Math.min(80, why.replaceAll("[^A-Za-z0-9 .,:'-]", "").length()))); }
     @JavascriptInterface public void voiceIdTest(String who) { runOnUiThread(() -> voiceIdRecord("other".equals(who) ? "other" : "owner")); }
     @JavascriptInterface public void voiceIdDelete() { runOnUiThread(() -> { VoiceId.delete(MainActivity.this); voiceIdEvent("deleted", 0, 0, "Your voice profile is deleted. Anyone's voice can talk to FRIDAY again."); }); }
     @JavascriptInterface public void voiceIdOptions(String raw) { runOnUiThread(() -> {

@@ -152,23 +152,22 @@ final class VoiceId {
   interface Progress { void update(String status,int step,int total,String message); }
 
   /** Records the enrollment sentences and saves the profile. done runs at the end either way. */
-  static void register(Context c,Progress p,Runnable done){record(c,false,p,done);}
+  static void register(Context c,CallMicPcm pcm,Progress p,Runnable done){record(c,pcm,false,p,done);}
   /** Records a few more sentences (far, quiet, noisy) and adds them to the saved profile. */
-  static void addSamples(Context c,Progress p,Runnable done){record(c,true,p,done);}
+  static void addSamples(Context c,CallMicPcm pcm,Progress p,Runnable done){record(c,pcm,true,p,done);}
 
-  private static void record(Context c,boolean adding,Progress p,Runnable done){
-    if(recording){p.update("busy",0,0,"Already recording.");return;}
+  private static void record(Context c,CallMicPcm pcm,boolean adding,Progress p,Runnable done){
+    if(recording){pcm.close();p.update("busy",0,0,"Already recording.");return;}
     recording=true;Context app=c.getApplicationContext();
     new Thread(()->{
-      MicInput mic=null;String[][] list=adding?EXTRA:SENTENCES;int total=list.length;
+      CallMicPcm mic=pcm;String[][] list=adding?EXTRA:SENTENCES;int total=list.length;
       try{
         SpeakerProfile old=adding?load(app):null;
         if(adding&&(old==null||!old.canAdd())){p.update("error",0,total,old==null?"Register your voice first.":"This voice profile was made by an older FRIDAY. Tap Re-register once; after that you can add samples.");return;}
         VoiceEncoder enc=VoiceModels.encoder(app);
         if(enc==null){p.update("error",0,total,"The voice model could not be loaded on this phone.");return;}
-        Thread.sleep(700); // let the wake word listener release the microphone
-        mic=MicInput.open();mic.start();final MicInput m=mic;
-        ControlLog.i("voice id: recording with "+mic.effects());
+        mic=pcm;final CallMicPcm m=mic;
+        ControlLog.i("voice id: recording through the Live call microphone");
         SpeechSegmenter seg=VoiceGuardian.segmenter(app,SENTENCE_MAX_MS);
         List<float[]> full=new ArrayList<>(),shortPrints=new ArrayList<>(),echo=new ArrayList<>();
         int skipped=0;
@@ -176,7 +175,8 @@ final class VoiceId {
           float[][] got=null;
           for(int attempt=0;attempt<2&&got==null;attempt++){
             p.update("listen",i+1,total,(attempt==0?list[i][0]+": ":"Once more, a little louder: ")+"\""+list[i][1]+"\"");
-            short[] u=seg.next(m::readFully,()->false,8000);
+            short[] u=seg.next(m::read,()->false,8000);
+            if(u==null&&m.failed!=null){p.update("error",i+1,total,"FRIDAY couldn't use the microphone ("+m.failed+"). Allow the microphone for FRIDAY and try again.");return;}
             if(u==null||u.length<MIN_SENTENCE_MS*VoiceEncoder.RATE/1000)continue;
             p.update("heard",i+1,total,"Checking…");
             got=prints(enc,u);
@@ -207,22 +207,21 @@ final class VoiceId {
    * voice was accepted and how often other voices were refused. An "other" voice is also added to
    * the profile's calibration, so the threshold stays above it.
    */
-  static void test(Context c,String who,Progress p,Runnable done){
-    if(recording){p.update("busy",0,0,"Already recording.");return;}
+  static void test(Context c,CallMicPcm pcm,String who,Progress p,Runnable done){
+    if(recording){pcm.close();p.update("busy",0,0,"Already recording.");return;}
     boolean other="other".equals(who);
     recording=true;Context app=c.getApplicationContext();
     new Thread(()->{
-      MicInput mic=null;
+      CallMicPcm mic=pcm;
       try{
         SpeakerProfile prof=load(app);VoiceEncoder enc=VoiceModels.encoder(app);
         if(prof==null){p.update("error",0,0,"Register your voice first.");return;}
         if(enc==null){p.update("error",0,0,"The voice model could not be loaded on this phone.");return;}
-        Thread.sleep(700);
-        mic=MicInput.open();mic.start();final MicInput m=mic;
+        final CallMicPcm m=mic;
         SpeechSegmenter seg=VoiceGuardian.segmenter(app,TEST_MAX_MS);
         p.update("listen",1,1,other?"Ask someone else to say any sentence now.":"Say any sentence now, for example \"FRIDAY, what's the weather?\"");
-        short[] u=seg.next(m::readFully,()->false,8000);
-        if(u==null){p.update("error",1,1,"I didn't hear anyone. Try again.");return;}
+        short[] u=seg.next(m::read,()->false,8000);
+        if(u==null){p.update("error",1,1,m.failed!=null?"FRIDAY couldn't use the microphone ("+m.failed+"). Try again.":"I didn't hear anyone. Try again.");return;}
         float[][] e=prints(enc,u);
         double first=prof.score(e[1]),whole=prof.score(e[0]),t=prof.threshold(sensitivity(app));
         // As in a call: the first 1.2 s decides, with a second look when it is close.
@@ -236,8 +235,7 @@ final class VoiceId {
           other?(accepted?"This voice was ACCEPTED as you. FRIDAY has raised the bar for it; consider Strict sensitivity":"Correct: this voice was refused")
                :(accepted?"Recognised: this is your voice":"Not recognised. Try again at your normal distance, or choose Relaxed sensitivity"),first,other?prof.withImpostor(first).threshold(sensitivity(app)):t);
         p.update(accepted^other?"pass":"fail",1,1,msg);
-      }catch(InterruptedException e){Thread.currentThread().interrupt();p.update("error",0,0,"Test stopped.");}
-      catch(RuntimeException e){p.update("error",0,0,"The microphone is busy. End any call or recording and try again.");}
+      }catch(RuntimeException e){p.update("error",0,0,"The microphone is busy. End any call or recording and try again.");}
       finally{if(mic!=null)mic.close();recording=false;done.run();}
     },"friday-voice-id-test").start();
   }

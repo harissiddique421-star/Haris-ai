@@ -1,5 +1,5 @@
 import './mobile.css';
-import { MyraaAudioSession, type LiveState } from '../lib/audio';
+import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, type LiveState } from '../lib/audio';
 import { MobileLiveTransport, liveResume, liveMic } from './LiveTransport';
 import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
@@ -15,7 +15,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -79,6 +79,38 @@ function voiceTurnDiagnostics() {
   const log = (liveSession?.turn || lastVoiceTurns)?.log || [];
   return log.length ? `\nReply timing (newest last):\n${log.join('\n')}` : '';
 }
+/**
+ * Voice ID recording through the same microphone chain as a Live call (same getUserMedia settings,
+ * same high-pass, 16 kHz): the phone asks for it while registering or testing, and the samples go
+ * straight to the phone's voiceprint code. Nothing is stored by the page.
+ */
+let voiceIdCapture: { stop: () => void } | null = null;
+async function startVoiceIdCapture() {
+  stopVoiceIdCapture();
+  let stopped = false; let stream: MediaStream | null = null; let ctx: AudioContext | null = null;
+  voiceIdCapture = { stop: () => { stopped = true; try { stream?.getTracks().forEach(t => t.stop()); } catch { /* gone */ } void ctx?.close().catch(() => {}); } };
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: LIVE_MIC_CONSTRAINTS });
+    if (stopped) { stream.getTracks().forEach(t => t.stop()); return; }
+    ctx = new AudioContext({ sampleRate: 16000 });
+    if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+    const source = ctx.createMediaStreamSource(stream);
+    const band = ctx.createBiquadFilter(); band.type = 'highpass'; band.frequency.value = LIVE_MIC_HIGHPASS_HZ;
+    const proc = ctx.createScriptProcessor(1024, 1, 1);
+    source.connect(band); band.connect(proc); proc.connect(ctx.destination);
+    proc.onaudioprocess = e => {
+      if (stopped) return;
+      const f = e.inputBuffer.getChannelData(0); const bytes = new Uint8Array(f.length * 2);
+      for (let i = 0; i < f.length; i++) { const v = Math.max(-1, Math.min(1, f[i])); const x = v < 0 ? v * 0x8000 : v * 0x7fff; const n = Math.round(x) & 0xffff; bytes[2 * i] = n & 0xff; bytes[2 * i + 1] = n >> 8; }
+      let bin = ''; for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      bridge?.voiceIdPcm?.(btoa(bin));
+    };
+  } catch (error) {
+    bridge?.voiceIdPcmFailed?.(String((error as Error)?.name || 'microphone unavailable'));
+    stopVoiceIdCapture();
+  }
+}
+function stopVoiceIdCapture() { const c = voiceIdCapture; voiceIdCapture = null; c?.stop(); }
 function voiceIdDiagnostics() {
   let line = ''; try { line = bridge?.voiceGateStatus?.() || ''; } catch { /* older app */ }
   const t = liveSession;
@@ -746,6 +778,7 @@ async function loadAvatar() {
   }
 }
 window.MyraaEvents = event => {
+  if (event.type === 'voiceid-capture') { if (event.on) void startVoiceIdCapture(); else stopVoiceIdCapture(); return; }
   if (event.type === 'mobile-action-result') {
     const request = actionRequests.get(event.id); if (request) { clearTimeout(request.timer); actionRequests.delete(event.id); request.resolve(event.result); }
     notice(event.result?.message || 'Android action finished.'); return;

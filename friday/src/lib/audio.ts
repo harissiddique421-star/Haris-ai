@@ -166,6 +166,21 @@ export interface AudioSocket {
  */
 /** endMs: the quiet time after which the gate ends the owner's turn (for the turn timing log). */
 export interface VoiceGateLink { feed(pcm: string, ai: number): string; stop(): void; endMs?: number; }
+/**
+ * The Live call's microphone settings. Voice ID registers through exactly these too (see the
+ * mobile app's voice ID capture), so the voiceprint is learned from the sound the call checks.
+ */
+export const LIVE_MIC_CONSTRAINTS: MediaTrackConstraints = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+  // Chrome/WebView voice isolation where the phone supports it (ignored elsewhere): it keeps TV, music and
+  // other people out of what Gemini hears, which keeps names and commands recognised correctly.
+  ...({ voiceIsolation: true } as Record<string, boolean>),
+};
+/** High-pass the call applies before anything hears the microphone (low rumble out). */
+export const LIVE_MIC_HIGHPASS_HZ = 85;
 export interface AudioConnection { createSocket(): AudioSocket; pitch?: number; voiceGate?: () => VoiceGateLink | null; }
 
 /**
@@ -612,17 +627,7 @@ export class MyraaAudioSession {
           "Microphone access is unavailable in this browser. Open FRIDAY in Chrome at http://localhost:3000 and allow microphone access.",
         );
       }
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          // Chrome/WebView voice isolation where the phone supports it (ignored elsewhere): it keeps TV, music and
-          // other people out of what Gemini hears, which keeps names and commands recognised correctly.
-          ...({ voiceIsolation: true } as Record<string, boolean>),
-        }
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: LIVE_MIC_CONSTRAINTS });
 
       // Safeguard: Check if we disconnected while waiting for user to grant mic permissions
       const ctx = this.inputAudioCtx;
@@ -648,7 +653,7 @@ export class MyraaAudioSession {
       // Cut low rumble (fans, traffic, AC hum) below the human voice before it reaches Gemini.
       const voiceBand = ctx.createBiquadFilter();
       voiceBand.type = "highpass";
-      voiceBand.frequency.value = 85;
+      voiceBand.frequency.value = LIVE_MIC_HIGHPASS_HZ;
       this.micFilterNode = voiceBand;
       this.micSourceNode.connect(voiceBand);
       voiceBand.connect(this.inputAnalyser);
