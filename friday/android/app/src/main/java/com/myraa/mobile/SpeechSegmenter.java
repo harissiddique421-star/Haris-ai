@@ -35,6 +35,8 @@ final class SpeechSegmenter {
   private boolean modelIdle;
   /** Bursts dropped because they were too long (continuous talk, TV, music), for the log. */
   int droppedLong;
+  /** Steady background noise heard between bursts (no speech), so a voice check can also score the burst without it. */
+  final NoiseReducer noise=new NoiseReducer();
 
   SpeechSegmenter(SileroVad vad,int silenceMs,int maxSpeechMs){
     this.vad=vad;
@@ -67,7 +69,7 @@ final class SpeechSegmenter {
         if(++waited>timeoutChunks)return null;
         before.add(chunk);if(before.size()>PRE_CHUNKS)before.poll();
         if(p>=ON){if(++above>=START_CHUNKS){inSpeech=true;speech.clear();levels.clear();speech.addAll(before);preLen=before.size();before.clear();silence=0;}}
-        else{above=0;floor=Math.max(30,floor*0.97+level*0.03);}
+        else{above=0;floor=Math.max(30,floor*0.97+level*0.03);if(p<OFF){float[] f=new float[CHUNK];for(int k=0;k<CHUNK;k++)f[k]=chunk[k]/32768f;noise.learn(f);}}
         continue;
       }
       speech.add(chunk);levels.add(level);

@@ -35,6 +35,12 @@ import java.util.List;
  * burst at once, and the voiceprint is checked every 2 s, so background voices never keep FRIDAY
  * stuck listening and never lock the owner out.
  *
+ * Steady background noise (fan, AC, traffic, hiss) is learnt from the audio the VAD hears as no
+ * speech while listening (NoiseReducer). Once there is noise worth removing, each voice check scores
+ * both the audio as recorded and a copy with that noise turned down, and keeps the better of the
+ * two (the cleaned score a little lowered, see NoiseReducer.PENALTY): the owner is still recognised in loud steady noise, and since the copy only removes noise,
+ * other people's voices stay as unlike the owner's as before (measured in VoiceGateCheck).
+ *
  * Output is in the same order as the input: owner audio as recorded, everything else as a count
  * of silent samples, so Gemini hears silence (and is told the turn ended) as soon as the owner
  * stops, even while others keep talking.
@@ -123,7 +129,9 @@ final class VoiceGate {
   /** Level of the current burst's talker, and of the owner once verified in this call (0 = not known). */
   private double talkerLevel,ownerLevel;
   // Counters for the diagnostics line.
-  int owners,unknowns,checks,lows;double lastScore=Double.NaN,bestRejected=Double.NaN;long checkMs;
+  int owners,unknowns,checks,lows,cleaned;double lastScore=Double.NaN,bestRejected=Double.NaN;long checkMs;
+  /** Learns steady background noise while nobody speaks; voice checks also score a copy without it. */
+  final NoiseReducer noise=new NoiseReducer();
 
   /** silenceMs: how long the owner must be quiet before the turn ends (clamped to 400-1000 ms). */
   VoiceGate(SileroVad vad,Scorer scorer,double threshold,int silenceMs){
@@ -153,6 +161,7 @@ final class VoiceGate {
     switch(state){
       case LISTENING:{
         out.silence(CHUNK);
+        if(p<OFF)noise.learn(floats);
         before.add(c);beforeLevels.add(level);if(before.size()>PRE){before.poll();beforeLevels.poll();}
         // Once the owner's level is known, quieter background talk does not start a burst at all.
         boolean candidate=p>=ON&&(ownerLevel==0||level>=ownerLevel*START_LEVEL);
@@ -305,8 +314,11 @@ final class VoiceGate {
   private double check(List<short[]> chunks,int count){
     float[] wav=new float[count*CHUNK];
     for(int i=0;i<count;i++){short[] c=chunks.get(i);for(int k=0;k<CHUNK;k++)wav[i*CHUNK+k]=c[k]/32768f;}
-    long t=System.nanoTime();double s=scorer.score(wav);checkMs=(System.nanoTime()-t)/1_000_000;checks++;
-    if(Double.isNaN(s))s=0;lastScore=s;return s;
+    long t=System.nanoTime();double s=scorer.score(wav);if(Double.isNaN(s))s=0;
+    // In steady noise also score a copy with the learnt noise turned down, and keep the better score.
+    if(noise.active()){double c=scorer.score(noise.clean(wav))-NoiseReducer.PENALTY;if(!Double.isNaN(c)&&c>s){s=c;cleaned++;}}
+    checkMs=(System.nanoTime()-t)/1_000_000;checks++;
+    lastScore=s;return s;
   }
   private void remember(short[] c,double level){recent.add(c);recentLevels.add(level);while(recent.size()>WINDOW){recent.poll();recentLevels.poll();}}
   private void recentFrom(List<short[]> b,List<Double> l){

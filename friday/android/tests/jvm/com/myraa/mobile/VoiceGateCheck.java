@@ -64,6 +64,35 @@ public final class VoiceGateCheck {
     expect("   owner audio reaches Gemini unchanged, nothing lost",r.exact&&r.ownerSamples>=owner1.length);
     scenario("A2 owner, another sentence",run(p,t,cat(sil(1),owner2,sil(1.5))),true);
     scenario("A3 owner with fan noise at 15 dB SNR",run(p,t,noisy(cat(sil(1),owner1,sil(1.5)),owner1,15,rnd)),true);
+    // Loud steady hiss (5 dB and 0 dB SNR): heard before the owner speaks, so the gate learns it and also
+    // checks a copy without it (rc.59). Before rc.59 the owner scored about 0.6 here and was ignored.
+    for(int snr:new int[]{5,0}){
+      float[] hiss=noise(5.5,1,new Random(21+snr),false);
+      double hissRms=rms(owner1)/Math.pow(10,snr/20.0);
+      float[] rawMix=add(owner1,scaleTo(Arrays.copyOf(hiss,owner1.length),hissRms));
+      double before=p.score(enc.embed(Arrays.copyOf(rawMix,24320)));
+      Result hr=run(p,t,add(cat(sil(1.5),owner1,sil(1.5)),scaleTo(hiss,hissRms)));
+      System.out.printf(Locale.ROOT,"   hiss %d dB: voice score without noise removal %.2f (needs %.2f), events %s%n",snr,before,t,hr.events);
+      scenario("A4 owner in loud steady hiss at "+snr+" dB SNR: allowed (noise removed for the check)",hr,true);
+      for(String who:new String[]{"friend_1","friend_2","tv_1"}){
+        float[] o=wav(who);double oRms=rms(o)/Math.pow(10,snr/20.0);
+        Result wr=run(p,t,add(cat(sil(1.5),o,sil(1.5)),scaleTo(noise(1.5+o.length/16000.0+1.5,1,new Random(31+snr),false),oRms)));
+        System.out.printf(Locale.ROOT,"   %s events %s scores %s%n",who,wr.events,wr.scores);
+        scenario("   "+who+" in the same hiss: ignored",wr,false);
+      }
+    }
+    {
+      // NoiseReducer on its own: learns steady noise, turns it down, leaves a quiet room alone.
+      NoiseReducer nr=new NoiseReducer();float[] hiss=scaleTo(noise(1,1,new Random(3),false),0.02);
+      for(int i=0;i+512<=hiss.length;i+=512)nr.learn(Arrays.copyOfRange(hiss,i,i+512));
+      float[] hiss2=scaleTo(noise(1,1,new Random(4),false),0.02);
+      expect("NoiseReducer turns learnt hiss down by at least 10 dB",nr.active()&&rms(nr.clean(hiss2))<rms(hiss2)/3.16);
+      float[] speech=Arrays.copyOf(owner1,32000);
+      expect("NoiseReducer keeps most of the speech energy",rms(nr.clean(speech))>rms(speech)*0.7);
+      NoiseReducer quiet=new NoiseReducer();float[] q=scaleTo(noise(1,1,new Random(5),false),0.0005);
+      for(int i=0;i+512<=q.length;i+=512)quiet.learn(Arrays.copyOfRange(q,i,i+512));
+      expect("NoiseReducer stays off in a quiet room (audio unchanged)",!quiet.active()&&quiet.clean(speech)==speech);
+    }
     scenario("B  a friend talks (two sentences): ignored",run(p,t,cat(sil(1),friend1,sil(1),friend2,sil(1.5))),false);
     scenario("C  two people talking over each other: ignored",run(p,t,cat(sil(1),add(friend1,scaleTo(wav("tv_2"),rms(friend1)*0.8)),sil(1.5))),false);
     scenario("D  TV: 12 s of other voices without a pause: ignored",run(p,t,cat(sil(1),tv,sil(1.5))),false);

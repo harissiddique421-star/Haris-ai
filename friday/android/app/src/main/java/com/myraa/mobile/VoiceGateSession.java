@@ -115,7 +115,7 @@ final class VoiceGateSession {
     try{
       o.put("at",started).put("seconds",(System.currentTimeMillis()-started)/1000).put("owner",gate.owners).put("ignored",gate.unknowns)
         .put("low",gate.lows).put("needs",Math.round(gate.threshold()*100)/100.0).put("checkMs",gate.checkMs)
-        .put("noise",db(noiseRms)).put("clip",Math.round(clipPercent()*100)/100.0);
+        .put("noise",db(noiseRms)).put("noiseRemoved",gate.cleaned).put("clip",Math.round(clipPercent()*100)/100.0);
       if(!Double.isNaN(gate.bestRejected))o.put("closestIgnored",Math.round(gate.bestRejected*100)/100.0);
       if(failure!=null)o.put("failure",failure);
     }catch(JSONException ignored){}
@@ -163,9 +163,9 @@ final class VoiceGateSession {
   }
   int endMs(){return gate.endMs();}
   String diagnostics(){
-    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d (low confidence %d, closest %s) · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet · mic background %s · clipping %.2f%%%s",
+    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d (low confidence %d, closest %s) · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet · mic background %s · noise removal %s · clipping %.2f%%%s",
       gate.owners,gate.unknowns,gate.lows,Double.isNaN(gate.bestRejected)?"-":String.format(Locale.ROOT,"%.2f",gate.bestRejected),gate.checks,
-      Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),db(noiseRms),clipPercent(),failure==null?"":" · "+failure);
+      Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),db(noiseRms),gate.noise.active()?"on, helped "+gate.cleaned+" check"+(gate.cleaned==1?"":"s"):"off (quiet)",clipPercent(),failure==null?"":" · "+failure);
   }
   void stop(){running=false;worker.interrupt();input.clear();}
 }

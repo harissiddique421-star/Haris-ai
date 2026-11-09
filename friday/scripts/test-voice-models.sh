@@ -5,7 +5,8 @@
 #  - SpeechSegmenterCheck: speech start/end, pauses, silence timeout, noise and background talk.
 #  - VoiceGateCheck: HARIS Voice ID on real recorded speech: the owner is let through (and the turn
 #    ends 0.6 s after a short command, also with people talking behind); a friend,
-#    two people at once, the TV and FRIDAY's own voice are not; profile calibration and storage.
+#    two people at once, the TV and FRIDAY's own voice are not; the owner in loud steady noise is
+#    (background noise removed for the check) and others in the same noise are not; profile calibration and storage.
 #  - SelfImprovementCheck: health ledger, self-analysis, development memory, approvals, self-healing.
 #  - UpdatePlanCheck: which GitHub releases are offered and which downloaded APKs are accepted.
 #  - TextProvidersCheck: OpenRouter / OpenAI-compatible addresses, request conversion, replies, errors, usage.
@@ -20,7 +21,7 @@ echo "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  $JSON" |
 SRC=android/app/src/main/java/com/myraa/mobile
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" \
   "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/VoiceEncoder.java" "$SRC/SpeechSegmenter.java" \
-  "$SRC/SpeakerProfile.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
+  "$SRC/SpeakerProfile.java" "$SRC/NoiseReducer.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
   "$SRC/MemoryRank.java" "$SRC/NoteLogic.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" "$SRC/UnlockTask.java" \
   "$SRC/VoiceNotes.java" "$SRC/ContactMatcher.java" "$SRC/TextProviders.java" "$SRC/GeminiAccess.java" android/tests/jvm/android/content/Context.java \
   android/tests/jvm/android/util/Log.java android/tests/jvm/com/myraa/mobile/*.java
