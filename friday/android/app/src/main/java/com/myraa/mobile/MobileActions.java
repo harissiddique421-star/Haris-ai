@@ -338,6 +338,7 @@ public final class MobileActions {
       if("battery".equals(action)){finish(id,Diagnostics.battery(activity));return;}
       if("navigate".equals(action)){finish(id,phone().navigate(args.optString("place"),args.optString("mode")));return;}
       if("read_notifications".equals(action)){finish(id,phone().notifications(args.optInt("limit",10)));return;}
+      if("set_autonomy".equals(action)){finish(id,Autonomy.apply(activity,args.optString("level")));return;}
       if("voice_note".equals(action)){finish(id,voiceNote(args.optString("command","latest"),args.optString("recipient","")));return;}
       if("answer_call".equals(action)||"reject_call".equals(action)){boolean accept="answer_call".equals(action);withPermission(id,Manifest.permission.ANSWER_PHONE_CALLS,()->finish(id,phone().answerCall(accept)),()->finish(id,"permission_required","Phone permission was denied, so FRIDAY cannot answer or reject calls."));return;}
       if("silence_call".equals(action)){finish(id,phone().silenceCall());return;}

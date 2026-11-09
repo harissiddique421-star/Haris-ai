@@ -1,0 +1,62 @@
+package com.myraa.mobile;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+/**
+ * How much FRIDAY does on her own, and the master pause.
+ *  - Assisted: she asks before any action that changes something (the screen code holds the approval).
+ *  - Balanced (default): today's behaviour. Messages, calls and deletes always need the user's yes.
+ *  - Maximum: she runs low-risk multi-step tasks without stopping to ask. The same rules for messages,
+ *    calls, deletes and money stay; maximum never means bypassing Android or another app's protection.
+ * Pause: no phone action runs and FRIDAY starts no conversation or check-in until it is turned off.
+ */
+final class Autonomy {
+  private static final String PREFS="friday_autonomy";
+  private Autonomy(){}
+  private static SharedPreferences prefs(Context c){return c.getApplicationContext().getSharedPreferences(PREFS,Context.MODE_PRIVATE);}
+
+  static String normalize(String level){return "assisted".equals(level)||"maximum".equals(level)?level:"balanced";}
+  static String level(Context c){return normalize(prefs(c).getString("level","balanced"));}
+  static boolean paused(Context c){return prefs(c).getBoolean("paused",false);}
+
+  static JSONObject state(Context c){
+    JSONObject s=new JSONObject();
+    try{s.put("level",level(c)).put("paused",paused(c));}catch(JSONException ignored){}
+    return s;
+  }
+
+  /** level: assisted, balanced, maximum, pause or resume. Returns a mobile action result with the new state. */
+  static JSONObject apply(Context c,String level){
+    String l=level==null?"":level.trim().toLowerCase(java.util.Locale.ROOT);
+    JSONObject r=new JSONObject();
+    try{
+      if("pause".equals(l)){prefs(c).edit().putBoolean("paused",true).apply();ControlLog.i("autonomy: paused");r.put("status","done").put("message","FRIDAY is paused: no phone actions and no check-ins until you say \"pause khatam karo\" or turn it off in Settings.");}
+      else if("resume".equals(l)){prefs(c).edit().putBoolean("paused",false).apply();ControlLog.i("autonomy: resumed");r.put("status","done").put("message","Pause is off. FRIDAY works normally again ("+label(level(c))+" mode).");}
+      else if(l.matches("assisted|balanced|maximum")){prefs(c).edit().putString("level",l).apply();ControlLog.i("autonomy: "+l);r.put("status","done").put("message",label(l)+" mode is on. "+explain(l));}
+      else r.put("status","error").put("message","Say assisted, balanced, maximum, pause or resume.");
+      r.put("autonomy",state(c));
+    }catch(JSONException ignored){}
+    return r;
+  }
+
+  static String label(String l){return "assisted".equals(l)?"Assisted":"maximum".equals(l)?"Maximum":"Balanced";}
+  static String explain(String l){
+    if("assisted".equals(l))return "FRIDAY asks before every action that changes something.";
+    if("maximum".equals(l))return "FRIDAY does low-risk steps without asking; messages, calls, deletes and money still need your yes.";
+    return "FRIDAY does simple actions at once and asks before messages, calls and deletes.";
+  }
+
+  /** One line for the Live call's instructions. */
+  static String prompt(Context c){
+    String l=level(c);
+    String rule="assisted".equals(l)
+      ?"ASSISTED: before any mobile_action that changes something (open, play, set, type, tap, remember...), ask the user in one short line and act only after a clear yes. Answering questions and reading need no question. The phone also enforces this and may answer needs_confirmation with a confirm_token: then ask once and call again with that token after the yes."
+      :"maximum".equals(l)
+      ?"MAXIMUM: for a goal with several low-risk steps (open apps, search, play, set alarms or reminders, read the screen) plan the steps and do them one after another without asking between steps, then say the result. Messages, calls, deletes, payments, purchases and security settings still follow their confirmation rules exactly."
+      :"BALANCED: do simple, low-risk actions at once; messages, calls and deletes follow their confirmation rules.";
+    return "\nAUTONOMY: "+rule+(paused(c)?" FRIDAY IS PAUSED: run no mobile_action except set_autonomy with level resume when the user asks to end the pause; do not start topics or check-ins.":"");
+  }
+}

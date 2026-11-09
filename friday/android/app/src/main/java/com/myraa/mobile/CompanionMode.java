@@ -134,6 +134,7 @@ final class CompanionMode {
   /** Why a check-in should not happen right now, or "" when it may. */
   static String skipReason(Context c) {
     if (!checkinOn(c) || !active(c)) return "off";
+    if (Autonomy.paused(c)) return "paused";
     if (inQuietHours(c)) return "quiet hours";
     String today = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.ENGLISH).format(new Date());
     if (today.equals(prefs(c).getString("checkinLastDay", ""))) return "already today";

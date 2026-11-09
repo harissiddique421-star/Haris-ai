@@ -15,7 +15,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -164,7 +164,7 @@ let checkinsThisCall = 0;
 function conversationMode() { return normalizeMode(state.assistant?.conversation?.mode); }
 function quietHoursNow() { const c = state.assistant?.conversation || {}; return !!c.quietHours && inQuietHours(new Date(), c.quietStart || '22:00', c.quietEnd || '08:00'); }
 setInterval(() => {
-  if (!liveSession || liveSession.getState() !== 'listening' || document.hidden || !foreground) return;
+  if (!liveSession || liveSession.getState() !== 'listening' || document.hidden || !foreground || orchestrator.policy.paused) return;
   // Never ask twice in a row: after a check-in, wait until the user speaks again.
   if (!userSpokeThisCall || !spokeSinceCheckin || checkinPending || !lastActivityAt) return;
   const now = Date.now(), mode = conversationMode();
@@ -187,7 +187,7 @@ const GREET_EXAMPLES = {
 /** Sent once, right after the call is ready, unless the user is already talking (their command comes first). */
 function sendGreeting() {
   const by = callStartedBy; callStartedBy = '';
-  if (!by || (!greetOn() && by !== 'checkin') || !liveSession || userTalkingNow || userSpokeThisCall) return;
+  if (!by || (!greetOn() && by !== 'checkin') || !liveSession || userTalkingNow || userSpokeThisCall || orchestrator.policy.paused) return;
   const pool = GREET_EXAMPLES[by === 'wake' ? 'wake' : 'mic']; greetCount++;
   const examples = [0, 1, 2].map(i => `"${pool[(greetCount + i) % pool.length]}"`).join(', ');
   // Companion mode may open with a question about the user's day once a day.
@@ -399,6 +399,19 @@ app.innerHTML = `
         <div class="row"><button id="voiceid-add" type="button">Add more samples</button><button id="voiceid-test-other" type="button">Test someone else</button></div>
         <div class="row"><button id="voiceid-delete" type="button">Delete Voice Profile</button></div>
         <p id="voiceid-note" class="muted" role="status" aria-live="polite"></p></div>
+      <div class="card"><b>Autonomy</b><small>How much FRIDAY does on her own. Messages, calls, deletes and payments always need your yes, in every mode. You can also say "assisted mode", "maximum mode", "FRIDAY pause ho jao" or "pause khatam karo".</small>
+        <label>Autonomy level<select id="autonomy-level"><option value="assisted">Assisted · ask before every action</option><option value="balanced">Balanced · simple actions at once</option><option value="maximum">Maximum · low-risk steps without asking</option></select></label>
+        <label class="check"><input id="autonomy-pause" type="checkbox"> Pause FRIDAY (no phone actions, no check-ins)</label>
+        <p id="autonomy-note" class="muted" role="status"></p></div>
+      <div class="card"><b>AI providers</b><small>Gemini runs Live voice and text chat. You can add OpenRouter or any OpenAI-compatible API for text chat only. Your messages then go to that provider under its own privacy terms. It is never used unless you choose Backup or Main here, and each reply it gives is labelled.</small>
+        <label>Second provider<select id="alt-kind"><option value="none">None</option><option value="openrouter">OpenRouter</option><option value="custom">OpenAI-compatible (custom address)</option></select></label>
+        <label id="alt-base-row">API address<input id="alt-base" autocomplete="off" placeholder="https://api.example.com/v1"></label>
+        <label>Model<input id="alt-model" autocomplete="off" placeholder="e.g. openai/gpt-4o-mini"></label>
+        <label>API key<input id="alt-key" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key"></label><p id="alt-key-state" class="muted"></p>
+        <label>Use for text chat<select id="alt-use"><option value="off">Off · saved, not used</option><option value="backup">Backup · only when Gemini fails</option><option value="primary">Main · instead of Gemini</option></select></label>
+        <div class="row"><button id="alt-save" type="button">Save provider</button><button id="alt-test" type="button">Test provider</button><button id="alt-remove" type="button">Remove key</button></div>
+        <p id="alt-test-note" class="muted" role="status" aria-live="polite"></p>
+        <p id="usage-note" class="muted"></p></div>
       <div class="card"><b>WhatsApp voice notes</b><small>WhatsApp keeps voice notes encrypted in its own storage, so FRIDAY cannot open them by itself. With Notification access she only knows that a voice note came, from whom and how long. To get it explained: in WhatsApp long-press the voice note, tap Share, choose "FRIDAY: explain voice note". The audio is sent once to Gemini with your key; only the text result is kept (last 20, on this phone).</small>
         <div class="row"><button id="voicenotes-clear" type="button">Delete saved voice note results</button></div></div>
       <div class="card"><b>Conversation</b><small>How much FRIDAY talks first. Active: starts chats, asks questions, follows up and suggests topics. Normal: mostly answers you. Quiet: only answers you. Focus: no interruptions while you work. You can also say "active mode", "quiet mode" or "focus mode for 1 hour". She never turns the mic on by herself.</small>
@@ -779,7 +792,34 @@ function refreshSettings() {
   el<HTMLSelectElement>('language').value = state.language;
   el<HTMLInputElement>('spoken').checked = state.spokenReplies === true;
   el<HTMLInputElement>('user-name').value = state.assistant?.name || '';
-  refreshKeyStatus(); renderAssistant(); renderPermissions();
+  refreshKeyStatus(); renderAssistant(); renderPermissions(); renderProviders(); applyAutonomy(state.autonomy);
+}
+/** Autonomy level and master pause: the orchestrator enforces them, Settings shows them. */
+function applyAutonomy(a: any) {
+  if (!a || typeof a !== 'object') return;
+  const level = a.level === 'assisted' || a.level === 'maximum' ? a.level : 'balanced';
+  orchestrator.policy = { autonomy: level, paused: a.paused === true };
+  state.autonomy = { level, paused: a.paused === true };
+  el<HTMLSelectElement>('autonomy-level').value = level;
+  el<HTMLInputElement>('autonomy-pause').checked = a.paused === true;
+  el('autonomy-note').textContent = a.paused === true ? 'Paused: no phone actions, no check-ins. Say "pause khatam karo" or untick to continue.' : level === 'assisted' ? 'Assisted: FRIDAY asks before every action that changes something.' : level === 'maximum' ? 'Maximum: low-risk steps run without asking. Messages, calls, deletes and money still need your yes.' : 'Balanced: simple actions at once; messages, calls and deletes need your yes.';
+}
+function usageLine(name: string, u: any) {
+  if (!u) return '';
+  const tokens = (Number(u.in) || 0) + (Number(u.out) || 0);
+  return `${name}: ${u.requests || 0} request${u.requests === 1 ? '' : 's'}${u.failed ? ` (${u.failed} failed)` : ''}, ${tokens.toLocaleString()} tokens`;
+}
+function renderProviders() {
+  const p = state.providers || {};
+  el<HTMLSelectElement>('alt-kind').value = p.kind || 'none';
+  el<HTMLInputElement>('alt-base').value = p.base || '';
+  el<HTMLInputElement>('alt-model').value = p.model || '';
+  el<HTMLSelectElement>('alt-use').value = p.use || 'off';
+  el('alt-base-row').hidden = p.kind !== 'custom';
+  el('alt-key-state').textContent = p.kind && p.kind !== 'none' ? (p.keyConfigured ? 'A key is saved in protected storage.' : 'No key saved yet.') : '';
+  const names: Record<string, string> = { gemini: 'Gemini', openrouter: 'OpenRouter', custom: 'Custom provider' };
+  const lines = (part: any) => Object.entries(part || {}).map(([k, v]) => usageLine(names[k] || k, v)).filter(Boolean).join(' · ') || 'nothing yet';
+  el('usage-note').textContent = `Text chat today: ${lines(p.usage?.today)}. Last 7 days: ${lines(p.usage?.week)}. Counted from the providers' own replies; Live voice calls are not counted here. Cost depends on each provider's prices, so check them on the provider's site.`;
 }
 function refreshKeyStatus() {
   el('key-state').textContent = state.keyConfigured ? `A key is saved in Android Keystore protected storage. ${state.keyVerified ? 'Google accepted it for this model.' : 'Use Check key & model to verify access.'}` : 'No API key configured. Add yours to chat.';
@@ -810,6 +850,7 @@ async function loadAvatar() {
 }
 window.MyraaEvents = event => {
   if (event.type === 'voiceid-capture') { if (event.on) void startVoiceIdCapture(); else stopVoiceIdCapture(); return; }
+  if (event.type === 'provider') { if (event.providers) { state.providers = event.providers; renderProviders(); } notice(String(event.message || '')); el('alt-test-note').textContent = String(event.message || ''); return; }
   if (event.type === 'voice-note') {
     if (event.status === 'done' && typeof event.text === 'string') {
       append('model', event.text);
@@ -821,6 +862,7 @@ window.MyraaEvents = event => {
     return;
   }
   if (event.type === 'mobile-action-result') {
+    if (event.result?.autonomy) applyAutonomy(event.result.autonomy);
     const request = actionRequests.get(event.id); if (request) { clearTimeout(request.timer); actionRequests.delete(event.id); request.resolve(event.result); }
     notice(event.result?.message || 'Android action finished.'); return;
   }
@@ -1063,6 +1105,19 @@ el('voiceid-register').onclick = () => { if (!bridge?.voiceIdRegister) { notice(
 el('voiceid-add').onclick = () => voiceIdStart('Get ready to read four more sentences, mostly from further away…', () => bridge?.voiceIdAddSamples?.());
 el('voiceid-test').onclick = () => voiceIdStart('Get ready…', () => bridge?.voiceIdTest?.('owner'));
 el('voiceid-test-other').onclick = () => voiceIdStart('Hand the phone to someone else…', () => bridge?.voiceIdTest?.('other'));
+el<HTMLSelectElement>('autonomy-level').onchange = () => applyAutonomy(JSON.parse(bridge?.autonomyOptions?.(el<HTMLSelectElement>('autonomy-level').value) || 'null'));
+el<HTMLInputElement>('autonomy-pause').onchange = () => applyAutonomy(JSON.parse(bridge?.autonomyOptions?.(el<HTMLInputElement>('autonomy-pause').checked ? 'pause' : 'resume') || 'null'));
+el<HTMLSelectElement>('alt-kind').onchange = () => { el('alt-base-row').hidden = el<HTMLSelectElement>('alt-kind').value !== 'custom'; };
+function saveProvider(extra: Record<string, unknown> = {}) {
+  if (!bridge?.providerOptions) { notice('Not available in this build.'); return false; }
+  const out = JSON.parse(bridge.providerOptions(JSON.stringify({ kind: el<HTMLSelectElement>('alt-kind').value, base: el<HTMLInputElement>('alt-base').value.trim(), model: el<HTMLInputElement>('alt-model').value.trim(), key: el<HTMLInputElement>('alt-key').value.trim(), use: el<HTMLSelectElement>('alt-use').value, ...extra })));
+  el<HTMLInputElement>('alt-key').value = '';
+  if (out.error) { el('alt-test-note').textContent = out.error; return false; }
+  state.providers = out; renderProviders(); el('alt-test-note').textContent = 'Saved.'; return true;
+}
+el('alt-save').onclick = () => { saveProvider(); };
+el('alt-test').onclick = () => { if (saveProvider()) { el('alt-test-note').textContent = 'Testing…'; bridge?.providerTest?.(); } };
+el('alt-remove').onclick = () => { if (confirm('Remove the saved key for the second provider?')) saveProvider({ clearKey: true, use: 'off' }); };
 el('voicenotes-clear').onclick = () => { if (confirm('Delete all saved voice note transcripts and summaries?')) notice(bridge?.voiceNotesClear ? `${bridge.voiceNotesClear()} voice note results deleted.` : 'Not available in this build.'); };
 el('voiceid-delete').onclick = () => { if (confirm('Delete your voice profile? Live calls will answer any voice again.')) bridge?.voiceIdDelete?.(); };
 el('voiceid-on').onchange = () => bridge?.voiceIdOptions?.(JSON.stringify({ on: el<HTMLInputElement>('voiceid-on').checked }));
