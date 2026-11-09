@@ -37,13 +37,24 @@ public final class LiveVoiceService extends Service {
     }
     if (intent != null && TOGGLE_MIC.equals(intent.getAction())) { sendBroadcast(new Intent(TOGGLE_MIC).setPackage(getPackageName())); return START_NOT_STICKY; }
     boolean share = intent != null && SHARE_SCREEN.equals(intent.getAction()) && running;
-    foreground(share);
+    try { foreground(share); }
+    catch (RuntimeException e) {
+      // Android refused the foreground types (for example screen capture). Never let that close FRIDAY:
+      // keep the call without the share, or end the service cleanly when even the call is refused.
+      ControlLog.i("call service: Android refused the "+(share?"screen share":"call")+" notification ("+e.getClass().getSimpleName()+")");
+      if (!share) { if (!running) { stopSelf(id); return START_NOT_STICKY; } }
+      else {
+        ScreenCapture.stop("Android did not allow screen sharing right now. Tap Share screen to try again.");
+        try { foreground(false); } catch (RuntimeException again) { ControlLog.i("call service: notification refused again ("+again.getClass().getSimpleName()+")"); }
+        return START_NOT_STICKY;
+      }
+    }
     if (!running) ControlLog.i("call service: started");
     running = true; service = this;
     if (share) {
       Intent data = Build.VERSION.SDK_INT >= 33 ? intent.getParcelableExtra("data", Intent.class) : intent.getParcelableExtra("data");
       if (data != null) { try { ScreenCapture.start(this, intent.getIntExtra("resultCode", 0), data); } catch (RuntimeException e) { ControlLog.i("screen share: could not start ("+e.getClass().getSimpleName()+")"); ScreenCapture.stop("This phone could not start screen sharing. Tap Share screen to try again."); } }
-      if (!ScreenCapture.active()) foreground(false);
+      if (!ScreenCapture.active()) { try { foreground(false); } catch (RuntimeException e) { ControlLog.i("call service: notification update failed ("+e.getClass().getSimpleName()+")"); } }
       return START_NOT_STICKY;
     }
     if (Settings.canDrawOverlays(this) && chip == null) showCompanion();

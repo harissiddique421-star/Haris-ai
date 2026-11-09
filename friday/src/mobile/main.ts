@@ -959,7 +959,7 @@ el('settings').onclick = async () => {
   renderSecurity();
   stopVoice(); refreshState(); refreshSettings(); settingsPage('menu'); el<HTMLDialogElement>('settings-panel').showModal();
   let control = '';
-  try { const state = JSON.parse(bridge?.getState() || '{}'); const status = state.controlStatus || {}; control = `\n\nPhone control: ${status.ready ? 'READY (connected)' : status.enabled ? 'switch on, not connected yet' : 'off'}\n${(state.controlLog || []).slice(-25).join('\n')}`; } catch { /* diagnostics only */ }
+  try { const state = JSON.parse(bridge?.getState() || '{}'); const status = state.controlStatus || {}; control = `\n\nPhone control: ${status.ready ? 'READY (connected)' : status.enabled ? 'switch on, not connected yet' : 'off'}\n${(state.controlLog || []).slice(-50).join('\n')}`; } catch { /* diagnostics only */ }
   el('diagnostics').textContent = JSON.stringify(system?.diagnostics || {}) + control + voiceDiagnostics() + lifecycleDiagnostics();
 };
 el('save').onclick = () => {

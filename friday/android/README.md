@@ -140,6 +140,21 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Diagnostics that survive a closed app, and a share that cannot close FRIDAY (rc.52)
+
+A user reported that the Live call and screen share stopped as soon as they left FRIDAY. The diagnostics
+showed FRIDAY had started again, but the in-memory log of the call was gone with the old process.
+
+- The control log is also kept in a small private file (`control-log.txt`, at most 80 lines, same
+  content rules: no message text, no numbers). After a restart the previous run's lines show in
+  Settings > Advanced > Diagnostics marked `[last run]`, and diagnostics now shows the last 50 lines.
+- A crash writes `CRASH: <error type> at <class.method:line>` to that log before the app closes.
+- On Android 11+, each start logs why Android says the last run ended (crash, low memory, ANR,
+  swiped away, ...), from `ApplicationExitInfo`.
+- The call service no longer lets a refused foreground start (for example screen capture) close the
+  app: the share is stopped with an explanation and the call keeps running. A screen frame that runs
+  out of memory is skipped instead of closing FRIDAY.
+
 ## Voice ID in real calls: same microphone for registration and calls (rc.51)
 
 Before rc.51, Voice ID registered and tested your voice through FRIDAY's own Android microphone

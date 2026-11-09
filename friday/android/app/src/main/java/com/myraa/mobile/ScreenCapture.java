@@ -63,7 +63,10 @@ final class ScreenCapture {
         long now=SystemClock.elapsedRealtime();if(now-lastFrame<1000)return;lastFrame=now;
         Frames frames=listener;if(frames==null)return;
         frames.frame(encode(image,width,height));
-      }catch(RuntimeException ignored){}finally{if(image!=null)image.close();}
+      }catch(RuntimeException|OutOfMemoryError e){
+        // A frame that cannot be read or encoded is skipped; it never closes FRIDAY.
+        if(e instanceof OutOfMemoryError)ControlLog.i("screen share: skipped a frame (low memory)");
+      }finally{try{if(image!=null)image.close();}catch(RuntimeException ignored){}}
     },handler);
     display=projection.createVirtualDisplay("FRIDAY screen share",width,height,metrics.densityDpi,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,reader.getSurface(),null,handler);
     ControlLog.i("screen share: started "+width+"x"+height);

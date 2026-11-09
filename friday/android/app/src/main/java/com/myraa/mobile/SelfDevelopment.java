@@ -40,6 +40,8 @@ final class SelfDevelopment {
    */
   static void start(Context c,String version){
     final Context app=c.getApplicationContext();
+    ControlLog.init(app.getFilesDir());
+    lastExit(app);
     if(!crashHandlerInstalled){
       crashHandlerInstalled=true;
       final Thread.UncaughtExceptionHandler previous=Thread.getDefaultUncaughtExceptionHandler();
@@ -50,6 +52,7 @@ final class SelfDevelopment {
           for(StackTraceElement e:error.getStackTrace())if(e.getClassName().startsWith("com.myraa.")){at=e;break;}
           if(at==null&&error.getStackTrace().length>0)at=error.getStackTrace()[0];
           String place=error.getClass().getSimpleName()+(at==null?"":" at "+at.getClassName().replace("com.myraa.mobile.","")+"."+at.getMethodName()+":"+at.getLineNumber());
+          try{ControlLog.crash(place+" (thread "+thread.getName()+")");}catch(Throwable ignored){}
           prefs(app).edit().putString("pendingCrash",SelfImprovement.clip(place,200)).putString("pendingCrashThread",SelfImprovement.clip(thread.getName(),60)).commit();
         }catch(Throwable ignored){}
         if(previous!=null)previous.uncaughtException(thread,error);
@@ -68,6 +71,43 @@ final class SelfDevelopment {
         remember(app,"version",version,before.isEmpty()?"First version measured on this phone.":"Updated from "+before+". Numbers before and after this date can be compared.");
       }
     }catch(RuntimeException ignored){}
+  }
+
+  /**
+   * Why Android says FRIDAY's last run ended (Android 11+): a crash, low memory, an ANR, the user, and so on.
+   * Logged once per start, so diagnostics can tell "FRIDAY crashed" apart from "Android closed FRIDAY".
+   */
+  private static void lastExit(Context app){
+    if(android.os.Build.VERSION.SDK_INT<30)return;
+    try{
+      android.app.ActivityManager am=app.getSystemService(android.app.ActivityManager.class);
+      java.util.List<android.app.ApplicationExitInfo> list=am.getHistoricalProcessExitReasons(null,0,1);
+      if(list==null||list.isEmpty())return;
+      android.app.ApplicationExitInfo e=list.get(0);
+      SharedPreferences p=prefs(app);
+      if(p.getLong("lastExitSeen",0)==e.getTimestamp())return;
+      p.edit().putLong("lastExitSeen",e.getTimestamp()).apply();
+      String when=new java.text.SimpleDateFormat("HH:mm:ss",java.util.Locale.ROOT).format(new java.util.Date(e.getTimestamp()));
+      ControlLog.i("app: last run ended at "+when+": "+exitReason(e.getReason())+" (importance "+e.getImportance()+")");
+    }catch(RuntimeException ignored){}
+  }
+  static String exitReason(int r){
+    switch(r){
+      case android.app.ApplicationExitInfo.REASON_EXIT_SELF:return "exited by itself";
+      case android.app.ApplicationExitInfo.REASON_SIGNALED:return "closed by Android (signal)";
+      case android.app.ApplicationExitInfo.REASON_LOW_MEMORY:return "closed by Android for low memory";
+      case android.app.ApplicationExitInfo.REASON_CRASH:return "CRASHED (Java)";
+      case android.app.ApplicationExitInfo.REASON_CRASH_NATIVE:return "CRASHED (native)";
+      case android.app.ApplicationExitInfo.REASON_ANR:return "not responding (ANR)";
+      case android.app.ApplicationExitInfo.REASON_INITIALIZATION_FAILURE:return "failed to start";
+      case android.app.ApplicationExitInfo.REASON_PERMISSION_CHANGE:return "a permission was changed";
+      case android.app.ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE:return "used too much battery or CPU";
+      case android.app.ApplicationExitInfo.REASON_USER_REQUESTED:return "closed by the user (swiped away or Force stop)";
+      case android.app.ApplicationExitInfo.REASON_USER_STOPPED:return "stopped by the user";
+      case android.app.ApplicationExitInfo.REASON_DEPENDENCY_DIED:return "a part it needs stopped";
+      case android.app.ApplicationExitInfo.REASON_OTHER:return "closed by Android (other reason)";
+      default:return "reason "+r;
+    }
   }
 
   /** Self-analysis: findings for the last 7 days; refreshes ideas and quiet bugs at most once a day unless forced. */
