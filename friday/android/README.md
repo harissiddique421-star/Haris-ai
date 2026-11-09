@@ -140,6 +140,23 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Voice ID in real calls: same microphone for registration and calls (rc.51)
+
+Before rc.51, Voice ID registered and tested your voice through FRIDAY's own Android microphone
+(AudioRecord, VOICE_RECOGNITION, platform noise suppressor), while the Live call hears you through the
+WebView's microphone (WebRTC echo cancellation, noise suppression, gain control and voice isolation, then
+an 85 Hz high-pass). The two chains colour a voice differently, so a profile that matched well in the
+Settings test could score below the threshold in a call. The gate then sent silence and FRIDAY stayed on
+"listening".
+
+From rc.51, registration, "add samples" and the Settings test record through the very same chain as the
+call (`LIVE_MIC_CONSTRAINTS` and `LIVE_MIC_HIGHPASS_HZ` in `src/lib/audio.ts`). The page streams 16 kHz
+PCM to the app (`CallMicPcm`), which segments and embeds it on the phone exactly as before; no audio
+leaves the phone and nothing raw is stored. **Re-register after installing rc.51**: a profile learned
+through the old microphone path still carries its colouring.
+
+Other people's voices still keep FRIDAY listening; that is by design, they are ignored.
+
 ## Voice ID 2.0: far-field and enrollment (rc.50)
 
 Audit of why Voice ID missed the owner (all on the phone, Live call and wake word):
