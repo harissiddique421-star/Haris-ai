@@ -402,6 +402,7 @@ public final class MobileActions {
       if("reminder_done".equals(action)){finish(id,CareReminders.done(activity,args.optString("text")));return;}
       if("meeting_mode".equals(action)){finish(id,args.optBoolean("on",true)?MeetingMode.start(activity,args.optInt("in_minutes",60),args.optString("message","")):MeetingMode.stop(activity,false));return;}
       if("set_mode".equals(action)){finish(id,setMode(args));return;}
+      if("set_language".equals(action)){finish(id,setLanguage(args.optString("language","")));return;}
       if("resume_video".equals(action)){resumeVideo(id);return;}
       if("add_event".equals(action)){event(id,args);return;}
       if("email".equals(action)){finish(id,email(args));return;}
@@ -797,6 +798,18 @@ public final class MobileActions {
     android.content.ClipboardManager cb=activity.getSystemService(android.content.ClipboardManager.class);
     cb.setPrimaryClip(android.content.ClipData.newPlainText("FRIDAY",text));
     return status("done","Copied to the clipboard.");
+  }
+  /** Stage 10: the user asks FRIDAY to talk in Urdu, Hindi or English from now on. Same setting as Settings > Language; the call reconnects. */
+  private JSONObject setLanguage(String raw){
+    String l=raw==null?"":raw.trim().toLowerCase(Locale.ROOT);
+    String tag=l.matches(".*\\b(?:urdu|ur|roman urdu|pakistan)\\b.*")?"ur-PK":l.matches(".*\\b(?:hindi|hinglish|hi|india)\\b.*")?(l.contains("english")?"en-IN":"hi-IN"):l.matches(".*\\b(?:english|en|angrezi)\\b.*")?"en-US":"";
+    if(tag.isEmpty())throw new IllegalArgumentException("Say Urdu, Hindi or English.");
+    activity.getSharedPreferences("myraa.mobile.v1",0).edit().putString("language",tag).apply();
+    ControlLog.i("language: "+tag);
+    String name="ur-PK".equals(tag)?"Urdu":"hi-IN".equals(tag)?"Hindi":"English";
+    JSONObject v=status("done","Switching to "+name+" from now on. The call reconnects in a moment.");
+    try{v.put("reconnect",true).put("language",tag);}catch(JSONException ignored){}
+    return v;
   }
   private JSONObject setMode(JSONObject args){
     String mode=args.optString("mode","normal").trim().toLowerCase(Locale.ROOT);

@@ -140,6 +140,12 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Language switching and research answers (rc.62)
+
+Stage 10. Say "English mein baat karo" or "Urdu mein bolo" and FRIDAY calls set_language: the same Settings > Language choice (Urdu, Hindi or English) changes and the call reconnects in that language. If you switch language for one sentence (English, Arabic, Punjabi or any other) she answers that sentence in the same language without changing the setting, and she translates any sentence or any message, notification or screen text in another language when asked. Translator mode for two people is unchanged.
+
+Research questions ("research karo", comparisons, anything that needs several sources) now follow a rule in her instructions: use more than one source, prefer recent and official ones, say the date for facts that change, point out when sources disagree instead of picking one silently, keep her own guess separate, and name the sources; a written report (make_document) ends with a Sources section. This is prompt guidance to Gemini with Google Search, not a separate research engine, so quality depends on the sources Google returns. Not tested on a phone.
+
 ## Link safety warnings (rc.62)
 
 Ask "ye link safe hai?" or "is this message a scam?" and FRIDAY checks the text for common warning signs: a site that copies a known name (WhatsApp, JazzCash, Easypaisa, BISP, a bank) but is not its real address, look-alike letters, a bare number address, link shorteners, cheap scam-prone endings like .xyz, a login page without https, prize or "account blocked" pressure words, and requests for an OTP, PIN or password. Notifications read out by FRIDAY carry the same warning when a message contains such a link.

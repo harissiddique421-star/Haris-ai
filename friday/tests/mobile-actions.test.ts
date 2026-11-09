@@ -190,3 +190,11 @@ test('voice list is split into female and male voices, with the breezy voice lab
   const g = voiceGroups(['Puck', 'Aoede', 'NewVoice', 'Kore']);
   assert.deepEqual(g.map(x => [x.group, x.voices]), [['female', ['Aoede', 'Kore']], ['male', ['Puck']], ['other', ['NewVoice']]]);
 });
+
+import { MOBILE_TOOL } from '../src/mobile/actions';
+import { agentFor } from '../src/mobile/agents';
+test('new Stage 5/9/10 actions are declared to Gemini and owned by an agent', () => {
+  const names: string[] = (MOBILE_TOOL as any).parameters.properties.action.enum;
+  for (const a of ['task', 'check_link', 'set_language']) assert.ok(names.includes(a), a + ' declared');
+  assert.equal(agentFor('check_link'), 'security'); assert.equal(agentFor('set_language'), 'memory');
+});
