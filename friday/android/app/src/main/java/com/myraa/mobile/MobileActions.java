@@ -262,6 +262,32 @@ public final class MobileActions {
     if(phone==null||!phone.matches("[1-9][0-9]{7,14}")||message==null||message.trim().isEmpty()||message.length()>4000)throw new IllegalArgumentException("A valid recipient and message are required.");
     return new Intent(Intent.ACTION_VIEW,Uri.parse("https://wa.me/"+phone).buildUpon().appendQueryParameter("text",message).build()).setPackage(pkg);
   }
+  /**
+   * WhatsApp voice notes (see VoiceNotes): what a shared voice note said, which voice notes only arrived as a
+   * notification (not heard), or delete the saved results. Never claims content FRIDAY has not heard.
+   */
+  private JSONObject voiceNote(String command,String who){
+    String share="To let FRIDAY hear one, open the chat in WhatsApp, long-press the voice note, tap Share and choose FRIDAY.";
+    if("clear".equals(command)){int n=VoiceNotes.clear(activity);return status("deleted",n==0?"There were no saved voice note results.":"Deleted "+n+" saved voice note result"+(n==1?"":"s")+" (transcripts and summaries).");}
+    JSONArray waiting=VoiceNotes.noticed();
+    if("pending".equals(command)){
+      if(waiting.length()==0)return status("none","No WhatsApp voice note notifications in the last 2 hours (or notification access is off).");
+      StringBuilder b=new StringBuilder("Voice notes that arrived (only the notification, FRIDAY has not heard them): ");
+      for(int i=0;i<waiting.length();i++){JSONObject n=waiting.optJSONObject(i);b.append(i==0?"":", ").append(n.optString("sender")).append(n.optInt("seconds")>0?" ("+n.optInt("seconds")+" s)":"");}
+      return status("ok",b+". "+share);
+    }
+    JSONObject e=VoiceNotes.find(activity,who);
+    if(e==null){
+      String from="";for(int i=0;i<waiting.length();i++){JSONObject n=waiting.optJSONObject(i);if(who.isEmpty()||ContactMatcher.score(who,n.optString("sender"))>=ContactMatcher.HIGH){from=n.optString("sender");break;}}
+      return status("not_heard",(from.isEmpty()?"FRIDAY has no voice note"+(who.isEmpty()?"":" from "+who)+" that it has heard."
+        :from+" sent a voice note, but FRIDAY only saw the notification, so it does not know what was said.")+" Do not guess its content. "+share);
+    }
+    JSONObject value=status("found","Voice note"+(e.optString("sender").isEmpty()?"":(e.optBoolean("senderGuess")?" probably from ":" from ")+e.optString("sender"))
+      +". Answer the user's question from these fields only (summary, transcript, times, tasks, questions, suggested_reply); translate or rephrase when asked; never add words that are not in the transcript."
+      +(e.optBoolean("unclear")?" Some words were unclear: say so if it matters.":"")+" FRIDAY did not keep the audio, so it cannot play it; it can read the transcript aloud.");
+    try{for(String k:new String[]{"sender","language","summary","details","transcript","transcript_roman","suggested_reply","questions","tasks","times","urgent","unclear","confidence","at"})if(e.has(k))value.put(k,e.get(k));}catch(JSONException ignored){}
+    return value;
+  }
   private JSONObject status(String status,String message){JSONObject value=new JSONObject();try{value.put("status",status).put("message",message);}catch(JSONException ignored){}return value;}
   private void finish(String id,String status,String message){finish(id,status(status,message));}
   private final Map<String,String> running=new HashMap<>();
@@ -312,6 +338,7 @@ public final class MobileActions {
       if("battery".equals(action)){finish(id,Diagnostics.battery(activity));return;}
       if("navigate".equals(action)){finish(id,phone().navigate(args.optString("place"),args.optString("mode")));return;}
       if("read_notifications".equals(action)){finish(id,phone().notifications(args.optInt("limit",10)));return;}
+      if("voice_note".equals(action)){finish(id,voiceNote(args.optString("command","latest"),args.optString("recipient","")));return;}
       if("answer_call".equals(action)||"reject_call".equals(action)){boolean accept="answer_call".equals(action);withPermission(id,Manifest.permission.ANSWER_PHONE_CALLS,()->finish(id,phone().answerCall(accept)),()->finish(id,"permission_required","Phone permission was denied, so FRIDAY cannot answer or reject calls."));return;}
       if("silence_call".equals(action)){finish(id,phone().silenceCall());return;}
       if("who_is_calling".equals(action)){finish(id,phone().whoIsCalling());return;}

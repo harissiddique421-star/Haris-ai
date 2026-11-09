@@ -140,6 +140,17 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## WhatsApp voice notes (rc.55)
+
+WhatsApp keeps voice notes in its own storage and encrypts them, so FRIDAY never opens them by itself.
+
+- **Notification only:** with Notification access FRIDAY sees "🎤 Voice message (0:12)" and knows who sent a voice note and how long it is. She does not know what was said, and says so.
+- **Share to FRIDAY:** in WhatsApp long-press the voice note, tap Share, choose "FRIDAY: explain voice note". The audio is sent once to Gemini with your own key. You get the language, the transcript (Urdu/Hindi/English/Roman Urdu/Hinglish, `[unclear]` where it is not clear), a Roman Urdu summary, questions, tasks, times, urgency and a suggested reply.
+- The audio is not stored. Only the text result is kept in the app's private storage (last 20). The same audio shared twice is recognised by its SHA-256 and not sent again.
+- Ask by voice: "Ali ke voice note mein kya kaha?", "koi voice note aaya?", "voice notes delete karo". Replies go through the normal WhatsApp send with one confirmation.
+- Delete all results: Settings > WhatsApp voice notes.
+- Checked on the JVM (`VoiceNotesCheck`): detection, parsing, storage, duplicates, delete. Not yet measured on a phone: transcription accuracy, time and cost.
+
 ## WhatsApp: one confirmation, no repeat loops, faster send check (rc.54)
 
 Audit of the existing WhatsApp flow (kept as it is: `MobileActions` resolves the WhatsApp contact from the
