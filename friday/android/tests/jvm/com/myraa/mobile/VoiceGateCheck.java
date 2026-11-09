@@ -180,6 +180,17 @@ public final class VoiceGateCheck {
     expect("session: owner audio and silence come back in order, nothing lost ("+owner+" owner + "+silence+" silent samples of "+pcm.length+")",ownerEvent&&owner>=owner1.length&&owner+silence>=pcm.length-SileroVad.CHUNK);
 
     if(failures>0){System.out.println(failures+" Voice ID check(s) failed.");System.exit(1);}
+    {
+      // rc.53: a voice just under the threshold is "low" confidence (FRIDAY asks to repeat, nothing is let
+      // through); far under it stays "unknown". The owner's own sentence is used with a raised threshold.
+      float[] w=wav("owner_test_1");float[] padded=new float[w.length+16000];System.arraycopy(w,0,padded,8000,w.length);
+      Result base=run(p,0.30,padded);double s0=-1;for(int i=0;i<base.events.size();i++)if(base.events.get(i).startsWith("owner@")){s0=base.scores.get(i);break;}
+      expect("the owner's sentence is accepted at a low threshold",s0>0);
+      Result near=run(p,Math.min(0.99,s0+0.03),padded),far=run(p,Math.min(0.99,s0+0.25),padded);
+      System.out.printf(Locale.ROOT,"   low confidence: owner %.2f, needs +0.03 -> %s; needs +0.25 -> %s%n",s0,near.events,far.events);
+      expect("just under the threshold: reported as low confidence, nothing let through",near.ownerSamples==0&&near.events.stream().anyMatch(e->e.startsWith("low@")));
+      expect("far under the threshold: unknown, not low",far.ownerSamples==0&&far.events.stream().noneMatch(e->e.startsWith("low@"))&&far.events.stream().anyMatch(e->e.startsWith("unknown@")));
+    }
     System.out.println("All Voice ID scenarios passed.");
   }
 
@@ -204,7 +215,7 @@ public final class VoiceGateCheck {
     for(int i=0;i<x.length;i++){float v=x[i];if(v==0)continue;for(int k=0;k<n;k+=1)y[i+k]+=v*h[k];}
     return scaleTo(Arrays.copyOf(y,x.length),rms(x));
   }
-  static final class Result { long ownerSamples,silent;int owners,unknowns,checks;boolean exact=true;List<Double> ownerAt=new ArrayList<>(),endAt=new ArrayList<>();List<String> events=new ArrayList<>(); }
+  static final class Result { long ownerSamples,silent;int owners,unknowns,checks;boolean exact=true;List<Double> ownerAt=new ArrayList<>(),endAt=new ArrayList<>();List<String> events=new ArrayList<>();List<Double> scores=new ArrayList<>(); }
   static int endMs=800;
   static VoiceGate gate(SpeakerProfile p,double t) throws IOException {
     SileroVad vad;try(InputStream in=new FileInputStream(new File(models,SileroVad.ASSET))){vad=new SileroVad(in);}
@@ -218,9 +229,9 @@ public final class VoiceGateCheck {
       @Override public void owner(short[] x){r.ownerSamples+=x.length;if(!contains(pcm,x))r.exact=false;}
       @Override public void silence(int n){r.silent+=n;}
       @Override public void event(String n,double sc){
-        double sec=at[0]/16000.0;r.events.add(String.format(Locale.ROOT,"%s@%.1fs",n,sec));
+        double sec=at[0]/16000.0;r.scores.add(sc);r.events.add(String.format(Locale.ROOT,"%s@%.1fs",n,sec));
         if("owner".equals(n)){r.owners++;r.ownerAt.add(sec);}if("end".equals(n))r.endAt.add(sec);
-        if("unknown".equals(n)||"unclear".equals(n)||"lost".equals(n))r.unknowns++;}
+        if("unknown".equals(n)||"unclear".equals(n)||"low".equals(n)||"lost".equals(n))r.unknowns++;}
     };
     short[] buf=new short[1024];
     for(int i=0;i<pcm.length;i+=1024){int n=Math.min(1024,pcm.length-i);System.arraycopy(pcm,i,buf,0,n);at[0]=i+n;g.push(buf,n,out);}

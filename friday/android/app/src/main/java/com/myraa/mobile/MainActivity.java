@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.52";
+  static final String VERSION = "1.0.0-rc.53";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -635,7 +635,7 @@ public class MainActivity extends Activity {
       VoiceGateSession g; synchronized (voiceGateLock) { g = id == voiceGateId ? voiceGate : null; }
       return g == null ? "{\"fail\":\"Voice ID is not running\"}" : g.feed(pcm, ai);
     }
-    @JavascriptInterface public void voiceGateStop(int id) { synchronized (voiceGateLock) { if (id == voiceGateId && voiceGate != null) { voiceGate.stop(); voiceGate = null; } } }
+    @JavascriptInterface public void voiceGateStop(int id) { synchronized (voiceGateLock) { if (id == voiceGateId && voiceGate != null) { VoiceId.saveLastCall(MainActivity.this, voiceGate.summary()); voiceGate.stop(); voiceGate = null; } } }
     @JavascriptInterface public String voiceGateStatus() { VoiceGateSession g; synchronized (voiceGateLock) { g = voiceGate; } return g == null ? (VoiceId.active(MainActivity.this) ? "Voice ID on (no call running)" : "Voice ID off") : g.diagnostics(); }
     // ---- wake word options and test
     @JavascriptInterface public void wakeOptions(String raw) { runOnUiThread(() -> {

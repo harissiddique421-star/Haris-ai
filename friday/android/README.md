@@ -140,6 +140,34 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Voice intelligence: low-confidence repeat, mic quality and last-call summary (rc.53)
+
+Audit of the existing pipeline against the "next-generation voice intelligence" request. Already in place
+before rc.53: on-phone speaker verification before Gemini hears anything (Silero VAD + GE2E voiceprint,
+calibrated threshold, encrypted profile, 12 enrollment sentences in several styles plus room-echo copies,
+outlier takes dropped, "Add more samples"), WebRTC echo cancellation / noise suppression / AGC / voice
+isolation on the call microphone (the same chain registration uses since rc.51), an early voice check during
+the end-of-turn silence, overlap ("unclear") detection, a turn watchdog and the self-development metrics.
+
+Root cause of "FRIDAY just keeps listening": a refused voice was replaced by silence with no feedback, unless
+the owner had already been accepted once in the call. rc.53:
+
+- **Low confidence** (`VoiceGate.LOW` = 0.08): a voice rejected within 0.08 of the threshold is reported as
+  `low`. Nothing is let through and nothing runs; FRIDAY asks once to repeat closer to the phone (at most every
+  10 s, at most 3 times per call, since a near miss that repeats is more likely someone else).
+- Every refusal shows a short note with the match and what was needed (at most every 8 s).
+- **Mic quality** per call: background level (slow floor tracker, dBFS) and clipping (% of samples at full scale).
+- **Last call summary** kept on the phone (counts, closest refused match, needed match, background level,
+  clipping, check time; no audio or words), shown under Voice ID in Settings with a suggestion (Add more
+  samples / Relaxed when it was close, Re-register when it was far, move the phone away when clipping).
+- New JVM check: the owner's sentence just under the threshold is `low` with nothing let through; far under it
+  is `unknown`. The rc.50 scenarios still pass (owner at simulated 1-3 m with room echo 18/18 accepted, other
+  voices 0/60 on the recorded test set). These are simulated distances, not measurements on the user's phone.
+
+Not done, on purpose: swapping GE2E for ECAPA-TDNN (no on-device test set from this user to show it is better),
+RNNoise on top of WebRTC noise suppression (double suppression hurts voiceprints), and replay detection (no
+validated on-device method; Voice ID is never used alone for security or payments).
+
 ## Diagnostics that survive a closed app, and a share that cannot close FRIDAY (rc.52)
 
 A user reported that the Live call and screen share stopped as soon as they left FRIDAY. The diagnostics
