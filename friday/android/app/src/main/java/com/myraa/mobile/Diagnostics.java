@@ -22,18 +22,35 @@ import java.util.*;
 final class Diagnostics {
   private Diagnostics(){}
 
-  // ---- action history: kept in memory only, cleared when the app closes
+  // ---- action history: the last 50 actions (time, action name, result only), kept in a small private file
   private static final ArrayDeque<JSONObject> history=new ArrayDeque<>();
+  private static java.io.File historyFile;
+  /** Loads the saved history once per process. */
+  static synchronized void init(java.io.File dir){
+    if(historyFile!=null||dir==null)return;
+    historyFile=new java.io.File(dir,"activity-history.json");
+    try{
+      if(historyFile.isFile()&&historyFile.length()<64_000){
+        JSONArray a=new JSONArray(new String(java.nio.file.Files.readAllBytes(historyFile.toPath()),java.nio.charset.StandardCharsets.UTF_8));
+        java.util.List<JSONObject> mine=new java.util.ArrayList<>(history);history.clear();
+        for(int i=0;i<a.length();i++){JSONObject e=a.optJSONObject(i);if(e!=null)history.addLast(e);}
+        history.addAll(mine);while(history.size()>50)history.removeFirst();
+      }
+    }catch(Exception ignored){}
+  }
   static synchronized void record(String action,String status){
     if(action==null||action.isEmpty())return;
     JSONObject e=new JSONObject();
-    try{e.put("time",new SimpleDateFormat("HH:mm",Locale.ROOT).format(new Date())).put("action",action).put("status",status==null?"":status);}catch(JSONException ignored){}
+    try{e.put("time",new SimpleDateFormat("HH:mm",Locale.ROOT).format(new Date())).put("day",new SimpleDateFormat("d MMM",Locale.ENGLISH).format(new Date())).put("action",action).put("status",status==null?"":status);}catch(JSONException ignored){}
     history.addLast(e);while(history.size()>50)history.removeFirst();
+    java.io.File f=historyFile;if(f==null)return;
+    final String text=new JSONArray(history).toString();
+    new Thread(()->{synchronized(Diagnostics.class){try(java.io.FileOutputStream out=new java.io.FileOutputStream(f)){out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));}catch(Exception ignored){}}},"friday-history").start();
   }
   static synchronized JSONObject history(int limit){
     JSONArray out=new JSONArray();Iterator<JSONObject> it=history.descendingIterator();
     while(it.hasNext()&&out.length()<Math.max(1,Math.min(limit<=0?10:limit,50)))out.put(it.next());
-    JSONObject v=PhoneControls.result("done",out.length()==0?"No actions yet in this session.":"Recent actions, newest first, as time, action and result. Say them briefly; the user sees these exact results.");
+    JSONObject v=PhoneControls.result("done",out.length()==0?"No actions yet.":"Recent actions, newest first, as time, action and result. Say them briefly; the user sees these exact results.");
     try{v.put("history",out);}catch(JSONException ignored){}
     return v;
   }

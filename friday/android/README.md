@@ -140,6 +140,26 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Command Center (rc.57)
+
+Stage 1 of the 15-stage plan, finishing the core layer that rc.56 started.
+
+- **Settings > Command Center** shows the health of every part, from the phone's own state:
+  - autonomy and pause
+  - Gemini key and last error
+  - second provider
+  - Voice ID
+  - wake word
+  - notification access
+  - accessibility
+  - floating controls
+  - each module's runs and failures this session
+
+  Missing data shows as off or needing attention, never as fine.
+- **Module switches:** Messages & calls, Media, Phone controls, Screen control, Memory & routines, Documents, Web search, and Reminders & calendar can each be switched off. FRIDAY then refuses that module's actions and says so. Status, autonomy and pause can never be switched off, so FRIDAY can always be resumed.
+- **Recent activity:** the last 50 phone actions (day, time, action, result) are kept in a small private file and survive a restart. Message text and phone numbers are never stored there.
+- Checked: 2 new orchestrator/Command Center tests (47 total pass). Not yet tested on a phone.
+
 ## AI providers, autonomy levels and master pause (rc.56)
 
 Phase 1 of the master plan: providers and the central decision layer.

@@ -5,6 +5,7 @@ import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
 import { Orchestrator, QUICK } from './agents';
+import { MODULES, moduleHealth, healthSummary, normalizeOff } from './commandCenter';
 import { ConversationContextManager, ConversationCooldownManager, ConversationInitiativeManager, FollowUpQuestionGenerator, TopicSuggestionEngine, inQuietHours, normalizeFrequency, normalizeMode } from './initiative';
 import { drawPattern, patternMessage, closePattern } from './pattern';
 import fridayLogo from '../../branding/friday-icon-small.png';
@@ -15,7 +16,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; moduleOptions?(module: string, on: boolean): string; activityHistory?(): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -363,7 +364,7 @@ app.innerHTML = `
       <p class="group">ACCOUNT</p><div class="menu"><button data-go="personal"><b>Personal</b><small>Your name, Gemini key, models, language</small></button></div>
       <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button><button data-go="selfdev"><b>Self-development</b><small>Health, self-analysis, improvement ideas and approvals</small></button></div>
       <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button><button data-go="security"><b>Security</b><small>FRIDAY Pattern, fingerprint or phone lock</small></button></div>
-      <p class="group">SYSTEM</p><div class="menu"><button data-go="advanced"><b>Advanced</b><small>Graphics, read aloud, history, diagnostics</small></button></div>
+      <p class="group">SYSTEM</p><div class="menu"><button data-go="command"><b>Command Center</b><small>Health of every part, module switches, recent activity</small></button><button data-go="advanced"><b>Advanced</b><small>Graphics, read aloud, history, diagnostics</small></button></div>
     </div>
     <div class="settings-page" data-page="personal" hidden>
       <label>Your name<input id="user-name" autocomplete="off" maxlength="40" placeholder="What should FRIDAY call you?"></label>
@@ -466,6 +467,15 @@ app.innerHTML = `
       <div class="card"><b>Improvement ideas and approvals</b><small>Nothing changes until you approve. "Send to developer" opens a prefilled GitHub issue; when you press Submit there, FRIDAY's development agent builds it on a separate branch, runs the tests and posts the result for you to review. New versions are always installed by you, and Android asks you to confirm.</small><div id="selfdev-ideas-list"></div></div>
       <div class="card" id="selfdev-deep-card" hidden><b>Gemini's ideas</b><small id="selfdev-deep-at"></small><p id="selfdev-deep" class="selfdev-text"></p></div>
       <div class="card"><b>Development memory</b><small>Bugs, fixes, failed approaches, versions and notes, so the same problem isn't solved twice.</small><div id="selfdev-memory"></div><button id="selfdev-clear">Clear measurements and memory</button></div>
+    </div>
+    <div class="settings-page" data-page="command" hidden>
+      <p id="cc-summary" class="wake-status" role="status"></p>
+      <div id="cc-health" class="cc-list"></div>
+      <p class="group">MODULES</p><p class="muted">Switch a whole area off: FRIDAY then refuses its actions and says so. Status, autonomy and pause always stay on. Autonomy level and pause are in Settings &gt; FRIDAY.</p>
+      <div id="cc-modules"></div>
+      <p class="group">RECENT ACTIVITY</p><p class="muted">Last 50 phone actions: time, action and result only. Message text and numbers are never kept here.</p>
+      <div id="cc-activity" class="cc-list"></div>
+      <div class="row"><button id="cc-refresh" type="button">Refresh</button></div>
     </div>
     <div class="settings-page" data-page="advanced" hidden>
       <label>Graphics<select id="quality"><option value="low">Low · save battery</option><option value="balanced">Medium · balanced</option><option value="high">High · sharper</option></select></label>
@@ -798,11 +808,39 @@ function refreshSettings() {
 function applyAutonomy(a: any) {
   if (!a || typeof a !== 'object') return;
   const level = a.level === 'assisted' || a.level === 'maximum' ? a.level : 'balanced';
-  orchestrator.policy = { autonomy: level, paused: a.paused === true };
-  state.autonomy = { level, paused: a.paused === true };
+  const modulesOff = normalizeOff(a.modulesOff);
+  orchestrator.policy = { autonomy: level, paused: a.paused === true, modulesOff };
+  state.autonomy = { level, paused: a.paused === true, modulesOff };
   el<HTMLSelectElement>('autonomy-level').value = level;
   el<HTMLInputElement>('autonomy-pause').checked = a.paused === true;
   el('autonomy-note').textContent = a.paused === true ? 'Paused: no phone actions, no check-ins. Say "pause khatam karo" or untick to continue.' : level === 'assisted' ? 'Assisted: FRIDAY asks before every action that changes something.' : level === 'maximum' ? 'Maximum: low-risk steps run without asking. Messages, calls, deletes and money still need your yes.' : 'Balanced: simple actions at once; messages, calls and deletes need your yes.';
+}
+const HEALTH_MARK: Record<string, string> = { ok: '●', warn: '▲', off: '○' };
+function renderCommandCenter() {
+  if (bridge) { try { state = { ...state, ...JSON.parse(bridge.getState()) }; } catch { /* keep the last state */ } }
+  const rows = moduleHealth(state, orchestrator.stats);
+  el('cc-summary').textContent = healthSummary(rows);
+  const health = el('cc-health'); health.replaceChildren();
+  for (const r of rows) {
+    const line = document.createElement('p'); line.className = `cc-row cc-${r.health}`;
+    const mark = document.createElement('span'); mark.textContent = HEALTH_MARK[r.health] + ' '; mark.setAttribute('aria-label', r.health);
+    const name = document.createElement('b'); name.textContent = r.module;
+    line.append(mark, name, document.createTextNode(' · ' + r.detail)); health.append(line);
+  }
+  const off = new Set(normalizeOff(state.autonomy?.modulesOff));
+  const modules = el('cc-modules'); modules.replaceChildren();
+  for (const m of MODULES) {
+    const label = document.createElement('label'); label.className = 'check';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.checked = !off.has(m.agent);
+    box.onchange = () => { const out = bridge?.moduleOptions?.(m.agent, box.checked); if (out) { applyAutonomy(JSON.parse(out)); renderCommandCenter(); } };
+    const small = document.createElement('small'); small.textContent = ' ' + m.covers;
+    label.append(box, document.createTextNode(' ' + m.label), small); modules.append(label);
+  }
+  const activity = el('cc-activity'); activity.replaceChildren();
+  let items: any[] = [];
+  try { items = JSON.parse(bridge?.activityHistory?.() || '{}').history || []; } catch { items = []; }
+  if (!items.length) { const p = document.createElement('p'); p.className = 'muted'; p.textContent = 'No actions yet.'; activity.append(p); }
+  for (const e of items) { const p = document.createElement('p'); p.className = 'cc-row'; p.textContent = `${e.day ? e.day + ' ' : ''}${e.time || ''} · ${actionNames[e.action] || e.action} · ${e.status || '?'}`; activity.append(p); }
 }
 function usageLine(name: string, u: any) {
   if (!u) return '';
@@ -1063,7 +1101,7 @@ el('android-settings').onclick = () => bridge?.openSettings();
 el('camera').onclick = () => { if (cameraStream) { stopCamera(); notice('Camera off.'); } else if (bridge?.requestCamera) bridge.requestCamera(); else void startCamera(); };
 el('screen').onclick = () => { if (screenSharing) bridge?.stopScreenShare?.(); else if (!liveActive()) notice('Start a Live call first, then share your screen.'); else bridge?.startScreenShare?.(); };
 el('camera-preview').onclick = () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; stopCamera(); bridge?.requestCamera ? bridge.requestCamera() : void startCamera(); };
-for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = async () => { if (button.dataset.go === 'memory' && !(await unlockFor('memory'))) return; if (button.dataset.go === 'security') renderSecurity(); settingsPage(button.dataset.go!); };
+for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = async () => { if (button.dataset.go === 'memory' && !(await unlockFor('memory'))) return; if (button.dataset.go === 'security') renderSecurity(); if (button.dataset.go === 'command') renderCommandCenter(); settingsPage(button.dataset.go!); };
 el('update-check').onclick = () => { if (!bridge?.updateCheck) return notice('Updates work inside the Android app.'); el('update-status').textContent = 'Checking GitHub…'; bridge.updateCheck(); };
 el('update-download').onclick = () => { el('update-status').textContent = 'Downloading and checking…'; bridge?.updateDownload?.(); };
 el('update-install').onclick = () => { if (!confirm('Install the new FRIDAY? The current version and a data backup are saved to Downloads/FRIDAY first, and Android will ask you to confirm.')) return; bridge?.updateInstall?.(); };
@@ -1118,6 +1156,7 @@ function saveProvider(extra: Record<string, unknown> = {}) {
 el('alt-save').onclick = () => { saveProvider(); };
 el('alt-test').onclick = () => { if (saveProvider()) { el('alt-test-note').textContent = 'Testing…'; bridge?.providerTest?.(); } };
 el('alt-remove').onclick = () => { if (confirm('Remove the saved key for the second provider?')) saveProvider({ clearKey: true, use: 'off' }); };
+el('cc-refresh').onclick = () => renderCommandCenter();
 el('voicenotes-clear').onclick = () => { if (confirm('Delete all saved voice note transcripts and summaries?')) notice(bridge?.voiceNotesClear ? `${bridge.voiceNotesClear()} voice note results deleted.` : 'Not available in this build.'); };
 el('voiceid-delete').onclick = () => { if (confirm('Delete your voice profile? Live calls will answer any voice again.')) bridge?.voiceIdDelete?.(); };
 el('voiceid-on').onchange = () => bridge?.voiceIdOptions?.(JSON.stringify({ on: el<HTMLInputElement>('voiceid-on').checked }));

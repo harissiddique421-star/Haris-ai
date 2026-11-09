@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.56";
+  static final String VERSION = "1.0.0-rc.57";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -567,6 +567,10 @@ public class MainActivity extends Activity {
         catch (Exception e) { emit(json("type", "provider", "ok", false, "message", "Could not reach the provider. Check the address and internet.", "providers", providerState())); }
       });
     }
+    /** Command Center: switch one module on or off. Returns the autonomy state. */
+    @JavascriptInterface public String moduleOptions(String module, boolean on) { return Autonomy.setModule(MainActivity.this, module == null ? "" : module, on).toString(); }
+    /** Command Center: recent phone actions (time, action, result; no message text or numbers), newest first. */
+    @JavascriptInterface public String activityHistory() { return Diagnostics.history(50).toString(); }
     /** Settings: assisted, balanced, maximum, pause or resume. Returns the autonomy state. */
     @JavascriptInterface public String autonomyOptions(String level) { JSONObject r = Autonomy.apply(MainActivity.this, level); JSONObject a = r.optJSONObject("autonomy"); return (a == null ? Autonomy.state(MainActivity.this) : a).toString(); }
     @JavascriptInterface public void cancel() {
