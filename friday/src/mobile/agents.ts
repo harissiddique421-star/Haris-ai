@@ -5,10 +5,11 @@
  * structured result instead of a crash, and times every agent. The user only ever talks to
  * FRIDAY: agent names appear in Settings diagnostics, never in replies.
  */
-export type AgentName = 'planning' | 'communication' | 'media' | 'device' | 'accessibility' | 'memory' | 'document' | 'research' | 'health' | 'core';
+export type AgentName = 'planning' | 'security' | 'communication' | 'media' | 'device' | 'accessibility' | 'memory' | 'document' | 'research' | 'health' | 'core';
 
 const OWNERS: Record<AgentName, string[]> = {
   planning: ['task'],
+  security: ['check_link'],
   communication: ['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'open_contact', 'open_dialer', 'read_notifications', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'missed_calls', 'set_call_announce', 'set_driving_mode', 'reply_message', 'emergency', 'emergency_contact', 'voice_note'],
   media: ['search_youtube', 'play_music', 'resume_video', 'media'],
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
@@ -29,7 +30,7 @@ const HIGH_RISK = new Set(['set_autonomy', 'whatsapp_message', 'whatsapp_call', 
 export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'note', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
 
 /** Actions that only read or answer: they never need an Assisted-mode question. */
-export const READ_ONLY = new Set(['battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
+export const READ_ONLY = new Set(['check_link', 'battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
 /** Actions the phone itself reads back to the user once (WhatsApp, calls, SMS, SOS, replies): never asked twice. */
 export const SELF_CONFIRMING = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
 export type Autonomy = 'assisted' | 'balanced' | 'maximum';

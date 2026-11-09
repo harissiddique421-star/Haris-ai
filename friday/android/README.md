@@ -140,6 +140,12 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Link safety warnings (rc.62)
+
+Ask "ye link safe hai?" or "is this message a scam?" and FRIDAY checks the text for common warning signs: a site that copies a known name (WhatsApp, JazzCash, Easypaisa, BISP, a bank) but is not its real address, look-alike letters, a bare number address, link shorteners, cheap scam-prone endings like .xyz, a login page without https, prize or "account blocked" pressure words, and requests for an OTP, PIN or password. Notifications read out by FRIDAY carry the same warning when a message contains such a link.
+
+What it is not: the check looks at the text only. It never opens the link, sends it anywhere or keeps it, so it cannot know whether a normal-looking site is honest; "no common warning signs" is all FRIDAY will ever say, never "safe". The list of copied names is short and Pakistan-focused and can be extended. Tested with JVM unit checks only.
+
 ## Multi-step tasks (rc.62)
 
 Ask for several things at once, for example "Ali ko message karo, phir 5 baje ka reminder lagao, phir Spotify chalao". FRIDAY (Gemini) plans the steps and starts a task; the phone keeps the plan and tells her which step is next. She does each step with the normal phone actions and reports it done or failed. A failed step waits until you say retry, skip or cancel; a step that fails three times stops the task. Only one task runs at a time, a repeated "done" for the same step cannot skip the next one, and Settings > Multi-step tasks shows the progress with a Cancel button.
