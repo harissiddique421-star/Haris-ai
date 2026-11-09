@@ -140,6 +140,36 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## WhatsApp: one confirmation, no repeat loops, faster send check (rc.54)
+
+Audit of the existing WhatsApp flow (kept as it is: `MobileActions` resolves the WhatsApp contact from the
+rows WhatsApp syncs into Contacts, returns one `needs_confirmation` with a token, and `PhoneController`
+presses Send once the chat shows exactly the approved text, then checks the box was cleared).
+
+Root causes of the repeated questions and the slowness:
+1. The Live prompt said "for risky actions still read back and confirm as before" and its multi-step example
+   was "open WhatsApp, draft a message to Ali": Gemini often asked its own question, sometimes opened WhatsApp
+   first, then asked again when the phone returned `needs_confirmation`. Each extra question is a full voice
+   round trip.
+2. When Gemini repeated the request after the user's yes (without the token), the phone made a new token and
+   a new question.
+3. The send check always waited a fixed 900 ms.
+
+Fixes:
+- New ONE CONFIRMATION rule in the Live prompt and the tool description: call the action at once with the
+  recipient and the final words, read the phone's question back once, and after a yes call again with only
+  the token, without asking about internal steps. The multi-step example no longer uses WhatsApp.
+- `askConfirmation` and WhatsApp calls reuse the open token for exactly the same action, recipient and text,
+  and tell Gemini to go ahead if the user already said yes; a changed recipient or text still gets a new
+  question.
+- The same message to the same person within 2 minutes is flagged in the question ("already sent N s ago").
+- The send check polls every 150 ms for up to 2 s. The result says "sent from this phone"; delivered and read
+  ticks are not claimed.
+
+Unchanged: contact matching and the "which one?" question for several matches, draft fallback when
+accessibility is off, the token expiry, and the shared single Send job (both accessibility switches use one
+job, so Send is pressed once).
+
 ## Voice intelligence: low-confidence repeat, mic quality and last-call summary (rc.53)
 
 Audit of the existing pipeline against the "next-generation voice intelligence" request. Already in place
