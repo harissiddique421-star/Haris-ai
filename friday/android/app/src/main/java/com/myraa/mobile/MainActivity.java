@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.47";
+  static final String VERSION = "1.0.0-rc.48";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -113,7 +113,8 @@ public class MainActivity extends Activity {
     mobileActions=new MobileActions(this,(id,result)->emit(json("type","mobile-action-result","id",id,"result",result)));
     ScreenCapture.setListener(new ScreenCapture.Frames(){
       public void frame(String jpeg){emit(json("type","screen-frame","data",jpeg));}
-      public void stopped(){emit(json("type","screen-share","active",false));}
+      public void started(){emit(json("type","screen-share","active",true));}
+      public void stopped(String reason){emit(reason==null?json("type","screen-share","active",false):json("type","screen-share","active",false,"message",reason));}
     });
     if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,liveFilter(),Context.RECEIVER_NOT_EXPORTED);
     else registerReceiver(stopLiveReceiver,liveFilter());
@@ -228,6 +229,7 @@ public class MainActivity extends Activity {
       }
       @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return true; }
       @Override public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+        ControlLog.i("app: page engine " + (detail.didCrash() ? "crashed" : "was closed by Android to free memory") + (LiveVoiceService.running ? ", the Live call and any screen share end" : ""));
         cancelLive();
         view.destroy(); web = null;
         if (++rendererFailures <= 2) createWebView();
@@ -479,7 +481,10 @@ public class MainActivity extends Activity {
     });}
     @JavascriptInterface public void startScreenShare(){runOnUiThread(()->{
       if(!LiveVoiceService.running){emit(json("type","screen-share","active",false,"message","Start a Live call first, then share your screen."));return;}
-      try{startActivityForResult(getSystemService(android.media.projection.MediaProjectionManager.class).createScreenCaptureIntent(),SCREEN_REQUEST);}
+      android.media.projection.MediaProjectionManager manager=getSystemService(android.media.projection.MediaProjectionManager.class);
+      // Android 14+ also offers "share one app". Sharing only FRIDAY shows FRIDAY nothing once the user opens another
+      // app, so ask for the whole screen (the user still decides in Android's own prompt).
+      try{startActivityForResult(Build.VERSION.SDK_INT>=34?manager.createScreenCaptureIntent(android.media.projection.MediaProjectionConfig.createConfigForDefaultDisplay()):manager.createScreenCaptureIntent(),SCREEN_REQUEST);}
       catch(RuntimeException e){emit(json("type","screen-share","active",false,"message","This phone could not start screen sharing."));}
     });}
     /** Live state for the overlay companion: state, tone and the real voice level (0-1) from the audio analysers. */
@@ -911,7 +916,17 @@ public class MainActivity extends Activity {
   private void emit(JSONObject event) { runOnUiThread(() -> { if (web != null && !isFinishing()) web.evaluateJavascript("window.MyraaEvents&&window.MyraaEvents(" + event.toString() + ")", null); }); }
   private void error(String service, String message, String id) { JSONObject value = json("type", "error", "service", service, "message", message); if (id != null) try { value.put("id", id); } catch (JSONException ignored) {} emit(value); }
 
+  /**
+   * The Live call (voice, screen frames, actions) runs in the page, whose engine is a separate process. By default
+   * Android lets that process go as soon as FRIDAY is not visible, so opening a heavy app like YouTube could kill the
+   * call and its screen share. While a call runs, the page keeps the call's importance; it goes back to normal after.
+   */
+  private void backgroundPage(boolean call) {
+    if (web == null) return;
+    try { web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, !call); } catch (RuntimeException ignored) {}
+  }
   private void cancelLive() {
+    backgroundPage(false);
     pendingLiveId = null; liveGeneration.incrementAndGet(); allowBackgroundLive=false; NotificationReader.setCallListener(null); WakeWordService.livePaused(this,false); stopService(new Intent(this,LiveVoiceService.class));
     HttpsURLConnection connection = liveConnection; liveConnection = null; if (connection != null) connection.disconnect();
   }
@@ -923,7 +938,7 @@ public class MainActivity extends Activity {
       public void message(String app,String from,String text){emit(json("type","incoming-message","app",app,"from",from,"text",text));}
     });
     if(foreground&&(Build.VERSION.SDK_INT<33||checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED)){
-      try{startForegroundService(new Intent(this,LiveVoiceService.class));allowBackgroundLive=true;ControlLog.i("live: call service started");}catch(RuntimeException e){allowBackgroundLive=false;ControlLog.i("live: background call service not started ("+e.getClass().getSimpleName()+")");}
+      try{startForegroundService(new Intent(this,LiveVoiceService.class));allowBackgroundLive=true;ControlLog.i("live: call service started");backgroundPage(true);}catch(RuntimeException e){allowBackgroundLive=false;ControlLog.i("live: background call service not started ("+e.getClass().getSimpleName()+")");}
     }
     else ControlLog.i("live: no call service (notifications "+(Build.VERSION.SDK_INT<33||checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED?"allowed":"blocked")+"), the call ends if FRIDAY leaves the screen");
     fetchLiveToken(id, mine);
@@ -975,7 +990,8 @@ public class MainActivity extends Activity {
     }
     if(request!=SCREEN_REQUEST)return;
     if(result!=RESULT_OK||data==null||!LiveVoiceService.running){emit(json("type","screen-share","active",false,"message","Screen sharing was not started."));return;}
-    try{startForegroundService(new Intent(this,LiveVoiceService.class).setAction(LiveVoiceService.SHARE_SCREEN).putExtra("resultCode",result).putExtra("data",data));emit(json("type","screen-share","active",true));}
+    // "active" is reported by ScreenCapture once the projection really runs, never before.
+    try{startForegroundService(new Intent(this,LiveVoiceService.class).setAction(LiveVoiceService.SHARE_SCREEN).putExtra("resultCode",result).putExtra("data",data));}
     catch(RuntimeException e){emit(json("type","screen-share","active",false,"message","This phone could not start screen sharing."));}
   }
   @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {

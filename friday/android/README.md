@@ -80,12 +80,46 @@ The shared personality is bundled; this app does not sync Windows memories.
 Voice input opens an installed Android speech recognition activity. Review its
 transcript and tap Send. The speech service manages microphone consent and may
 use its own network service. TTS uses an installed engine and selected language;
-missing services or languages produce a clear error. There is no background
-microphone, accessibility service, screen capture or filesystem permission.
+missing services or languages produce a clear error. The microphone and screen
+capture run in the background only during a call or wake listener you turned on
+(see below).
 
 The WebView serves only bundled assets at a fixed HTTPS origin; file/content URL
 access, external pages, cookies, iframes and WebView permission requests are
 disabled. Android app settings opens only this app's settings, after a button tap.
+
+## Live call and screen sharing in other apps (rc.48)
+
+A Live call you start keeps running while you use other apps. It runs in one
+foreground service (`LiveVoiceService`, types microphone, mediaPlayback and,
+while you share, mediaProjection) with an ongoing notification: Pause or Resume
+listening, Stop sharing and Stop. The "Wake up FRIDAY" listener
+(`WakeWordService`, microphone type) is a separate light service and pauses
+while a call runs, so only one of them uses the microphone at a time.
+
+Why sharing used to stop after you left FRIDAY:
+
+1. Gemini Live ends a session after about 2 minutes once images are sent
+   (15 minutes for voice only) unless context compression is on. The call then
+   reconnected, but the reconnect also stopped the screen share, and Android 14+
+   does not allow the same consent to be used twice. Now the call asks for
+   sliding-window compression (with a fallback if Google refuses it), and a
+   reconnect keeps the running share.
+2. The page that runs the call is a separate WebView process, which Android may
+   close as soon as FRIDAY is not visible, for example when YouTube needs memory.
+   While a call runs, that process now keeps the call's importance.
+3. On Android 14+ Android's prompt also offered "share one app". Sharing only
+   FRIDAY shows FRIDAY nothing once you open another app, so FRIDAY now asks for
+   the whole screen.
+4. The notification kept only microphone types when it was updated during a
+   share. It now keeps mediaProjection for as long as the share runs.
+
+What Android still decides: locking the phone, tapping Stop in the status bar
+or cast panel, or closing FRIDAY from Recents ends the share. FRIDAY then says
+so and you tap Share screen again. Android shows its consent prompt every time,
+and FRIDAY never starts a share or a call by itself. Some phone makers (Xiaomi,
+Oppo, Vivo, Samsung "deep sleep") stop background apps more aggressively. Allow
+FRIDAY to run unrestricted in battery settings for the best results.
 
 ## Asset licensing
 

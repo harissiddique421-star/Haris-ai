@@ -15,9 +15,13 @@ import java.nio.ByteBuffer;
  * Screen share for a Live call: after the user accepts Android's own "start recording or casting"
  * prompt, sends at most one downscaled JPEG per second to the Live call. Stops when the call ends,
  * when the user taps Stop sharing, or when Android revokes the projection.
+ *
+ * One projection lives for the whole share, inside LiveVoiceService (foreground type mediaProjection),
+ * so it keeps running while the user is in other apps. It is never restarted on its own: Android 14+
+ * allows each consent to be used once, so a new share always needs the user's new consent.
  */
 final class ScreenCapture {
-  interface Frames { void frame(String jpegBase64); void stopped(); }
+  interface Frames { void frame(String jpegBase64); void started(); void stopped(String reason); }
   private static final int MAX_EDGE=960;
   private static volatile Frames listener;
   private static MediaProjection projection;
@@ -34,9 +38,20 @@ final class ScreenCapture {
     stop();
     MediaProjectionManager manager=context.getSystemService(MediaProjectionManager.class);
     projection=manager.getMediaProjection(resultCode,data);
-    if(projection==null)return;
+    if(projection==null){ControlLog.i("screen share: Android gave no projection");return;}
     thread=new HandlerThread("friday-screen");thread.start();handler=new Handler(thread.getLooper());
-    projection.registerCallback(new MediaProjection.Callback(){@Override public void onStop(){stop();}},handler);
+    final MediaProjection mine=projection;
+    projection.registerCallback(new MediaProjection.Callback(){
+      @Override public void onStop(){
+        // Only a stop FRIDAY did not ask for is explained (FRIDAY's own stop clears the projection first).
+        synchronized(ScreenCapture.class){if(projection!=mine)return;}
+        ControlLog.i("screen share: ended by Android (lock screen, status bar Stop, or permission taken back)");
+        stop("Android ended screen sharing (the phone was locked, or sharing was stopped from the status bar). Tap Share screen to share again.");
+      }
+      @Override public void onCapturedContentVisibilityChanged(boolean visible){
+        if(!visible)ControlLog.i("screen share: the shared app is not on screen, so FRIDAY sees nothing until it is back");
+      }
+    },handler);
     DisplayMetrics metrics=context.getResources().getDisplayMetrics();
     float scale=Math.min(1f,(float)MAX_EDGE/Math.max(metrics.widthPixels,metrics.heightPixels));
     int width=Math.max(2,Math.round(metrics.widthPixels*scale)&~1),height=Math.max(2,Math.round(metrics.heightPixels*scale)&~1);
@@ -51,6 +66,8 @@ final class ScreenCapture {
       }catch(RuntimeException ignored){}finally{if(image!=null)image.close();}
     },handler);
     display=projection.createVirtualDisplay("FRIDAY screen share",width,height,metrics.densityDpi,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,reader.getSurface(),null,handler);
+    ControlLog.i("screen share: started "+width+"x"+height);
+    Frames frames=listener;if(frames!=null)frames.started();
   }
 
   private static String encode(Image image,int width,int height){
@@ -64,12 +81,17 @@ final class ScreenCapture {
     return Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);
   }
 
-  static synchronized void stop(){
+  static void stop(){stop(null);}
+
+  /** Releases the display, reader and projection (the consent ends with it). reason: why, when FRIDAY did not choose to stop. */
+  static synchronized void stop(String reason){
     boolean was=projection!=null;
     if(display!=null){display.release();display=null;}
     if(reader!=null){reader.close();reader=null;}
     if(projection!=null){MediaProjection p=projection;projection=null;try{p.stop();}catch(RuntimeException ignored){}}
     if(thread!=null){thread.quitSafely();thread=null;handler=null;}
-    Frames frames=listener;if(was&&frames!=null)frames.stopped();
+    if(was&&reason==null)ControlLog.i("screen share: stopped");
+    Frames frames=listener;if(was&&frames!=null)frames.stopped(reason);
+    if(was)LiveVoiceService.shareChanged();
   }
 }

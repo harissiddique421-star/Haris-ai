@@ -34,3 +34,8 @@ test('a refused resume starts a fresh call', () => {
   assert.equal(liveRecovery(drop(1008, 'while starting', 'invalid session handle'), { ...ok, resuming: true }), 'reconnect');
   assert.equal(liveRecovery(drop(1007, 'while starting', 'Unknown name "sessionResumption"'), ok), 'reconnect');
 });
+
+test('a refused context compression setting starts the call again without it', () => {
+  assert.equal(liveRecovery(drop(1007, 'while starting', 'Unknown name "contextWindowCompression"'), ok), 'reconnect');
+  assert.equal(liveRecovery(drop(1007, 'while starting', 'Invalid slidingWindow'), ok), 'reconnect');
+});

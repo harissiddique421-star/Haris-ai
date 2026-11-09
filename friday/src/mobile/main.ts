@@ -208,8 +208,10 @@ async function startCamera() {
   }, 1000);
   notice('Camera on. FRIDAY can see what the camera sees.'); updateVisionButtons();
 }
-function stopVision() { stopCamera(); if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; updateVisionButtons(); }
-function stopVoice(keepService = false) { stopVision(); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; lastVoiceTurns = session.turn; cancelMobileActions(); } session?.disconnect(); if (!keepService) { bridge?.endLive(); flushCallLog(); } }
+// keepScreen: the call is only reconnecting inside the running call service, so the user's screen-share consent
+// (MediaProjection) is kept. Android cannot reuse that consent, so stopping it here would force a new prompt.
+function stopVision(keepScreen = false) { stopCamera(); if (!keepScreen) { if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; } updateVisionButtons(); }
+function stopVoice(keepService = false) { stopVision(keepService); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; lastVoiceTurns = session.turn; cancelMobileActions(); } session?.disconnect(); if (!keepService) { bridge?.endLive(); flushCallLog(); } }
 /** Builds without the licensed 3D model show the FRIDAY core instead of an error. */
 function showCore() {
   el('avatar-status').textContent = '';
@@ -221,7 +223,7 @@ function liveState(value: LiveState) {
   markActivity();
   if (value === 'disconnected') { thinkingNow = false; toolsRunning = 0; stopCompanion(); } else startCompanion();
   if (value === 'speaking') { heardUserSinceReply = false; checkinPending = false; if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; } }
-  queueMicrotask(() => { if (value === "disconnected") stopVision(); else updateVisionButtons(); });
+  queueMicrotask(() => { if (value === "disconnected") stopVision(liveResume.handoff); else updateVisionButtons(); });
   const active = value !== 'disconnected';
   if (value === 'listening') { if (!liveUpSince) { liveUpSince = Date.now(); if (callStartedBy) setTimeout(sendGreeting, 400); } notice('Live voice connected. Speak naturally.'); }
   el('voice').setAttribute('aria-pressed', String(active));

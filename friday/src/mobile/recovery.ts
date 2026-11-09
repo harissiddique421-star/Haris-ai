@@ -49,7 +49,7 @@ export function liveRecovery(message: string, s: RecoveryState): Recovery {
   if (!s.online || !s.visible || s.reconnects >= MAX_RECONNECTS) return 'none';
   if (ending) return 'reconnect';
   // A resume Google would not accept (old handle, or the setting refused): connect again as a fresh call.
-  if (starting && (s.resuming || /resum/i.test(close!.reason))) return 'reconnect';
+  if (starting && (s.resuming || /resum|compress|sliding/i.test(close!.reason))) return 'reconnect';
   if (during && DROPPED.has(close!.code)) return 'reconnect';
   return 'none';
 }
