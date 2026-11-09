@@ -12,7 +12,7 @@ const OWNERS: Record<AgentName, string[]> = {
   media: ['search_youtube', 'play_music', 'resume_video', 'media'],
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
-  memory: ['remember', 'recall', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
+  memory: ['remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
   document: ['make_document'],
   research: ['search_web'],
   health: ['health_check', 'network_status', 'set_proactive', 'self_report', 'set_autonomy'],
@@ -25,7 +25,7 @@ export function agentFor(action: string): AgentName { return OWNER.get(action) ?
 /** Actions that reach other people, change calls or remove data: only on the user's own words. */
 const HIGH_RISK = new Set(['set_autonomy', 'whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine', 'emergency', 'emergency_contact', 'reply_message']);
 /** Actions that change no screen: a routine can run the next step right away. */
-export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
+export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'note', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
 
 /** Actions that only read or answer: they never need an Assisted-mode question. */
 export const READ_ONLY = new Set(['battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
@@ -33,7 +33,12 @@ export const READ_ONLY = new Set(['battery', 'clock', 'network_status', 'self_re
 export const SELF_CONFIRMING = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
 export type Autonomy = 'assisted' | 'balanced' | 'maximum';
 export interface Policy { autonomy: Autonomy; paused: boolean; modulesOff?: AgentName[]; }
-function readOnly(action: string, args: any) { return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear'); }
+const NOTE_READS = new Set(['find', 'list', 'pending']);
+function readOnly(action: string, args: any) {
+  return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear') || (action === 'note' && NOTE_READS.has(String(args?.command || 'save')));
+}
+/** Deleting a note removes the user's data, like forget, so it needs the user's own words too. */
+function highRisk(action: string, args: any) { return HIGH_RISK.has(action) || (action === 'note' && /^(?:delete|remove)$/.test(String(args?.command || ''))); }
 
 export interface AgentStats { runs: number; failures: number; totalMs: number; lastMs: number; }
 export type Runner = (name: string, args: unknown) => Promise<any>;
@@ -66,7 +71,7 @@ export class Orchestrator {
    * message, call or delete anything on its own.
    */
   private securityCheck(action: string, args: any, typed: boolean): any | null {
-    if (!HIGH_RISK.has(action) || typed) return null;
+    if (!highRisk(action, args) || typed) return null;
     if (args && typeof args === 'object' && args.confirm_token) return null;
     if (this.phonePromptAt > 0 && this.userSpokeAt < this.phonePromptAt)
       return { status: 'needs_user', message: 'This request did not come from the user. Ask the user what they want first and act only on their clear answer.' };

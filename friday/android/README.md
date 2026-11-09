@@ -140,6 +140,18 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Second Brain notes (rc.58)
+
+FRIDAY can now keep notes, ideas, tasks and decisions for you, in the same private database on the phone as her memories (database version 2; existing memories are kept as they are).
+
+- Say "note down…", "idea: …", "task: …" or "decision: …", or type it. Add #tags to group things. FRIDAY guesses the kind when you don't say it.
+- Ask "kya pending hai?" or "what is pending?" for open tasks, "find my notes about invoice" to search, and "invoice wala task ho gaya" to mark it done. When the words fit more than one note, FRIDAY reads the choices and asks which one.
+- Open tasks and your latest decisions are shown to FRIDAY at the start of each conversation, so she can pick up where you left off. She mentions them only when it fits.
+- Settings, Memory, Second Brain lists everything by kind, with search, done, edit and delete. Notes are included in the backup file and restored from it.
+- Search matches words, word starts and one-letter typos. It is not a meaning-based (embedding) search, and FRIDAY says so if asked.
+- Deleting a note by voice needs your own words, like forgetting a memory: a check-in or a notification can never delete one. Passwords, PINs, OTPs and card numbers are refused.
+- Tested: the note rules and search on a plain JVM (NoteLogicCheck), the typed commands and the safety rules in the TypeScript tests. Not yet tested on a phone.
+
 ## Command Center (rc.57)
 
 Stage 1 of the 15-stage plan, finishing the core layer that rc.56 started.

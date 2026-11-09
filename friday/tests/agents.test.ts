@@ -130,3 +130,23 @@ test('command center: health rows report problems and never call missing data fi
   assert.equal(empty.find(r => r.module === 'Gemini')!.health, 'off');
   assert.equal(empty.find(r => r.module === 'Screen control')!.health, 'off');
 });
+test('second brain: deleting a note needs the user, reading notes needs no question', async () => {
+  const calls: any[] = [];
+  const o = new Orchestrator(async (_n, a) => { calls.push(a); return { status: 'done' }; });
+  assert.equal(agentFor('note'), 'memory');
+  o.userSpoke(); await new Promise(r => setTimeout(r, 2)); o.phonePrompted();
+  assert.equal((await o.dispatch('mobile_action', { action: 'note', command: 'delete', query: 'invoice' })).status, 'needs_user');
+  assert.equal((await o.dispatch('mobile_action', { action: 'note', command: 'pending' })).status, 'done', 'reading is not risky');
+  assert.equal(calls.length, 1);
+  o.policy = { autonomy: 'assisted', paused: false }; o.userSpoke();
+  assert.equal((await o.dispatch('mobile_action', { action: 'note', command: 'find', query: 'invoice' })).status, 'done', 'find needs no Assisted question');
+  assert.equal((await o.dispatch('mobile_action', { action: 'note', command: 'save', text: 'idea: x' })).status, 'needs_confirmation', 'saving is a change, so Assisted asks');
+});
+test('second brain: Settings search and groups', async () => {
+  const { noteMatches, noteGroups } = await import('../src/mobile/notes');
+  const n = { id: 1, kind: 'task', title: 'Send invoice', text: 'Send the invoice to Ali', tags: ['work'] };
+  assert.ok(noteMatches(n, 'invoice')); assert.ok(noteMatches(n, 'inv ali')); assert.ok(noteMatches(n, '#work'));
+  assert.ok(!noteMatches(n, 'voice'), 'matches word starts only'); assert.ok(!noteMatches(n, 'invoice bob'));
+  const groups = noteGroups([n, { ...n, id: 2, done: true }, { id: 3, kind: 'idea', title: 'i', text: 'i' }]);
+  assert.deepEqual(groups.map(g => g[0]), ['Open tasks', 'Ideas', 'Done']);
+});

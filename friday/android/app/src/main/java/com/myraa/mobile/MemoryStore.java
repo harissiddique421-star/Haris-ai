@@ -21,11 +21,12 @@ final class MemoryStore extends SQLiteOpenHelper {
   private final Context context;
 
   static synchronized MemoryStore get(Context c) { if (instance == null) instance = new MemoryStore(c.getApplicationContext()); return instance; }
-  private MemoryStore(Context c) { super(c, "friday-memory.db", null, 1); context = c; }
+  private MemoryStore(Context c) { super(c, "friday-memory.db", null, 2); context = c; }
 
   @Override public void onCreate(SQLiteDatabase db) {
     db.execSQL("CREATE TABLE memories (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, text TEXT NOT NULL, norm TEXT NOT NULL, subject TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, updated INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0, sensitive INTEGER NOT NULL DEFAULT 0)");
     db.execSQL("CREATE INDEX memories_category ON memories(category)");
+    createNotes(db);
     // Old memories were a plain list in preferences: move them in once, oldest first.
     SharedPreferences prefs = context.getSharedPreferences("myraa.mobile.v1", Context.MODE_PRIVATE);
     try {
@@ -37,7 +38,12 @@ final class MemoryStore extends SQLiteOpenHelper {
       prefs.edit().remove("memories").apply();
     } catch (JSONException ignored) {}
   }
-  @Override public void onUpgrade(SQLiteDatabase db, int from, int to) {}
+  /** Version 2 adds the notes table; existing memories are left exactly as they were. */
+  @Override public void onUpgrade(SQLiteDatabase db, int from, int to) { if (from < 2) createNotes(db); }
+  private static void createNotes(SQLiteDatabase db) {
+    db.execSQL("CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, updated INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0)");
+    db.execSQL("CREATE INDEX IF NOT EXISTS notes_kind ON notes(kind, done)");
+  }
 
   static String clean(String s) { return s == null ? "" : s.trim().replaceAll("\\s+", " "); }
   private static long insert(SQLiteDatabase db, String category, String text, long at, boolean sensitive) {
@@ -160,4 +166,72 @@ final class MemoryStore extends SQLiteOpenHelper {
     }
   }
   synchronized int count() { try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM memories", null)) { return c.moveToFirst() ? c.getInt(0) : 0; } }
+
+  // ---- Second Brain notes: notes, ideas, tasks and decisions (see NoteLogic)
+  static final int MAX_NOTES = 500;
+  private static final String[] NOTE_COLS = {"id", "kind", "title", "body", "tags", "created", "updated", "done"};
+  private static JSONObject noteRow(Cursor c) {
+    JSONObject v = new JSONObject();
+    try {
+      JSONArray tags = new JSONArray(); for (String t : NoteLogic.splitTags(c.getString(4))) tags.put(t);
+      v.put("id", c.getLong(0)).put("kind", c.getString(1)).put("title", c.getString(2)).put("text", c.getString(3)).put("tags", tags)
+       .put("created", c.getLong(5)).put("updated", c.getLong(6)).put("done", c.getInt(7) == 1);
+    } catch (JSONException ignored) {}
+    return v;
+  }
+  /** Saves a note; an identical open note of the same kind is reused instead of duplicated. Returns its row. */
+  synchronized JSONObject addNote(String rawKind, String text, String extraTags, long at) {
+    NoteLogic.check(text);
+    String body = NoteLogic.clean(text), kind = NoteLogic.kind(rawKind, text);
+    SQLiteDatabase db = getWritableDatabase();
+    try (Cursor c = db.query("notes", NOTE_COLS, "kind=? AND body=? AND done=0", new String[]{kind, body}, null, null, null, "1")) {
+      if (c.moveToFirst()) { JSONObject same = noteRow(c); try { same.put("same", true); } catch (JSONException ignored) {} return same; }
+    }
+    ContentValues v = new ContentValues();
+    v.put("kind", kind); v.put("title", NoteLogic.title(body)); v.put("body", body); v.put("tags", NoteLogic.joinTags(NoteLogic.tags(body, extraTags)));
+    v.put("created", at); v.put("updated", at);
+    long id = db.insert("notes", null, v);
+    // Bounded: finished tasks go first, then the oldest notes.
+    db.execSQL("DELETE FROM notes WHERE id NOT IN (SELECT id FROM notes ORDER BY done ASC, updated DESC LIMIT " + MAX_NOTES + ")");
+    return note(id);
+  }
+  synchronized JSONObject note(long id) {
+    try (Cursor c = getReadableDatabase().query("notes", NOTE_COLS, "id=?", new String[]{String.valueOf(id)}, null, null, null)) { return c.moveToFirst() ? noteRow(c) : null; }
+  }
+  /** Notes newest first; kind "" means every kind. Finished tasks only with includeDone. */
+  synchronized List<JSONObject> notes(String kind, boolean includeDone, int limit) {
+    List<String> where = new ArrayList<>(), args = new ArrayList<>();
+    if (kind != null && !kind.isEmpty()) { where.add("kind=?"); args.add(kind); }
+    if (!includeDone) where.add("done=0");
+    List<JSONObject> out = new ArrayList<>();
+    try (Cursor c = getReadableDatabase().query("notes", NOTE_COLS, where.isEmpty() ? null : String.join(" AND ", where), args.toArray(new String[0]), null, null, "updated DESC", String.valueOf(Math.max(1, limit)))) {
+      while (c.moveToNext()) out.add(noteRow(c));
+    }
+    return out;
+  }
+  /** The best matches for a search, strongest first, with typo-tolerant word matching. */
+  synchronized List<JSONObject> findNotes(String query, String kind, boolean includeDone, int limit) {
+    List<Object[]> scored = new ArrayList<>();
+    for (JSONObject n : notes(kind, includeDone, MAX_NOTES)) {
+      List<String> tags = new ArrayList<>(); JSONArray t = n.optJSONArray("tags"); if (t != null) for (int i = 0; i < t.length(); i++) tags.add(t.optString(i));
+      double s = NoteLogic.score(query, n.optString("title"), n.optString("text"), tags);
+      if (s > 0) scored.add(new Object[]{ s, n });
+    }
+    Collections.sort(scored, (a, b) -> Double.compare((Double) b[0], (Double) a[0]));
+    List<JSONObject> out = new ArrayList<>();
+    for (Object[] e : scored) { if (out.size() >= limit) break; out.add((JSONObject) e[1]); }
+    return out;
+  }
+  synchronized boolean setNoteDone(long id, boolean done) {
+    ContentValues v = new ContentValues(); v.put("done", done ? 1 : 0); v.put("updated", System.currentTimeMillis());
+    return getWritableDatabase().update("notes", v, "id=?", new String[]{String.valueOf(id)}) > 0;
+  }
+  synchronized boolean editNote(long id, String text) {
+    NoteLogic.check(text);
+    String body = NoteLogic.clean(text);
+    ContentValues v = new ContentValues(); v.put("body", body); v.put("title", NoteLogic.title(body)); v.put("tags", NoteLogic.joinTags(NoteLogic.tags(body, null))); v.put("updated", System.currentTimeMillis());
+    return getWritableDatabase().update("notes", v, "id=?", new String[]{String.valueOf(id)}) > 0;
+  }
+  synchronized boolean deleteNote(long id) { return getWritableDatabase().delete("notes", "id=?", new String[]{String.valueOf(id)}) > 0; }
+  synchronized int noteCount() { try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM notes", null)) { return c.moveToFirst() ? c.getInt(0) : 0; } }
 }
