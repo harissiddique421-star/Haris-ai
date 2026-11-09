@@ -165,7 +165,15 @@ final class VoiceGateSession {
   String diagnostics(){
     return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d (low confidence %d, closest %s) · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet · mic background %s · noise removal %s · clipping %.2f%%%s",
       gate.owners,gate.unknowns,gate.lows,Double.isNaN(gate.bestRejected)?"-":String.format(Locale.ROOT,"%.2f",gate.bestRejected),gate.checks,
-      Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),db(noiseRms),gate.noise.active()?"on, helped "+gate.cleaned+" check"+(gate.cleaned==1?"":"s"):"off (quiet)",clipPercent(),failure==null?"":" · "+failure);
+      Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),db(noiseRms),gate.noise.active()?"on, helped "+gate.cleaned+" check"+(gate.cleaned==1?"":"s"):"off (quiet)",clipPercent(),failure==null?"":" · "+failure)+tip();
+  }
+  /**
+   * When ignored speech keeps scoring just under the limit, it is most likely the owner in conditions the
+   * registration did not cover (distance, room, noise): say how to fix it instead of leaving them guessing.
+   */
+  String tip(){
+    boolean close=!Double.isNaN(gate.bestRejected)&&gate.bestRejected>=gate.threshold()-0.05;
+    return close&&gate.unknowns>=2?" · tip: voices just under the limit were ignored; if that was you, tap Add more samples in Voice ID and speak where and how you usually talk to FRIDAY":"";
   }
   void stop(){running=false;worker.interrupt();input.clear();}
 }

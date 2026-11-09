@@ -232,9 +232,9 @@ final class VoiceGuardian {
     float[] e=enc.embed(VoiceEncoder.toFloat(pcm));
     double sim=e==null?0:VoiceEncoder.cosine(e,v.print);
     boolean cleaned=false;
-    if(cleanPcm!=null){float[] ce=enc.embed(VoiceEncoder.toFloat(cleanPcm));double cs=ce==null?0:VoiceEncoder.cosine(ce,v.print)-NoiseReducer.PENALTY;if(cs>sim){sim=cs;cleaned=true;}}
     int misses=recentNearMisses();
     double threshold=voiceThreshold(v.printSelf,WakeWordService.sensitivity(c),misses);
+    if(cleanPcm!=null&&sim<threshold&&sim>=threshold-NoiseReducer.REACH){float[] ce=enc.embed(VoiceEncoder.toFloat(cleanPcm));double cs=ce==null?0:VoiceEncoder.cosine(ce,v.print)-NoiseReducer.PENALTY;if(cs>sim){sim=cs;cleaned=true;}}
     boolean ok=phraseRatio<=1&&sim>=threshold;
     if(phraseRatio<=1&&!ok)nearMiss();
     ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.2f, needs %.2f%s%s)",phrase,v.limit*k,sim,threshold,cleaned?", with background noise removed":"",misses>=3?", stricter after repeated misses":""));

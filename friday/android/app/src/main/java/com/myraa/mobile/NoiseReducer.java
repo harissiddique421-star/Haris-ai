@@ -23,6 +23,11 @@ final class NoiseReducer {
    * other person's voice reached the threshold on a cleaned copy without this.
    */
   static final double PENALTY=0.03;
+  /**
+   * The cleaned copy is scored only when the recorded audio scored under the threshold by at most this
+   * much (measured: the owner in hiss at 0 dB scored 0.54 against 0.71 before cleaning).
+   */
+  static final double REACH=0.20;
   /** Noise below this level (RMS of 16-bit samples) is too quiet to matter: no subtraction. */
   static final double QUIET=60;
   private static final double[] WINDOW=new double[N];

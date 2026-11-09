@@ -140,6 +140,15 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Faster Voice ID checks in noise, and a tip when your voice is just under the limit (rc.60)
+
+Your rc.59 diagnostics showed two problems. First, your own voice in calls scored 0.66 to 0.73 against a limit of 0.70. Second, each voice check took 1.5 to 3 seconds on your phone.
+
+- The noise-removed copy is now scored only when that can change the answer: when the audio as recorded scored under the limit, but by no more than 0.20. A clear owner or a clear stranger costs one voiceprint again, not two, so noise removal no longer doubles the wait on a slow phone. The wake phrase (Voice Guardian) works the same way.
+- When ignored speech keeps scoring within 0.05 of the limit, the Voice ID diagnostics line ends with a tip. If that was you, tap Add more samples in Voice ID and speak where and how you usually talk to FRIDAY: same distance, same room, same background. Registration in a quiet room close to the phone does not cover a call from across a noisy room.
+- The limit itself is unchanged. Lowering it would also let other people's voices through (in the checks, one other speaker scored 0.66).
+- Tested with the existing JVM voice checks, which all pass. Not yet tested on a phone.
+
 ## Voice ID in loud noise (rc.59)
 
 Voice ID (the Live call) and Voice Guardian (the wake phrase) now also recognise you in loud steady noise: a fan, AC, traffic, a pressure cooker, or hiss.

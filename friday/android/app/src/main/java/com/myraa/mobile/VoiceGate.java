@@ -316,7 +316,9 @@ final class VoiceGate {
     for(int i=0;i<count;i++){short[] c=chunks.get(i);for(int k=0;k<CHUNK;k++)wav[i*CHUNK+k]=c[k]/32768f;}
     long t=System.nanoTime();double s=scorer.score(wav);if(Double.isNaN(s))s=0;
     // In steady noise also score a copy with the learnt noise turned down, and keep the better score.
-    if(noise.active()){double c=scorer.score(noise.clean(wav))-NoiseReducer.PENALTY;if(!Double.isNaN(c)&&c>s){s=c;cleaned++;}}
+    // Only when it could change the answer (under the threshold but within reach), so a clear owner or a
+    // clear stranger costs one voiceprint, not two: on slow phones one check already takes 1.5-3 s.
+    if(noise.active()&&s<threshold&&s>=threshold-NoiseReducer.REACH){double c=scorer.score(noise.clean(wav))-NoiseReducer.PENALTY;if(!Double.isNaN(c)&&c>s){s=c;cleaned++;}}
     checkMs=(System.nanoTime()-t)/1_000_000;checks++;
     lastScore=s;return s;
   }
