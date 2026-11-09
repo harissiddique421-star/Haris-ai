@@ -140,6 +140,25 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## AI providers, autonomy levels and master pause (rc.56)
+
+Phase 1 of the master plan: providers and the central decision layer.
+
+- **Second text provider** (Settings > AI providers): OpenRouter or any OpenAI-compatible API (`/chat/completions`). You choose how it is used:
+  - Off: saved, never used.
+  - Backup: only when Gemini fails, after Gemini's own retry and backup model.
+  - Main: text chat goes there instead of Gemini.
+- Nothing switches silently. Every reply from the second provider says which provider and model answered, and why. Live voice stays on Gemini.
+- The key is encrypted with the Android Keystore, like the Gemini key. A custom address must be `https://` with no user or query.
+- **Usage:** text chat requests, failures and tokens per provider, today and the last 7 days, are counted from the providers' own replies. Live voice is not counted. Money cost depends on each provider's prices and is not calculated.
+- **Autonomy** (Settings > Autonomy, or by voice: "assisted mode", "maximum mode"):
+  - Assisted: FRIDAY asks before every action that changes something. The phone enforces this with a one-time token for that exact request, valid 2 minutes, only after you speak.
+  - Balanced: the default, same as before.
+  - Maximum: low-risk steps run one after another without asking.
+  - In every mode, messages, calls, SOS, replies and deletes keep their confirmation.
+- **Master pause** ("FRIDAY pause ho jao" / "pause khatam karo", or the Settings switch): no phone action runs, and FRIDAY starts no topic, greeting, check-in or proactive alert until it is turned off. It is checked in both the screen code and the Android side.
+- Checked: `TextProvidersCheck` (28 JVM checks) and 3 new orchestrator tests (pause, assisted approvals, maximum). Not yet tested on a phone, and no real OpenRouter request was made from here.
+
 ## WhatsApp voice notes (rc.55)
 
 WhatsApp keeps voice notes in its own storage and encrypts them, so FRIDAY never opens them by itself.

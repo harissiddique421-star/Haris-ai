@@ -15,7 +15,7 @@ const OWNERS: Record<AgentName, string[]> = {
   memory: ['remember', 'recall', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
   document: ['make_document'],
   research: ['search_web'],
-  health: ['health_check', 'network_status', 'set_proactive', 'self_report'],
+  health: ['health_check', 'network_status', 'set_proactive', 'self_report', 'set_autonomy'],
   core: ['briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
 };
 const OWNER = new Map<string, AgentName>();
@@ -23,9 +23,17 @@ for (const [agent, actions] of Object.entries(OWNERS) as [AgentName, string[]][]
 export function agentFor(action: string): AgentName { return OWNER.get(action) ?? 'core'; }
 
 /** Actions that reach other people, change calls or remove data: only on the user's own words. */
-const HIGH_RISK = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine', 'emergency', 'emergency_contact', 'reply_message']);
+const HIGH_RISK = new Set(['set_autonomy', 'whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine', 'emergency', 'emergency_contact', 'reply_message']);
 /** Actions that change no screen: a routine can run the next step right away. */
 export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
+
+/** Actions that only read or answer: they never need an Assisted-mode question. */
+export const READ_ONLY = new Set(['battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
+/** Actions the phone itself reads back to the user once (WhatsApp, calls, SMS, SOS, replies): never asked twice. */
+export const SELF_CONFIRMING = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
+export type Autonomy = 'assisted' | 'balanced' | 'maximum';
+export interface Policy { autonomy: Autonomy; paused: boolean; }
+function readOnly(action: string, args: any) { return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear'); }
 
 export interface AgentStats { runs: number; failures: number; totalMs: number; lastMs: number; }
 export type Runner = (name: string, args: unknown) => Promise<any>;
@@ -38,6 +46,10 @@ export class Orchestrator {
   /** Time the user last spoke, and the time the phone itself last prompted Gemini (check-in, call or message notice). */
   private userSpokeAt = 0;
   private phonePromptAt = 0;
+  /** Autonomy level and master pause, from Settings or set_autonomy. */
+  policy: Policy = { autonomy: 'balanced', paused: false };
+  /** Assisted mode: approvals handed out, by token: the exact request and when it was asked. */
+  private approvals = new Map<string, { request: string; at: number }>();
 
   /** Called after every agent run (self-development measurements: counts and failures only). */
   onRecord?: (agent: AgentName, ms: number, failed: boolean) => void;
@@ -61,9 +73,32 @@ export class Orchestrator {
     return null;
   }
 
+  /**
+   * Master pause and Assisted mode. Paused: nothing runs except ending the pause. Assisted: an action that
+   * changes something runs only after the user said yes to this exact request (a token the phone hands out,
+   * checked here, valid 2 minutes and only once the user has spoken after the question).
+   * Returns a result to give back instead of running, the arguments to run with, or null to run as asked.
+   */
+  private policyCheck(action: string, args: any, typed: boolean): { result?: any; args?: any } | null {
+    if (action === 'set_autonomy') return null;
+    if (this.policy.paused) return { result: { status: 'paused', message: 'FRIDAY is paused, so no phone action runs. Say so in one short line; the user can say "pause khatam karo" or turn it off in Settings.' } };
+    if (this.policy.autonomy !== 'assisted' || typed || readOnly(action, args) || SELF_CONFIRMING.has(action)) return null;
+    const { confirm_token: token, ...rest } = (args && typeof args === 'object') ? args : {} as any;
+    const request = JSON.stringify(rest), now = Date.now();
+    for (const [t, a] of this.approvals) if (now - a.at > 120_000) this.approvals.delete(t);
+    const approval = typeof token === 'string' ? this.approvals.get(token) : undefined;
+    if (approval && approval.request === request && this.userSpokeAt > approval.at) { this.approvals.delete(token); return { args: rest }; }
+    const fresh = 'a' + Math.random().toString(36).slice(2, 10);
+    this.approvals.set(fresh, { request, at: now });
+    return { result: { status: 'needs_confirmation', confirm_token: fresh, message: `Assisted mode: ask the user in one short line whether to do this (${action}). Only after a clear yes, call mobile_action again with the same arguments and confirm_token "${fresh}".` } };
+  }
+
   async dispatch(name: string, args: any, typed = false): Promise<any> {
     const action = String(args?.action || '');
     const agent = agentFor(action);
+    const gate = this.policyCheck(action, args, typed);
+    if (gate?.result) { this.record(agent, 0, true); return gate.result; }
+    if (gate?.args) args = gate.args;
     const blocked = this.securityCheck(action, args, typed);
     if (blocked) { this.record(agent, 0, true); return blocked; }
     // The same request already running (Gemini sometimes repeats a call with a new id): share its result.

@@ -8,6 +8,7 @@
 #    two people at once, the TV and FRIDAY's own voice are not; profile calibration and storage.
 #  - SelfImprovementCheck: health ledger, self-analysis, development memory, approvals, self-healing.
 #  - UpdatePlanCheck: which GitHub releases are offered and which downloaded APKs are accepted.
+#  - TextProvidersCheck: OpenRouter / OpenAI-compatible addresses, request conversion, replies, errors, usage.
 #  - VoiceNotesCheck: WhatsApp voice note detection, answer parsing, private store, duplicates, delete.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -20,7 +21,7 @@ javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" 
   "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/VoiceEncoder.java" "$SRC/SpeechSegmenter.java" \
   "$SRC/SpeakerProfile.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
   "$SRC/MemoryRank.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" "$SRC/UnlockTask.java" \
-  "$SRC/VoiceNotes.java" "$SRC/ContactMatcher.java" android/tests/jvm/android/content/Context.java \
+  "$SRC/VoiceNotes.java" "$SRC/ContactMatcher.java" "$SRC/TextProviders.java" "$SRC/GeminiAccess.java" android/tests/jvm/android/content/Context.java \
   android/tests/jvm/android/util/Log.java android/tests/jvm/com/myraa/mobile/*.java
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceModelsCheck android/models android/tests/jvm/fixtures
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.SpeechSegmenterCheck android/models android/tests/jvm/fixtures
@@ -30,3 +31,4 @@ java -cp "$OUT/classes:$JSON" com.myraa.mobile.SelfImprovementCheck
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.UpdatePlanCheck
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.UnlockTaskCheck
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceNotesCheck
+java -cp "$OUT/classes:$JSON" com.myraa.mobile.TextProvidersCheck

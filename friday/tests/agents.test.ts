@@ -58,3 +58,44 @@ test('self_report belongs to the health agent and every run is reported for self
   o.onRecord = () => { throw new Error('broken observer'); };
   assert.equal((await o.dispatch('mobile_action', { action: 'torch', on: false }, true)).status, 'done');
 });
+test('master pause: nothing runs except ending the pause', async () => {
+  const calls: any[] = [];
+  const o = new Orchestrator(async (_n, a) => { calls.push(a); return { status: 'done' }; });
+  o.policy = { autonomy: 'balanced', paused: true };
+  assert.equal((await o.dispatch('mobile_action', { action: 'torch', on: true })).status, 'paused');
+  assert.equal((await o.dispatch('mobile_action', { action: 'open_app', app: 'YouTube' }, true)).status, 'paused', 'typed too');
+  assert.equal(calls.length, 0);
+  o.userSpoke();
+  assert.equal((await o.dispatch('mobile_action', { action: 'set_autonomy', level: 'resume' })).status, 'done');
+  assert.equal(calls.length, 1);
+});
+test('assisted mode: an action runs only after a yes to that exact request', async () => {
+  const calls: any[] = [];
+  const o = new Orchestrator(async (_n, a) => { calls.push(a); return { status: 'done' }; });
+  o.policy = { autonomy: 'assisted', paused: false };
+  o.userSpoke();
+  assert.equal((await o.dispatch('mobile_action', { action: 'battery' })).status, 'done', 'reading needs no question');
+  assert.equal((await o.dispatch('mobile_action', { action: 'voice_note', command: 'latest' })).status, 'done');
+  const ask = await o.dispatch('mobile_action', { action: 'open_app', app: 'YouTube' });
+  assert.equal(ask.status, 'needs_confirmation'); assert.equal(calls.length, 2);
+  // Same token before the user answered: asked again, not run.
+  assert.equal((await o.dispatch('mobile_action', { action: 'open_app', app: 'YouTube', confirm_token: ask.confirm_token })).status, 'needs_confirmation');
+  const ask2 = await o.dispatch('mobile_action', { action: 'open_app', app: 'YouTube' });
+  await new Promise(r => setTimeout(r, 2)); o.userSpoke();
+  // A token for another request does not work.
+  assert.equal((await o.dispatch('mobile_action', { action: 'open_app', app: 'Chrome', confirm_token: ask2.confirm_token })).status, 'needs_confirmation');
+  const ok = await o.dispatch('mobile_action', { action: 'open_app', app: 'YouTube', confirm_token: ask2.confirm_token });
+  assert.equal(ok.status, 'done'); assert.deepEqual(calls[calls.length - 1], { action: 'open_app', app: 'YouTube' }, 'token removed before running');
+  assert.equal((await o.dispatch('mobile_action', { action: 'open_app', app: 'YouTube', confirm_token: ask2.confirm_token })).status, 'needs_confirmation', 'a token works once');
+  assert.equal((await o.dispatch('mobile_action', { action: 'voice_note', command: 'clear' })).status, 'needs_confirmation', 'deleting is not reading');
+  assert.equal((await o.dispatch('mobile_action', { action: 'whatsapp_message', recipient: 'Ali', message: 'hi' })).status, 'done', 'the phone asks for messages itself: never twice');
+  assert.equal((await o.dispatch('mobile_action', { action: 'torch', on: true }, true)).status, 'done', 'typed by the user');
+});
+test('balanced and maximum: no extra question; set_autonomy only from the user', async () => {
+  const o = new Orchestrator(async () => ({ status: 'done' }));
+  o.policy = { autonomy: 'maximum', paused: false };
+  assert.equal((await o.dispatch('mobile_action', { action: 'open_app', app: 'YouTube' })).status, 'done');
+  o.userSpoke(); await new Promise(r => setTimeout(r, 2)); o.phonePrompted();
+  assert.equal((await o.dispatch('mobile_action', { action: 'set_autonomy', level: 'maximum' })).status, 'needs_user');
+  assert.equal(agentFor('set_autonomy'), 'health');
+});

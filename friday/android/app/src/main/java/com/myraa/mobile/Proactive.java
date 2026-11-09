@@ -41,7 +41,7 @@ final class Proactive {
 
   /** One round of checks. Each alert has a key and a quiet period so it never nags. */
   static void check(Context c){
-    if(!on(c))return;
+    if(!on(c)||Autonomy.paused(c))return;
     try{
       BatteryManager b=c.getSystemService(BatteryManager.class);
       int level=b.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);boolean charging=b.isCharging();
