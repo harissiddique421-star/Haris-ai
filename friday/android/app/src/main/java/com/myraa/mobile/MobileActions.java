@@ -313,6 +313,9 @@ public final class MobileActions {
       }
       if("whatsapp_message".equals(action)){
         String token=args.optString("confirm_token");
+        // An old or used token with the full request: ask again with a fresh confirmation instead of a dead end
+        // (nothing is sent without the user's new yes).
+        if(!token.isEmpty()&&!pending("whatsapp",token)&&!args.optString("recipient").trim().isEmpty()&&!args.optString("message").trim().isEmpty())token="";
         if(!token.isEmpty()){sendConfirmed(id,token);return;}
         message(id,args.optString("recipient"),args.optString("message"),args.optBoolean("confirm_on_screen"));return;
       }
@@ -479,6 +482,8 @@ public final class MobileActions {
   private static String sendKey(String kind,String phone,String text){return kind+":"+phone+":"+(text==null?0:text.hashCode());}
   private void sent(String kind,String phone,String text){long now=System.currentTimeMillis();recentSends.values().removeIf(t->now-t>120_000);recentSends.put(sendKey(kind,phone,text),now);}
   private long sentAgoMs(String kind,String phone,String text){Long t=recentSends.get(sendKey(kind,phone,text));return t==null?-1:System.currentTimeMillis()-t;}
+  /** True while a confirmation token is still waiting for its yes (not used, not expired, right kind). */
+  private boolean pending(String kind,String token){Confirmation c=confirmations.get(token);return c!=null&&c.kind.equals(kind)&&c.until>=System.currentTimeMillis();}
   private Confirmation take(String kind,String token){Confirmation c=confirmations.remove(token);if(c==null||!c.kind.equals(kind)||c.until<System.currentTimeMillis())return null;return c;}
   private void askConfirmation(String id,String kind,Recipient person,String text,String question){
     // The same request again while its question is still open (Gemini sometimes repeats the call after the user
