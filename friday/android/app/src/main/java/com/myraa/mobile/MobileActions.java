@@ -368,6 +368,7 @@ public final class MobileActions {
       if("conversation_mode".equals(action)){finish(id,CompanionMode.set(activity,args));return;}
       if("recall".equals(action)){finish(id,memory().recall(args.optString("query")));return;}
       if("note".equals(action)){finish(id,memory().note(args));return;}
+      if("expense".equals(action)){finish(id,memory().expense(args));return;}
       if("forget".equals(action)){finish(id,memory().forget(args.optString("query")));return;}
       if("list_memories".equals(action)){finish(id,memory().listMemories());return;}
       if("set_persona".equals(action)){finish(id,memory().setPersona(args.optString("persona")));return;}

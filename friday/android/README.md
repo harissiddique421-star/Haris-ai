@@ -140,6 +140,14 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Expense tracker and study help (rc.62)
+
+Stage 11. Tell FRIDAY what you spent ("500 rupay petrol", "lunch pe 800 lage") and she records the amount, a category (food, transport, bills, shopping, health, education, family, charity or other, guessed from the words unless you name one) and a short note, on this phone only. Ask "is mahine kitna kharch hua?" or "aaj ka kharcha?" for a total by category (today, yesterday, week, month, year or all), "kharche dikhao" for the entries, "ghalat hai, delete karo" for the last one, or correct its category. Amounts understand 1,200, 1.5k, 2 hazaar and 3 lakh; "5 baje" is not money.
+
+What it is not: FRIDAY only knows what you told her. She never reads bank apps, SMS, cards or JazzCash/Easypaisa, never pays or moves money, never stores card numbers or PINs, and her totals are not financial advice. Up to 2,000 entries are kept, oldest dropped first.
+
+Study help is guidance to Gemini, not a new module: a day-by-day plan is saved as a note tagged study, quizzes happen in the conversation one question at a time, and a topic you miss twice is remembered as a weak topic for later revision. Both parts have unit tests only, no phone test yet.
+
 ## Language switching and research answers (rc.62)
 
 Stage 10. Say "English mein baat karo" or "Urdu mein bolo" and FRIDAY calls set_language: the same Settings > Language choice (Urdu, Hindi or English) changes and the call reconnects in that language. If you switch language for one sentence (English, Arabic, Punjabi or any other) she answers that sentence in the same language without changing the setting, and she translates any sentence or any message, notification or screen text in another language when asked. Translator mode for two people is unchanged.

@@ -15,6 +15,7 @@ export const MODULES: { agent: AgentName; label: string; covers: string }[] = [
   { agent: 'document', label: 'Documents', covers: 'Making documents' },
   { agent: 'research', label: 'Web search', covers: 'Searching the web' },
   { agent: 'security', label: 'Link safety', covers: 'Warning signs in links and messages' },
+  { agent: 'finance', label: 'Expenses', covers: 'Expenses you tell FRIDAY about, totals by category' },
   { agent: 'core', label: 'Reminders & calendar', covers: 'Reminders, calendar, briefing, prayer times' },
 ];
 export function moduleLabel(agent: AgentName) { return MODULES.find(m => m.agent === agent)?.label ?? agent; }
