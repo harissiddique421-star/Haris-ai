@@ -29,22 +29,42 @@ import org.json.JSONObject;
  * with AES-GCM under a key held by the Android Keystore, which never leaves the phone's secure
  * hardware where the phone has it. Delete removes the file and the key.
  *
+ * Enrollment (rc.50): twelve sentences at different distances and loudness, each also learned as
+ * heard across a room (room-echo copy), unclear takes left out; more samples can be added later.
+ *
  * Limits: speaker recognition is a probability, not proof. A recording of the owner's voice can
  * pass it (there is no replay or deepfake detection), and very short words are hard to identify.
  */
 final class VoiceId {
   private static final String FILE="voice_id.bin",KEY_ALIAS="friday_voice_id";
   private static final String PREF_ON="voiceIdOn",PREF_SENS="voiceIdSensitivity",PREF_TESTS="voiceIdTests";
-  /** Sentences to read during enrollment; different words so the voiceprint is about the voice, not the phrase. */
-  static final String[] SENTENCES={
-    "Hello Haris AI, this is my voice.",
-    "Hey Haris, open my assistant.",
-    "Turn on the flashlight.",
-    "Tell me today's schedule.",
-    "Send a WhatsApp message.",
-    "FRIDAY, stop talking and listen to me.",
+  /**
+   * Enrollment: twelve sentences of different lengths, said in the ways the owner really talks to
+   * the phone (close, at arm's length, from across the table, quietly, with a little noise), so the
+   * voiceprint is about the voice, not one phrase or one distance. {how, sentence}.
+   */
+  static final String[][] SENTENCES={
+    {"Hold the phone normally and say","Hello Haris AI, this is my voice."},
+    {"Normal voice","Hey Haris, open my assistant."},
+    {"A short one","Turn on the flashlight."},
+    {"A longer one, at your normal pace","FRIDAY, tell me today's schedule and remind me about my meetings this afternoon."},
+    {"Hold the phone at arm's length and say","Send a WhatsApp message to my brother."},
+    {"Still at arm's length, a bit faster","FRIDAY, search YouTube for the latest AI news."},
+    {"Put the phone on a table about one or two metres away and say","FRIDAY, stop talking and listen to me."},
+    {"Still from the table","What's the weather going to be like tomorrow?"},
+    {"Quietly, as if someone is sleeping nearby","Set an alarm for six thirty in the morning."},
+    {"Quietly","Read my latest notifications."},
+    {"With a fan or the TV on low, normal voice","Call my mother on WhatsApp."},
+    {"Your normal voice, a little higher or lower than usual","FRIDAY, how much battery do I have left?"},
   };
-  private static final int MIN_SENTENCES=5,MIN_SENTENCE_MS=900,SENTENCE_MAX_MS=9000,TEST_MAX_MS=9000;
+  /** "Add more samples": the situations where FRIDAY most often misses the owner. */
+  static final String[][] EXTRA={
+    {"From across the room (two or three metres)","FRIDAY, open Google Maps."},
+    {"From across the room","Turn the volume down a little."},
+    {"Quietly, phone on the table","What time is it?"},
+    {"With some noise around you","FRIDAY, play some music."},
+  };
+  private static final int MIN_SENTENCES=8,MIN_EXTRA=2,MIN_SENTENCE_MS=900,SENTENCE_MAX_MS=9000,TEST_MAX_MS=9000;
   private static SpeakerProfile cached;
   static volatile boolean recording;
 
@@ -71,7 +91,8 @@ final class VoiceId {
       SpeakerProfile p=registered(c)?load(c):null;
       o.put("registered",p!=null).put("on",wanted(c)).put("sensitivity",sensitivity(c)).put("recording",recording)
         .put("unreadable",registered(c)&&p==null).put("models",!VoiceModels.encoderFailed()).put("endMs",endMs(c));
-      if(p!=null)o.put("threshold",Math.round(p.threshold(sensitivity(c))*100)/100.0).put("summary",p.summary(sensitivity(c)));
+      if(p!=null)o.put("threshold",Math.round(p.threshold(sensitivity(c))*100)/100.0).put("summary",p.summary(sensitivity(c)))
+        .put("samples",Math.max(p.genuine.length,p.samples.size())).put("canAdd",p.canAdd());
       o.put("tests",new JSONObject(prefs(c).getString(PREF_TESTS,"{}")));
     }catch(JSONException ignored){}
     return o;
@@ -116,55 +137,68 @@ final class VoiceId {
   }
 
   // ---- voiceprints
-  /** Voiceprint of the whole recording and of its first CHECK_MS, the part the Live gate checks first. */
+  /**
+   * Voiceprints of one recording: the whole sentence, its first CHECK_MS (the part the Live gate
+   * checks first) and a room-echo copy (SpeakerProfile.roomEcho) so the owner is also recognised
+   * from across a room.
+   */
   private static float[][] prints(VoiceEncoder enc,short[] pcm){
     float[] wav=VoiceEncoder.toFloat(pcm);
     int cut=Math.min(wav.length,SpeakerProfile.CHECK_MS*VoiceEncoder.RATE/1000+10*SileroVad.CHUNK);
-    return new float[][]{enc.embed(wav),enc.embed(Arrays.copyOf(wav,cut))};
+    return new float[][]{enc.embed(wav),enc.embed(Arrays.copyOf(wav,cut)),enc.embed(SpeakerProfile.roomEcho(wav))};
   }
 
   // ---- recording (background thread; progress goes to the WebView)
   interface Progress { void update(String status,int step,int total,String message); }
 
   /** Records the enrollment sentences and saves the profile. done runs at the end either way. */
-  static void register(Context c,Progress p,Runnable done){
+  static void register(Context c,Progress p,Runnable done){record(c,false,p,done);}
+  /** Records a few more sentences (far, quiet, noisy) and adds them to the saved profile. */
+  static void addSamples(Context c,Progress p,Runnable done){record(c,true,p,done);}
+
+  private static void record(Context c,boolean adding,Progress p,Runnable done){
     if(recording){p.update("busy",0,0,"Already recording.");return;}
     recording=true;Context app=c.getApplicationContext();
     new Thread(()->{
-      MicInput mic=null;int total=SENTENCES.length;
+      MicInput mic=null;String[][] list=adding?EXTRA:SENTENCES;int total=list.length;
       try{
+        SpeakerProfile old=adding?load(app):null;
+        if(adding&&(old==null||!old.canAdd())){p.update("error",0,total,old==null?"Register your voice first.":"This voice profile was made by an older FRIDAY. Tap Re-register once; after that you can add samples.");return;}
         VoiceEncoder enc=VoiceModels.encoder(app);
         if(enc==null){p.update("error",0,total,"The voice model could not be loaded on this phone.");return;}
         Thread.sleep(700); // let the wake word listener release the microphone
         mic=MicInput.open();mic.start();final MicInput m=mic;
+        ControlLog.i("voice id: recording with "+mic.effects());
         SpeechSegmenter seg=VoiceGuardian.segmenter(app,SENTENCE_MAX_MS);
-        List<float[]> full=new ArrayList<>(),shortPrints=new ArrayList<>();
+        List<float[]> full=new ArrayList<>(),shortPrints=new ArrayList<>(),echo=new ArrayList<>();
+        int skipped=0;
         for(int i=0;i<total;i++){
           float[][] got=null;
           for(int attempt=0;attempt<2&&got==null;attempt++){
-            p.update("listen",i+1,total,(attempt==0?"Say: ":"Once more, a bit louder: ")+"\""+SENTENCES[i]+"\"");
+            p.update("listen",i+1,total,(attempt==0?list[i][0]+": ":"Once more, a little louder: ")+"\""+list[i][1]+"\"");
             short[] u=seg.next(m::readFully,()->false,8000);
-            if(u==null){p.update("error",i+1,total,"I didn't hear you. Tap Register my voice and try again in a quiet place.");return;}
-            if(u.length<MIN_SENTENCE_MS*VoiceEncoder.RATE/1000)continue;
+            if(u==null||u.length<MIN_SENTENCE_MS*VoiceEncoder.RATE/1000)continue;
             p.update("heard",i+1,total,"Checking…");
             got=prints(enc,u);
           }
-          if(got==null||got[0]==null||got[1]==null){p.update("error",i+1,total,"That was too short. Read each sentence fully, then try again.");return;}
-          full.add(got[0]);shortPrints.add(got[1]);
+          // A sentence that could not be recorded is skipped, not the whole enrollment.
+          if(got==null||got[0]==null||got[1]==null||got[2]==null){skipped++;p.update("heard",i+1,total,"Skipped that one. Next…");Thread.sleep(400);continue;}
+          full.add(got[0]);shortPrints.add(got[1]);echo.add(got[2]);
           p.update("heard",i+1,total,i+1<total?"Got it.":"Building your voice profile…");Thread.sleep(300);
         }
-        if(full.size()<MIN_SENTENCES){p.update("error",0,total,"Not enough clear sentences. Try again.");return;}
+        if(full.size()<(adding?MIN_EXTRA:MIN_SENTENCES)){p.update("error",0,total,"Not enough clear sentences ("+full.size()+" of "+total+"). Try again somewhere a little quieter.");return;}
         SpeakerProfile prof;
-        try{prof=SpeakerProfile.build(full,shortPrints,System.currentTimeMillis());}
+        try{prof=adding?old.withSamples(full,shortPrints,echo,System.currentTimeMillis()):SpeakerProfile.build(full,shortPrints,echo,System.currentTimeMillis());}
         catch(IllegalArgumentException e){p.update("error",0,total,e.getMessage());return;}
         try{save(app,prof);}catch(Exception e){p.update("error",0,total,"Your voice profile could not be saved securely on this phone.");return;}
-        prefs(app).edit().remove(PREF_TESTS).putBoolean(PREF_ON,true).apply();
-        ControlLog.i("voice id: registered ("+prof.summary(sensitivity(app))+")");
-        p.update("registered",total,total,"Your voice has been successfully registered.");
+        if(!adding)prefs(app).edit().remove(PREF_TESTS).putBoolean(PREF_ON,true).apply();
+        ControlLog.i("voice id: "+(adding?"samples added":"registered")+" ("+prof.summary(sensitivity(app))+(skipped>0?", "+skipped+" not recorded":"")+")");
+        String left=prof.dropped>0?" "+prof.dropped+" unclear recording"+(prof.dropped==1?" was":"s were")+" left out.":"";
+        p.update("registered",total,total,(adding?"Added. Your voice profile now has "+prof.genuine.length+" samples.":"Your voice has been successfully registered from "+prof.genuine.length+" samples.")+left);
       }catch(InterruptedException e){Thread.currentThread().interrupt();p.update("error",0,total,"Recording stopped.");}
       catch(RuntimeException e){p.update("error",0,total,"The microphone is busy. End any call or recording and try again.");}
       finally{if(mic!=null)mic.close();recording=false;done.run();}
-    },"friday-voice-id-enroll").start();
+    },adding?"friday-voice-id-add":"friday-voice-id-enroll").start();
   }
 
   /**
