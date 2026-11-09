@@ -181,3 +181,12 @@ test('second brain typed commands',()=>{
   assert.deepEqual(parseMobileAction('find my notes about invoice'),{action:'note',command:'find',query:'invoice'});
   assert.deepEqual(parseMobileAction('notes dikhao'),{action:'note',command:'list'});
 });
+
+import { voiceGroups, voiceLabel } from '../src/mobile/voices';
+test('voice list is split into female and male voices, with the breezy voice labelled', () => {
+  assert.equal(voiceLabel('Aoede'), 'Aoede, female, breezy');
+  assert.equal(voiceLabel('Charon'), 'Charon, male, informative');
+  assert.equal(voiceLabel('NewVoice'), 'NewVoice');
+  const g = voiceGroups(['Puck', 'Aoede', 'NewVoice', 'Kore']);
+  assert.deepEqual(g.map(x => [x.group, x.voices]), [['female', ['Aoede', 'Kore']], ['male', ['Puck']], ['other', ['NewVoice']]]);
+});

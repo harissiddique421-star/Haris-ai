@@ -140,6 +140,10 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Female and male voices (rc.62)
+
+Settings > Voice now lists the 30 Gemini Live voices in two groups, Female voices and Male voices, each with its style, for example "Aoede, female, breezy" or "Charon, male, informative". The styles are the words Google publishes for its voices; female/male is how each voice is commonly heard. Each persona (FRIDAY, GF, Professional, Venom) keeps its own voice, and a change applies the next time a Live call starts. Nothing else about the call changed.
+
 ## Typed commands during a Live call, and old WhatsApp confirmations (rc.61)
 
 Your screenshot showed two bugs:

@@ -165,6 +165,7 @@ dialog::backdrop{background:#000a}
 .tabs button{border:0;background:transparent;padding:10px 4px;font-size:13px}
 .tabs button.active{background:#173477;color:#8fc3ff}
 .voice-list{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.voice-list .voice-group{margin-top:8px;font-size:14px;opacity:.8}
 .voice-list button{text-align:left;padding:14px 16px;border-radius:14px;font-size:16px}
 .voice-list button.chosen{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset;background:#173477aa}
 .row{display:flex;gap:8px;margin:12px 0}

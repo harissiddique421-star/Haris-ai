@@ -2,6 +2,7 @@ import { noteMatches, noteGroups, type Note } from './notes';
 import './mobile.css';
 import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, type LiveState } from '../lib/audio';
 import { MobileLiveTransport, liveResume, liveMic } from './LiveTransport';
+import { voiceGroups, voiceLabel } from './voices';
 import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
@@ -429,7 +430,7 @@ app.innerHTML = `
         <label class="check"><input id="driving-mode" type="checkbox"> Driving mode: read out new messages, short replies</label>
         <label class="check"><input id="driving-read" type="checkbox"> In driving mode, read the message text (not just the sender)</label>
         <p id="announce-note" class="muted"></p></div>
-      <div class="card"><b>Voice</b><small id="voice-for">Pick a voice. Applies the next time a Live call starts.</small><div id="voice-list" class="voice-list"></div></div>
+      <div class="card"><b>Voice</b><small id="voice-for">Pick a female or male voice. Aoede is the breezy one. Applies the next time a Live call starts.</small><div id="voice-list" class="voice-list"></div></div>
     </div>
     <div class="settings-page" data-page="memory" hidden>
       <div class="card"><b>Routines</b><small>One line runs several steps. Say "run my morning routine". Each step is a normal command, and calls or messages still ask you first.</small>
@@ -669,10 +670,13 @@ function renderAssistant() {
   (el('use-persona') as HTMLButtonElement).disabled = a.persona === personaTab;
   el('voice-for').textContent = `Voice for ${personaLabels[personaTab]}. Applies the next time a Live call starts.`;
   const list = el('voice-list'); list.replaceChildren();
-  for (const voice of (a.voiceOptions || []) as string[]) {
-    const b = document.createElement('button'); const chosen = a.voices?.[personaTab] === voice;
-    b.className = chosen ? 'chosen' : ''; b.textContent = voice + (chosen ? '  ✓' : '');
-    b.onclick = () => bridge?.setAssistant?.(JSON.stringify({ voice, voicePersona: personaTab })); list.append(b);
+  for (const g of voiceGroups((a.voiceOptions || []) as string[])) {
+    const h = document.createElement('b'); h.className = 'voice-group'; h.textContent = g.title; list.append(h);
+    for (const voice of g.voices) {
+      const b = document.createElement('button'); const chosen = a.voices?.[personaTab] === voice;
+      b.className = chosen ? 'chosen' : ''; b.textContent = voiceLabel(voice) + (chosen ? '  ✓' : '');
+      b.onclick = () => bridge?.setAssistant?.(JSON.stringify({ voice, voicePersona: personaTab })); list.append(b);
+    }
   }
   const routines = el('routine-list'); routines.replaceChildren();
   for (const [name, steps] of Object.entries((a.routines || {}) as Record<string, string[]>)) {
