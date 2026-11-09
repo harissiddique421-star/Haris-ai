@@ -140,6 +140,16 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Camera, audio and emergency guidance (rc.62)
+
+Stages 7, 12 and 14 (emergency half), as guidance to Gemini rather than new modules, because the abilities already exist in the Live call:
+
+- **Camera (Stage 7):** the camera and screen share already send about one image a second to Gemini. The instructions now cover reading and translating printed or handwritten text (bills, labels, signs, prescriptions), naming objects and products, explaining screens and errors, describing surroundings, reading numbers and dates exactly as printed, saying when a shot is too blurry, never guessing medicine names or doses, and never reading out a card number, PIN, OTP or password it sees. There is no separate on-device OCR model; recognition quality is Gemini's.
+- **Audio (Stage 12):** voice notes shared to FRIDAY were already understood (rc.55). For anything else that reaches the microphone during a call (a lecture, a meeting, a video nearby) she may summarise or translate what she actually heard, saying so. FRIDAY does not record calls or meetings and never claims to have heard audio that did not reach her. Speaker separation is not available.
+- **Emergency (Stage 14):** the SOS flow is unchanged (trusted contacts, one confirmation, SMS with location, honest failure messages). Added: short calm lines, the real Pakistani emergency numbers (15, 1122, 16) with an offer to open the dialer, never claiming help was reached unless the SMS result says sent, and medical details kept only with your consent, read back only to you and never added to the SOS message.
+
+**Not done, and why:** smart home and IoT control (Stage 13) needs accounts and vendor APIs the app does not have; FRIDAY can only open the Bluetooth and Wi-Fi settings pages. Cross-device sync (Stage 14) needs a server and sign-in that this project does not include. Both would be new systems, not guidance, and are left for a later decision.
+
 ## Routine suggestions (rc.62)
 
 Stage 8. FRIDAY counts which kinds of things you ask for at which hour (only the action name and the hour: never message text, names or search words) and, when something has come up three or more times around the same hour on different days and not yet today, she can offer it: "Aap is waqt aksar Quran lagate hain, lagaun?" Ask "kuch suggest karo" or "ab kya karun", and the morning briefing mentions the strongest one. It is a guess from your own past requests, offered as a question; she never starts anything without your yes, says nothing when no routine stands out, and the counts fade so old habits drop out. Messages, calls, diagnostics and confirmations are never counted as habits. Unit-tested on the JVM only.
