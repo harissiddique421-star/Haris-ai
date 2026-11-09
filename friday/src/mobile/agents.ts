@@ -5,18 +5,21 @@
  * structured result instead of a crash, and times every agent. The user only ever talks to
  * FRIDAY: agent names appear in Settings diagnostics, never in replies.
  */
-export type AgentName = 'communication' | 'media' | 'device' | 'accessibility' | 'memory' | 'document' | 'research' | 'health' | 'core';
+export type AgentName = 'planning' | 'security' | 'finance' | 'communication' | 'media' | 'device' | 'accessibility' | 'memory' | 'document' | 'research' | 'health' | 'core';
 
 const OWNERS: Record<AgentName, string[]> = {
+  planning: ['task'],
+  security: ['check_link'],
+  finance: ['expense'],
   communication: ['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'open_contact', 'open_dialer', 'read_notifications', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'missed_calls', 'set_call_announce', 'set_driving_mode', 'reply_message', 'emergency', 'emergency_contact', 'voice_note'],
   media: ['search_youtube', 'play_music', 'resume_video', 'media'],
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
-  memory: ['remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
+  memory: ['remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'set_language', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
   document: ['make_document'],
   research: ['search_web'],
   health: ['health_check', 'network_status', 'set_proactive', 'self_report', 'set_autonomy'],
-  core: ['briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
+  core: ['suggestions', 'briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
 };
 const OWNER = new Map<string, AgentName>();
 for (const [agent, actions] of Object.entries(OWNERS) as [AgentName, string[]][]) for (const a of actions) OWNER.set(a, agent);
@@ -28,13 +31,15 @@ const HIGH_RISK = new Set(['set_autonomy', 'whatsapp_message', 'whatsapp_call', 
 export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'note', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
 
 /** Actions that only read or answer: they never need an Assisted-mode question. */
-export const READ_ONLY = new Set(['battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
+export const READ_ONLY = new Set(['check_link', 'suggestions', 'battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
 /** Actions the phone itself reads back to the user once (WhatsApp, calls, SMS, SOS, replies): never asked twice. */
 export const SELF_CONFIRMING = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
 export type Autonomy = 'assisted' | 'balanced' | 'maximum';
 export interface Policy { autonomy: Autonomy; paused: boolean; modulesOff?: AgentName[]; }
 const NOTE_READS = new Set(['find', 'list', 'pending']);
 function readOnly(action: string, args: any) {
+  if (action === 'task') return true;
+  if (action === 'expense') return /^(?:list|summary|total)$/.test(String(args?.command || 'add'));
   return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear') || (action === 'note' && NOTE_READS.has(String(args?.command || 'save')));
 }
 /** Deleting a note removes the user's data, like forget, so it needs the user's own words too. */

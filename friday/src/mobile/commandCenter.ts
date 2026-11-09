@@ -6,6 +6,7 @@ import type { AgentName, AgentStats } from './agents';
 
 /** Modules the owner can switch off. Health (status, autonomy, pause) always stays on, so FRIDAY can always be resumed. */
 export const MODULES: { agent: AgentName; label: string; covers: string }[] = [
+  { agent: 'planning', label: 'Multi-step tasks', covers: 'Planning a goal into steps, progress, retry and cancel' },
   { agent: 'communication', label: 'Messages & calls', covers: 'WhatsApp, calls, SMS, email, notifications, SOS, voice notes' },
   { agent: 'media', label: 'Media', covers: 'YouTube, music, playback' },
   { agent: 'device', label: 'Phone controls', covers: 'Torch, volume, brightness, alarms, apps, maps' },
@@ -13,6 +14,8 @@ export const MODULES: { agent: AgentName; label: string; covers: string }[] = [
   { agent: 'memory', label: 'Memory & routines', covers: 'Remember, recall, persona, routines' },
   { agent: 'document', label: 'Documents', covers: 'Making documents' },
   { agent: 'research', label: 'Web search', covers: 'Searching the web' },
+  { agent: 'security', label: 'Link safety', covers: 'Warning signs in links and messages' },
+  { agent: 'finance', label: 'Expenses', covers: 'Expenses you tell FRIDAY about, totals by category' },
   { agent: 'core', label: 'Reminders & calendar', covers: 'Reminders, calendar, briefing, prayer times' },
 ];
 export function moduleLabel(agent: AgentName) { return MODULES.find(m => m.agent === agent)?.label ?? agent; }

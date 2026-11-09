@@ -140,6 +140,50 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Camera, audio and emergency guidance (rc.62)
+
+Stages 7, 12 and 14 (emergency half), as guidance to Gemini rather than new modules, because the abilities already exist in the Live call:
+
+- **Camera (Stage 7):** the camera and screen share already send about one image a second to Gemini. The instructions now cover reading and translating printed or handwritten text (bills, labels, signs, prescriptions), naming objects and products, explaining screens and errors, describing surroundings, reading numbers and dates exactly as printed, saying when a shot is too blurry, never guessing medicine names or doses, and never reading out a card number, PIN, OTP or password it sees. There is no separate on-device OCR model; recognition quality is Gemini's.
+- **Audio (Stage 12):** voice notes shared to FRIDAY were already understood (rc.55). For anything else that reaches the microphone during a call (a lecture, a meeting, a video nearby) she may summarise or translate what she actually heard, saying so. FRIDAY does not record calls or meetings and never claims to have heard audio that did not reach her. Speaker separation is not available.
+- **Emergency (Stage 14):** the SOS flow is unchanged (trusted contacts, one confirmation, SMS with location, honest failure messages). Added: short calm lines, the real Pakistani emergency numbers (15, 1122, 16) with an offer to open the dialer, never claiming help was reached unless the SMS result says sent, and medical details kept only with your consent, read back only to you and never added to the SOS message.
+
+**Not done, and why:** smart home and IoT control (Stage 13) needs accounts and vendor APIs the app does not have; FRIDAY can only open the Bluetooth and Wi-Fi settings pages. Cross-device sync (Stage 14) needs a server and sign-in that this project does not include. Both would be new systems, not guidance, and are left for a later decision.
+
+## Routine suggestions (rc.62)
+
+Stage 8. FRIDAY counts which kinds of things you ask for at which hour (only the action name and the hour: never message text, names or search words) and, when something has come up three or more times around the same hour on different days and not yet today, she can offer it: "Aap is waqt aksar Quran lagate hain, lagaun?" Ask "kuch suggest karo" or "ab kya karun", and the morning briefing mentions the strongest one. It is a guess from your own past requests, offered as a question; she never starts anything without your yes, says nothing when no routine stands out, and the counts fade so old habits drop out. Messages, calls, diagnostics and confirmations are never counted as habits. Unit-tested on the JVM only.
+
+## Expense tracker and study help (rc.62)
+
+Stage 11. Tell FRIDAY what you spent ("500 rupay petrol", "lunch pe 800 lage") and she records the amount, a category (food, transport, bills, shopping, health, education, family, charity or other, guessed from the words unless you name one) and a short note, on this phone only. Ask "is mahine kitna kharch hua?" or "aaj ka kharcha?" for a total by category (today, yesterday, week, month, year or all), "kharche dikhao" for the entries, "ghalat hai, delete karo" for the last one, or correct its category. Amounts understand 1,200, 1.5k, 2 hazaar and 3 lakh; "5 baje" is not money.
+
+What it is not: FRIDAY only knows what you told her. She never reads bank apps, SMS, cards or JazzCash/Easypaisa, never pays or moves money, never stores card numbers or PINs, and her totals are not financial advice. Up to 2,000 entries are kept, oldest dropped first.
+
+Study help is guidance to Gemini, not a new module: a day-by-day plan is saved as a note tagged study, quizzes happen in the conversation one question at a time, and a topic you miss twice is remembered as a weak topic for later revision. Both parts have unit tests only, no phone test yet.
+
+## Language switching and research answers (rc.62)
+
+Stage 10. Say "English mein baat karo" or "Urdu mein bolo" and FRIDAY calls set_language: the same Settings > Language choice (Urdu, Hindi or English) changes and the call reconnects in that language. If you switch language for one sentence (English, Arabic, Punjabi or any other) she answers that sentence in the same language without changing the setting, and she translates any sentence or any message, notification or screen text in another language when asked. Translator mode for two people is unchanged.
+
+Research questions ("research karo", comparisons, anything that needs several sources) now follow a rule in her instructions: use more than one source, prefer recent and official ones, say the date for facts that change, point out when sources disagree instead of picking one silently, keep her own guess separate, and name the sources; a written report (make_document) ends with a Sources section. This is prompt guidance to Gemini with Google Search, not a separate research engine, so quality depends on the sources Google returns. Not tested on a phone.
+
+## Link safety warnings (rc.62)
+
+Ask "ye link safe hai?" or "is this message a scam?" and FRIDAY checks the text for common warning signs: a site that copies a known name (WhatsApp, JazzCash, Easypaisa, BISP, a bank) but is not its real address, look-alike letters, a bare number address, link shorteners, cheap scam-prone endings like .xyz, a login page without https, prize or "account blocked" pressure words, and requests for an OTP, PIN or password. Notifications read out by FRIDAY carry the same warning when a message contains such a link.
+
+What it is not: the check looks at the text only. It never opens the link, sends it anywhere or keeps it, so it cannot know whether a normal-looking site is honest; "no common warning signs" is all FRIDAY will ever say, never "safe". The list of copied names is short and Pakistan-focused and can be extended. Tested with JVM unit checks only.
+
+## Multi-step tasks (rc.62)
+
+Ask for several things at once, for example "Ali ko message karo, phir 5 baje ka reminder lagao, phir Spotify chalao". FRIDAY (Gemini) plans the steps and starts a task; the phone keeps the plan and tells her which step is next. She does each step with the normal phone actions and reports it done or failed. A failed step waits until you say retry, skip or cancel; a step that fails three times stops the task. Only one task runs at a time, a repeated "done" for the same step cannot skip the next one, and Settings > Multi-step tasks shows the progress with a Cancel button.
+
+What it does not do: the plan is not a new permission. Every step still goes through the master pause, the module switches, the autonomy level and the usual confirmations (a WhatsApp message still needs your yes). Planning quality depends on Gemini; the phone only records and enforces the order. Tested with unit tests only, not yet on a phone.
+
+## Female and male voices (rc.62)
+
+Settings > Voice now lists the 30 Gemini Live voices in two groups, Female voices and Male voices, each with its style, for example "Aoede, female, breezy" or "Charon, male, informative". The styles are the words Google publishes for its voices; female/male is how each voice is commonly heard. Each persona (FRIDAY, GF, Professional, Venom) keeps its own voice, and a change applies the next time a Live call starts. Nothing else about the call changed.
+
 ## Typed commands during a Live call, and old WhatsApp confirmations (rc.61)
 
 Your screenshot showed two bugs:

@@ -119,7 +119,11 @@ public final class NotificationReader extends NotificationListenerService {
     if((n.flags&Notification.FLAG_ONGOING_EVENT)!=0||(n.flags&Notification.FLAG_GROUP_SUMMARY)!=0||(title==null&&text==null))return;
     String app;try{app=getPackageManager().getApplicationLabel(getPackageManager().getApplicationInfo(sbn.getPackageName(),0)).toString();}catch(Exception e){app=sbn.getPackageName();}
     JSONObject item=new JSONObject();
-    try{item.put("app",app).put("title",clip(title,100)).put("text",clip(text,300)).put("time",sbn.getPostTime());}catch(JSONException ignored){}
+    try{item.put("app",app).put("title",clip(title,100)).put("text",clip(text,300)).put("time",sbn.getPostTime());
+      // Stage 9: a suspicious link in a message gets a warning next to it, so FRIDAY mentions it when reading the notification out.
+      LinkSafety.Finding f=LinkSafety.check(String.valueOf(text));
+      if(!LinkSafety.NONE.equals(f.level))item.put("warning",f.level+": "+String.join("; ",f.reasons));
+    }catch(JSONException ignored){}
     synchronized(NotificationReader.class){recent.addLast(item);while(recent.size()>30)recent.removeFirst();}
     if(Announcer.isMessaging(this,sbn.getPackageName(),n))keepReply(sbn.getPackageName(),app,title,n);
     // A WhatsApp voice note: only who and how long are known from the notification (see VoiceNotes).

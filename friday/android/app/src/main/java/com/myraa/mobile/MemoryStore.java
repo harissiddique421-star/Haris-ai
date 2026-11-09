@@ -21,12 +21,13 @@ final class MemoryStore extends SQLiteOpenHelper {
   private final Context context;
 
   static synchronized MemoryStore get(Context c) { if (instance == null) instance = new MemoryStore(c.getApplicationContext()); return instance; }
-  private MemoryStore(Context c) { super(c, "friday-memory.db", null, 2); context = c; }
+  private MemoryStore(Context c) { super(c, "friday-memory.db", null, 3); context = c; }
+  static final int MAX_EXPENSES = 2000;
 
   @Override public void onCreate(SQLiteDatabase db) {
     db.execSQL("CREATE TABLE memories (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, text TEXT NOT NULL, norm TEXT NOT NULL, subject TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, updated INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0, sensitive INTEGER NOT NULL DEFAULT 0)");
     db.execSQL("CREATE INDEX memories_category ON memories(category)");
-    createNotes(db);
+    createNotes(db); createExpenses(db);
     // Old memories were a plain list in preferences: move them in once, oldest first.
     SharedPreferences prefs = context.getSharedPreferences("myraa.mobile.v1", Context.MODE_PRIVATE);
     try {
@@ -39,7 +40,11 @@ final class MemoryStore extends SQLiteOpenHelper {
     } catch (JSONException ignored) {}
   }
   /** Version 2 adds the notes table; existing memories are left exactly as they were. */
-  @Override public void onUpgrade(SQLiteDatabase db, int from, int to) { if (from < 2) createNotes(db); }
+  @Override public void onUpgrade(SQLiteDatabase db, int from, int to) { if (from < 2) createNotes(db); if (from < 3) createExpenses(db); }
+  private static void createExpenses(SQLiteDatabase db) {
+    db.execSQL("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, amount REAL NOT NULL, category TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL)");
+    db.execSQL("CREATE INDEX IF NOT EXISTS expenses_created ON expenses(created)");
+  }
   private static void createNotes(SQLiteDatabase db) {
     db.execSQL("CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, tags TEXT NOT NULL DEFAULT '', created INTEGER NOT NULL, updated INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0)");
     db.execSQL("CREATE INDEX IF NOT EXISTS notes_kind ON notes(kind, done)");
@@ -233,5 +238,44 @@ final class MemoryStore extends SQLiteOpenHelper {
     return getWritableDatabase().update("notes", v, "id=?", new String[]{String.valueOf(id)}) > 0;
   }
   synchronized boolean deleteNote(long id) { return getWritableDatabase().delete("notes", "id=?", new String[]{String.valueOf(id)}) > 0; }
+  // ---- expenses (Stage 11): what the user said they spent, nothing read from banks or SMS.
+  private static final String[] EXPENSE_COLS = { "id", "amount", "category", "note", "created" };
+  private static JSONObject expenseRow(Cursor c) {
+    JSONObject v = new JSONObject();
+    try { v.put("id", c.getLong(0)).put("amount", c.getDouble(1)).put("category", c.getString(2)).put("note", c.getString(3)).put("created", c.getLong(4)); } catch (JSONException ignored) {}
+    return v;
+  }
+  synchronized JSONObject addExpense(double amount, String category, String note, long at) {
+    ExpenseLogic.check(amount, note);
+    ContentValues v = new ContentValues();
+    v.put("amount", amount); v.put("category", category); v.put("note", note == null ? "" : note); v.put("created", at);
+    SQLiteDatabase db = getWritableDatabase(); long id = db.insert("expenses", null, v);
+    db.execSQL("DELETE FROM expenses WHERE id NOT IN (SELECT id FROM expenses ORDER BY created DESC LIMIT " + MAX_EXPENSES + ")");
+    return expense(id);
+  }
+  synchronized JSONObject expense(long id) {
+    try (Cursor c = getReadableDatabase().query("expenses", EXPENSE_COLS, "id=?", new String[]{String.valueOf(id)}, null, null, null)) { return c.moveToFirst() ? expenseRow(c) : null; }
+  }
+  /** Expenses newest first between since (inclusive; -1 means all) and until (exclusive), optionally one category. */
+  synchronized List<JSONObject> expenses(long since, long until, String category, int limit) {
+    List<String> where = new ArrayList<>(), args = new ArrayList<>();
+    if (since >= 0) { where.add("created>=?"); args.add(String.valueOf(since)); }
+    if (until < Long.MAX_VALUE) { where.add("created<?"); args.add(String.valueOf(until)); }
+    if (category != null && !category.isEmpty()) { where.add("category=?"); args.add(category); }
+    List<JSONObject> out = new ArrayList<>();
+    try (Cursor c = getReadableDatabase().query("expenses", EXPENSE_COLS, where.isEmpty() ? null : String.join(" AND ", where), args.toArray(new String[0]), null, null, "created DESC", String.valueOf(Math.max(1, limit)))) {
+      while (c.moveToNext()) out.add(expenseRow(c));
+    }
+    return out;
+  }
+  /** Total per category in the period, and the number of expenses as the "count" entry's companion (returned separately). */
+  synchronized Map<String, Double> expenseTotals(long since, long until, int[] count) {
+    Map<String, Double> totals = new LinkedHashMap<>(); int n = 0;
+    for (JSONObject e : expenses(since, until, "", MAX_EXPENSES)) { String k = e.optString("category", "other"); totals.put(k, totals.containsKey(k) ? totals.get(k) + e.optDouble("amount") : e.optDouble("amount")); n++; }
+    if (count != null && count.length > 0) count[0] = n;
+    return totals;
+  }
+  synchronized boolean deleteExpense(long id) { return getWritableDatabase().delete("expenses", "id=?", new String[]{String.valueOf(id)}) > 0; }
+
   synchronized int noteCount() { try (Cursor c = getReadableDatabase().rawQuery("SELECT COUNT(*) FROM notes", null)) { return c.moveToFirst() ? c.getInt(0) : 0; } }
 }

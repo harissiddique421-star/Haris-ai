@@ -33,6 +33,7 @@ final class Briefing {
       if(allowed(c,Manifest.permission.READ_CALENDAR))v.put("events",events(c));else v.put("events_note","Calendar not allowed; the user can allow Calendar in Settings > Permissions.");
       if(allowed(c,Manifest.permission.READ_CALL_LOG))v.put("missed_calls",missed(c,5,true));
       v.put("messages",messageSummary());
+      List<HabitLogic.Suggestion> habits=Habits.now(c);if(!habits.isEmpty())v.put("usual_at_this_time",habits.get(0).words+" (the user often does this around now; offer it as a question, never as a fact)");
     }catch(JSONException|RuntimeException e){ControlLog.i("briefing: part skipped ("+e.getClass().getSimpleName()+")");}
     ControlLog.i("briefing: built");
     return v;

@@ -132,6 +132,54 @@ final class AssistantMemory {
     }
     throw new IllegalArgumentException("Say save, find, list, done or delete for notes.");
   }
+  /**
+   * Expense tracker (Stage 11): add (amount, category, text), list and summary (period today, yesterday,
+   * week, month, year or all; optional category), delete (expense_id, or the latest one). Only what the
+   * user says they spent; nothing is read from banks, SMS or cards and no money ever moves.
+   */
+  JSONObject expense(JSONObject args){
+    String cmd=args.optString("command","add").trim().toLowerCase(Locale.ROOT);
+    String text=args.optString("text",""),period=args.optString("period","");
+    String category=args.optString("category","");
+    TimeZone zone=TimeZone.getDefault();long now=System.currentTimeMillis();
+    if(cmd.isEmpty()||cmd.equals("add")||cmd.equals("save")){
+      double amount=args.has("amount")?args.optDouble("amount",-1):ExpenseLogic.amount(text);
+      if(amount<=0)amount=ExpenseLogic.amount(text);
+      String cat=ExpenseLogic.category(category,text),note=ExpenseLogic.note(text);
+      JSONObject e=store().addExpense(amount,cat,note,now);
+      JSONObject v=PhoneControls.result("done","Noted "+ExpenseLogic.money(amount)+" under "+cat+(note.isEmpty()?"":" ("+note+")")+". Confirm in one short line; if the category looks wrong the user can say so and you call again with command fix.");
+      try{v.put("expense",e);}catch(JSONException ignored){}return v;
+    }
+    if(cmd.equals("fix")||cmd.equals("recategorize")){
+      long id=args.optLong("expense_id",-1);JSONObject e=id>=0?store().expense(id):latestExpense();
+      if(e==null)return PhoneControls.result("not_found","No expense to change.");
+      String cat=ExpenseLogic.category(category,text);
+      store().deleteExpense(e.optLong("id"));
+      JSONObject n=store().addExpense(e.optDouble("amount"),cat,text.isEmpty()?e.optString("note"):ExpenseLogic.note(text),e.optLong("created"));
+      JSONObject v=PhoneControls.result("done","Changed to "+cat+".");try{v.put("expense",n);}catch(JSONException ignored){}return v;
+    }
+    long since=ExpenseLogic.since(period,now,zone),until=ExpenseLogic.until(period,now,zone);
+    if(cmd.equals("list")){
+      String cat=category.isEmpty()?"":ExpenseLogic.category(category,"");
+      List<JSONObject> list=store().expenses(since,until,cat,20);
+      JSONObject v=PhoneControls.result("done",list.isEmpty()?"No expenses recorded "+ExpenseLogic.periodName(period)+".":"Newest first, amounts in rupees. Summarise; read every line only if asked.");
+      try{v.put("expenses",array(list));}catch(JSONException ignored){}return v;
+    }
+    if(cmd.equals("summary")||cmd.equals("total")){
+      int[] count=new int[1];Map<String,Double> totals=store().expenseTotals(since,until,count);
+      JSONObject v=PhoneControls.result("done",ExpenseLogic.summary(totals,count[0],period)+" Say it briefly; these are the user's own entries, so the total covers only what they told you.");
+      try{JSONObject t=new JSONObject();for(Map.Entry<String,Double> en:totals.entrySet())t.put(en.getKey(),en.getValue());v.put("totals",t).put("count",count[0]);}catch(JSONException ignored){}return v;
+    }
+    if(cmd.equals("delete")||cmd.equals("remove")||cmd.equals("undo")){
+      long id=args.optLong("expense_id",-1);JSONObject e=id>=0?store().expense(id):latestExpense();
+      if(e==null)return PhoneControls.result("not_found","No expense to delete.");
+      store().deleteExpense(e.optLong("id"));
+      return PhoneControls.result("done","Deleted "+ExpenseLogic.money(e.optDouble("amount"))+" ("+e.optString("category")+(e.optString("note").isEmpty()?"":", "+e.optString("note"))+").");
+    }
+    throw new IllegalArgumentException("Say add, list, summary, fix or delete for expenses.");
+  }
+  private JSONObject latestExpense(){List<JSONObject> l=store().expenses(-1,Long.MAX_VALUE,"",1);return l.isEmpty()?null:l.get(0);}
+  JSONArray expenseItems(){return array(store().expenses(-1,Long.MAX_VALUE,"",50));}
   private static JSONArray array(List<JSONObject> list){JSONArray a=new JSONArray();for(JSONObject o:list)a.put(o);return a;}
   JSONArray noteItems(){return array(store().notes("",true,MemoryStore.MAX_NOTES));}
   void deleteNote(long id){store().deleteNote(id);}
@@ -301,7 +349,7 @@ final class AssistantMemory {
     JSONObject v=new JSONObject(),voices=new JSONObject();
     try{
       for(String p:PERSONAS)voices.put(p,voice(p));
-      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("email",email()).put("memories",memories()).put("memoryItems",memoryItems()).put("rememberConversations",rememberConversations()).put("routines",routines()).put("notes",noteItems()).put("conversation",CompanionMode.state(context));
+      v.put("persona",persona()).put("voices",voices).put("voiceOptions",new JSONArray(Arrays.asList(VOICES))).put("name",name()).put("email",email()).put("memories",memories()).put("memoryItems",memoryItems()).put("rememberConversations",rememberConversations()).put("routines",routines()).put("notes",noteItems()).put("expenses",expenseItems()).put("conversation",CompanionMode.state(context));
     }catch(JSONException ignored){}
     return v;
   }
