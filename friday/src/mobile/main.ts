@@ -330,6 +330,8 @@ app.innerHTML = `
         <label class="check"><input id="wake-word" type="checkbox"> Listen for the wake word</label>
         <label class="check"><input id="wake-locked" type="checkbox"> Also listen when the phone is locked or the screen is off</label>
         <small>Locked phone: FRIDAY turns the screen on, then you unlock with fingerprint, face or PIN before it does anything. Uses noticeably more battery.</small>
+        <label class="check"><input id="voice-unlock" type="checkbox"> Unlock by voice: "FRIDAY, unlock my phone and open YouTube"</label>
+        <small>FRIDAY only brings up your phone's own lock screen. You unlock with your fingerprint, face, PIN or pattern as usual, and FRIDAY never sees or saves them. Then it opens YouTube, WhatsApp, Chrome, Maps, Instagram, Gmail or Spotify. A request waits one minute and is dropped if you cancel.</small>
         <label>Wake sensitivity<select id="wake-sensitivity"><option value="low">Low · fewer false wakes (TV, music)</option><option value="balanced">Balanced</option><option value="high">High · wakes more easily</option></select></label>
         <label class="check"><input id="wake-name-only" type="checkbox"> Also wake when I say just "FRIDAY" (needs a clear, confident match)</label>
         <p class="wake-status">Wake word: <b id="wake-status">Off</b></p>
@@ -519,6 +521,7 @@ function renderWake() {
   const w = state.wake || {};
   el<HTMLInputElement>('wake-word').checked = !!w.on;
   el<HTMLInputElement>('wake-locked').checked = !!w.locked;
+  el<HTMLInputElement>('voice-unlock').checked = w.voiceUnlock !== false;
   el<HTMLInputElement>('guardian-on').checked = !!(w.guardian && w.enrolled);
   el<HTMLInputElement>('guardian-on').disabled = !w.enrolled;
   el<HTMLButtonElement>('guardian-record').disabled = !!w.recording;
@@ -975,6 +978,7 @@ el('routine-save').onclick = () => {
   bridge?.setAssistant?.(JSON.stringify({ saveRoutine: { name, steps } })); el<HTMLInputElement>('routine-name').value = ''; el<HTMLTextAreaElement>('routine-steps').value = '';
 };
 el('wake-locked').onchange = () => bridge?.setAssistant?.(JSON.stringify({ wakeLocked: el<HTMLInputElement>('wake-locked').checked }));
+el('voice-unlock').onchange = () => bridge?.setAssistant?.(JSON.stringify({ voiceUnlock: el<HTMLInputElement>('voice-unlock').checked }));
 el('guardian-on').onchange = () => bridge?.setAssistant?.(JSON.stringify({ guardian: el<HTMLInputElement>('guardian-on').checked }));
 el('guardian-record').onclick = () => { guardianBusy = true; el('guardian-note').textContent = 'Get ready…'; el<HTMLButtonElement>('guardian-record').disabled = true; bridge?.guardianRecord?.(); };
 el('guardian-delete').onclick = () => { if (confirm('Delete your saved voice?')) bridge?.guardianDelete?.(); };

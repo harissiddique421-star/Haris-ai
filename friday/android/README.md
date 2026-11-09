@@ -121,6 +121,25 @@ and FRIDAY never starts a share or a call by itself. Some phone makers (Xiaomi,
 Oppo, Vivo, Samsung "deep sleep") stop background apps more aggressively. Allow
 FRIDAY to run unrestricted in battery settings for the best results.
 
+## Unlock by voice (rc.49)
+
+"FRIDAY, unlock my phone and open YouTube" (also WhatsApp, Chrome, Maps,
+Instagram, Gmail, Spotify, and Hindi/Urdu forms such as "phone unlock karo aur
+WhatsApp kholo"). Voice never unlocks the phone:
+
+1. The wake listener hears the whole sentence (on a locked phone only with
+   "Also listen when the phone is locked" on) and queues one task (`UnlockTask`).
+2. FRIDAY turns the screen on and asks Android for its own lock screen
+   (`requestDismissKeyguard`). You unlock with fingerprint, face, PIN or pattern.
+3. Only when Android reports success and the keyguard is really gone does FRIDAY
+   open the app. A plain "unlock my phone" starts a normal Live call.
+
+The task waits at most one minute and runs once. A cancelled or failed unlock
+drops it. FRIDAY never asks for, sees, logs or stores your PIN or pattern, never
+captures the lock screen and never enters anything on it. Turn it off in
+Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
+FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
+
 ## Asset licensing
 
 **The local APK includes the existing Evelyn model for private testing only. Do
