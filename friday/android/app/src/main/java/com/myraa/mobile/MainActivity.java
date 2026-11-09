@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.48";
+  static final String VERSION = "1.0.0-rc.49";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -140,22 +140,47 @@ public class MainActivity extends Activity {
   private boolean keyguardLocked(){KeyguardManager k=getSystemService(KeyguardManager.class);return k!=null&&k.isKeyguardLocked();}
   private boolean unlocking;
   private volatile boolean pendingCheckin;
-  /** Starts the woken Live call, but on a locked phone only after the user unlocks with fingerprint, face or PIN. */
+  /**
+   * Starts the woken Live call (or the task from "unlock my phone and open …"), but on a locked phone only after
+   * the user unlocks with Android's own lock screen (fingerprint, face, PIN or pattern). FRIDAY never sees or
+   * stores the unlock; it only continues once Android reports success and the keyguard is really gone.
+   */
   private void deliverWake(){
     try{getSystemService(NotificationManager.class).cancel(44);}catch(RuntimeException ignored){}
-    if(!keyguardLocked()){normalWindow();emit(json("type","wake"));return;}
+    if(!keyguardLocked()){
+      normalWindow();
+      String app=UnlockTask.take(android.os.SystemClock.elapsedRealtime());
+      if(app!=null&&!app.isEmpty()){
+        pendingWake=false;WakeWordService.livePaused(this,false);
+        ControlLog.i("unlock: phone unlocked, opening "+app);
+        try{mobileActions.execute("unlock-"+System.currentTimeMillis(),"mobile_action",new JSONObject().put("action","open_app").put("app",app).toString());}
+        catch(JSONException ignored){}
+        return;
+      }
+      emit(json("type","wake"));return;
+    }
     if(unlocking)return;unlocking=true;
+    ControlLog.i("unlock: asking Android for the phone's own unlock");
     getSystemService(KeyguardManager.class).requestDismissKeyguard(this,new KeyguardManager.KeyguardDismissCallback(){
-      @Override public void onDismissSucceeded(){unlocking=false;normalWindow();if(pendingWake)deliverWake();}
-      @Override public void onDismissCancelled(){unlocking=false;pendingWake=false;normalWindow();WakeWordService.livePaused(MainActivity.this,false);moveTaskToBack(true);}
-      @Override public void onDismissError(){unlocking=false;pendingWake=false;normalWindow();WakeWordService.livePaused(MainActivity.this,false);}
+      @Override public void onDismissSucceeded(){
+        unlocking=false;
+        // Continue only when Android really unlocked the phone.
+        if(keyguardLocked()){ControlLog.i("unlock: Android reported success but the phone is still locked");unlockFailed("still locked");return;}
+        normalWindow();if(pendingWake)deliverWake();
+      }
+      @Override public void onDismissCancelled(){unlocking=false;unlockFailed("cancelled");moveTaskToBack(true);}
+      @Override public void onDismissError(){unlocking=false;unlockFailed("not available");}
     });
+  }
+  /** The unlock did not happen: drop the waiting task and the wake, and go back to listening. */
+  private void unlockFailed(String why){
+    UnlockTask.cancel("unlock "+why);pendingWake=false;normalWindow();WakeWordService.livePaused(this,false);
   }
   private void backupResult(String status,String message){emit(json("type","backup","status",status,"message",message,"assistant",memory.state(),"announce",Announcer.state(this),"wake",wakeState()));}
   private JSONObject wakeState(){
     boolean fullScreen=Build.VERSION.SDK_INT<34||getSystemService(NotificationManager.class).canUseFullScreenIntent();
     return json("on",WakeWordService.wanted(this),"running",WakeWordService.running,"available",android.speech.SpeechRecognizer.isRecognitionAvailable(this)||VoiceGuardian.active(this),
-      "locked",WakeWordService.whenLocked(this),"guardian",VoiceGuardian.wanted(this),"enrolled",VoiceGuardian.enrolled(this),"recording",VoiceGuardian.recording,"fullScreen",fullScreen||Settings.canDrawOverlays(this),
+      "locked",WakeWordService.whenLocked(this),"voiceUnlock",WakeWordService.voiceUnlock(this),"guardian",VoiceGuardian.wanted(this),"enrolled",VoiceGuardian.enrolled(this),"recording",VoiceGuardian.recording,"fullScreen",fullScreen||Settings.canDrawOverlays(this),
       "status",WakeWordService.status(this),"sensitivity",WakeWordService.sensitivity(this),"nameOnly",WakeWordService.nameOnly(this),"openFromBackground",Settings.canDrawOverlays(this),
       "voiceprint",VoiceGuardian.hasVoiceprint(this),"silenceMs",VoiceGuardian.silenceMs(this));
   }
@@ -535,6 +560,7 @@ public class MainActivity extends Activity {
             else if ("unavailable".equals(status)) { WakeWordService.setWanted(MainActivity.this, false); throw new IllegalArgumentException("This phone has no speech recognizer, so the wake word cannot work. Install or update the Google app."); }
           }
           if (input.has("silenceMs")) { VoiceGuardian.setSilenceMs(MainActivity.this, input.optInt("silenceMs", 800)); WakeWordService.refresh(MainActivity.this); }
+          if (input.has("voiceUnlock")) WakeWordService.setVoiceUnlock(MainActivity.this, input.optBoolean("voiceUnlock"));
           if (input.has("wakeLocked")) { WakeWordService.setWhenLocked(MainActivity.this, input.optBoolean("wakeLocked")); WakeWordService.refresh(MainActivity.this); }
           if (input.has("guardian")) {
             boolean on = input.optBoolean("guardian");
@@ -1017,7 +1043,7 @@ public class MainActivity extends Activity {
   }
   @Override protected void onResume() {
     if(activationLocked){super.onResume();return;}
-    foreground=true;visible=true;LiveVoiceService.appVisible(true);super.onResume();WakeWordService.ensure(this);if(pendingWake)emit(json("type","wake"));if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
+    foreground=true;visible=true;LiveVoiceService.appVisible(true);super.onResume();WakeWordService.ensure(this);if(pendingWake)deliverWake();if(pendingUiAction!=null){Runnable action=pendingUiAction;pendingUiAction=null;action.run();}if(pendingLiveId!=null&&checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED)provisionLive(pendingLiveId);
     if(web!=null){web.onResume();web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:true,backgroundLive:"+allowBackgroundLive+"}}))",null);}
     if(permissionsCenter!=null)emit(json("type","permissions","permissions",permissionsCenter.state()));
   }

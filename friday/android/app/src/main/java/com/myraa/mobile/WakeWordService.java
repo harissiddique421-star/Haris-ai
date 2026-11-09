@@ -91,6 +91,9 @@ public final class WakeWordService extends Service {
     try{m.notify(45,new Notification.Builder(c,"wake_tap").setSmallIcon(android.R.drawable.ic_btn_speak_now).setContentTitle(title).setContentText(text)
       .setStyle(new Notification.BigTextStyle().bigText(text)).setContentIntent(open).setAutoCancel(true).build());}catch(SecurityException ignored){}
   }
+  /** "FRIDAY, unlock my phone and open …" (on by default; the phone's own unlock is always required). */
+  static boolean voiceUnlock(Context c){return c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getBoolean("voiceUnlock",true);}
+  static void setVoiceUnlock(Context c,boolean on){c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).edit().putBoolean("voiceUnlock",on).apply();if(!on)UnlockTask.cancel("turned off");}
   static boolean whenLocked(Context c){return c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).getBoolean("wakeLocked",false);}
   static void setWhenLocked(Context c,boolean on){c.getSharedPreferences(Announcer.PREFS,MODE_PRIVATE).edit().putBoolean("wakeLocked",on).apply();}
   /** Starts the listener if the user turned it on. Only call while FRIDAY is on screen: Android does not let a microphone service start from the background. */
@@ -251,6 +254,17 @@ public final class WakeWordService extends Service {
     float[] conf=results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES);
     boolean name=nameOnly(this);
     for(int i=0;i<heard.size();i++){
+      // "FRIDAY, unlock my phone and open YouTube": wait for the whole sentence, then queue the task for after
+      // the phone's own unlock. The voice only asks; Android's lock screen still decides.
+      String said=clean(heard.get(i));String unlock=voiceUnlock(this)&&NAME.matcher(said).find()?UnlockTask.parse(said):null;
+      if(unlock!=null&&!finalResult)continue;
+      if(unlock!=null){
+        float c=conf!=null&&i<conf.length?conf[i]:0f;
+        if(c>0f&&c<minConfidence(this,false)){ControlLog.i("wake: unlock command ignored, low confidence");continue;}
+        UnlockTask.queue(unlock,android.os.SystemClock.elapsedRealtime());
+        ControlLog.i("wake: unlock command heard"+(unlock.isEmpty()?"":", then open "+unlock));
+        woke();return true;
+      }
       boolean full=matches(heard.get(i)),alone=!full&&name&&finalResult&&nameAlone(heard.get(i));
       if(!full&&!alone)continue;
       float c=conf!=null&&i<conf.length?conf[i]:0f;

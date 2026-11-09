@@ -18,7 +18,7 @@ SRC=android/app/src/main/java/com/myraa/mobile
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" \
   "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/VoiceEncoder.java" "$SRC/SpeechSegmenter.java" \
   "$SRC/SpeakerProfile.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
-  "$SRC/MemoryRank.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" \
+  "$SRC/MemoryRank.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" "$SRC/UnlockTask.java" \
   android/tests/jvm/android/util/Log.java android/tests/jvm/com/myraa/mobile/*.java
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceModelsCheck android/models android/tests/jvm/fixtures
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.SpeechSegmenterCheck android/models android/tests/jvm/fixtures
@@ -26,3 +26,4 @@ java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceGateCheck android/models and
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.MemoryRankCheck
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.SelfImprovementCheck
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.UpdatePlanCheck
+java -cp "$OUT/classes:$JSON" com.myraa.mobile.UnlockTaskCheck
