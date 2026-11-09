@@ -61,6 +61,10 @@ public final class SelfImprovementCheck {
     check(finding(fs, "crashes") != null, "crashes found");
     check(finding(fs, "agent_media") != null, "failing agent found");
     check(finding(fs, "live_drops") != null, "Live drops found");
+    JSONObject uc = add(new JSONObject(), today, "voice_unclear", 1, 15);
+    List<SelfImprovement.Finding> ufs = SelfImprovement.analyze(uc, today);
+    SelfImprovement.Finding uf = finding(ufs, "voice_unclear");
+    check(uf != null && uf.level == 3 && uf.severity.equals("low") && uf.evidence.contains("15 times"), "unclear voice finding reported");
     check(fs.get(0).id.equals("crashes"), "crashes rank first: " + fs.get(0).id);
     String report = SelfImprovement.report(s, today, fs);
     check(report.contains("5 text replies worked") && report.contains("to improve"), "report: " + report);
