@@ -3,6 +3,7 @@ import './mobile.css';
 import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, type LiveState } from '../lib/audio';
 import { MobileLiveTransport, liveResume, liveMic } from './LiveTransport';
 import { voiceGroups, voiceLabel } from './voices';
+import { TaskTracker } from './tasks';
 import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
@@ -32,7 +33,17 @@ let foreground = true;
 let backgroundLive = false;
 let permissionPrompt = false;
 const actionRequests = new Map<string, { resolve: (result: any) => void; timer: ReturnType<typeof setTimeout> }>();
+/** Multi-step tasks: the phone's record of a plan Gemini is working through (see tasks.ts). Kept in this WebView's storage. */
+const tasks = new TaskTracker();
+try { tasks.load(localStorage.getItem('friday.tasks')); } catch { /* storage unavailable: start empty */ }
+function taskCall(args: any) {
+  const result = tasks.handle(args);
+  try { localStorage.setItem('friday.tasks', tasks.save()); } catch { /* still works for this session */ }
+  try { renderTasks(); } catch { /* the settings page may not be built yet */ }
+  return result;
+}
 function runMobileAction(name: string, args: unknown): Promise<any> {
+  if ((args as any)?.action === 'task') return Promise.resolve(taskCall(args));
   if (!bridge?.mobileAction) return Promise.resolve({ status: 'unavailable', message: 'Mobile actions require the updated Android app.' });
   const id = crypto.randomUUID();
   return new Promise(resolve => {
@@ -441,6 +452,8 @@ app.innerHTML = `
       <div class="card"><b>Memory</b><small>Stays on this phone, in a private database. Say "remember that…" or add one here. Only memories that fit the conversation are sent to the AI, never the whole list. FRIDAY never saves passwords, PINs or OTPs, and asks before saving health, money, ID or address details.</small><div class="row"><select id="memory-category" aria-label="Category"><option value="">Auto</option><option value="profile">About me</option><option value="preference">Preference</option><option value="project">Project</option></select><input id="memory-new" maxlength="500" placeholder="e.g. My sister's name is Sara"><button id="memory-add">Add</button></div>
         <label class="check"><input id="remember-conversations" type="checkbox"> Remember conversations (a 2-line note and key facts after each voice call)</label>
         <ul id="memory-list" class="memory-list"></ul><div class="row"><button id="memory-clear" type="button">Forget everything</button></div></div>
+      <div class="card"><b>Multi-step tasks</b><small>Ask for several things at once ("Ali ko message karo, phir 5 baje ka reminder lagao, phir Spotify chalao") and FRIDAY plans the steps, does them one by one and shows the progress here. If a step fails she asks whether to retry, skip or cancel. Each step still asks for confirmation where it normally would. Only one task runs at a time.</small>
+        <ul id="task-list" class="memory-list"></ul><div class="row"><button id="task-cancel" type="button">Cancel task</button></div></div>
       <div class="card"><b>Second Brain</b><small>Notes, ideas, tasks and decisions, saved only on this phone. Say "note down…", "idea: …", "task: …" or "what is pending?". Open tasks and recent decisions are shown to FRIDAY so the next conversation can continue. Search matches words and small typos, not meaning. Passwords, PINs and OTPs are never saved.</small>
         <div class="row"><select id="note-kind" aria-label="Kind"><option value="">Auto</option><option value="note">Note</option><option value="idea">Idea</option><option value="task">Task</option><option value="decision">Decision</option></select><input id="note-new" maxlength="1000" placeholder="e.g. task: send the invoice #work"><button id="note-add">Add</button></div>
         <input id="note-search" maxlength="100" placeholder="Search notes">
@@ -555,7 +568,7 @@ function showView(view: 'home' | 'chat') {
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
 const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy' };
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy', task: 'Task' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
@@ -702,6 +715,14 @@ function renderAssistant() {
   }
   if (!items.length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'Nothing saved yet.'; memories.append(li); }
   renderNotes();
+}
+function renderTasks() {
+  const list = el('task-list'); list.replaceChildren();
+  const t = tasks.task ?? tasks.history[0] ?? null;
+  const add = (text: string, cls = '') => { const li = document.createElement('li'); if (cls) li.className = cls; li.textContent = text; list.append(li); };
+  if (!t) add('No task yet.', 'muted');
+  else { add(`${t.goal} (${tasks.task ? 'running' : t.state})`, 'muted memory-group'); for (const line of tasks.view(t).steps) add(line); }
+  (el('task-cancel') as HTMLButtonElement).disabled = !tasks.task;
 }
 function renderNotes() {
   const list = el('note-list'); list.replaceChildren();
@@ -1302,6 +1323,8 @@ el('memory-add').onclick = () => { const input = el<HTMLInputElement>('memory-ne
 el('remember-conversations').onchange = () => { const on = el<HTMLInputElement>('remember-conversations').checked; if (!on && !confirm('Stop remembering conversations? Saved conversation notes will be deleted.')) { el<HTMLInputElement>('remember-conversations').checked = true; return; } bridge?.setAssistant?.(JSON.stringify({ rememberConversations: on })); };
 el('note-add').onclick = () => { const input = el<HTMLInputElement>('note-new'); const text = input.value.trim(); if (!text) return; bridge?.setAssistant?.(JSON.stringify({ addNote: { text, kind: el<HTMLSelectElement>('note-kind').value } })); input.value = ''; };
 el('note-search').oninput = () => renderNotes();
+el('task-cancel').onclick = () => { if (tasks.task && confirm('Cancel the running task? Steps already done stay done.')) { taskCall({ command: 'cancel' }); notice('Task cancelled.'); } };
+renderTasks();
 el('memory-clear').onclick = () => { if (confirm('Forget everything FRIDAY remembers about you? This cannot be undone.')) bridge?.setAssistant?.(JSON.stringify({ clearMemories: true })); };
 el('nav-chat').onclick = () => showView(el('chat-view').classList.contains('active') ? 'home' : 'chat');
 el('nav-more').onclick = () => el('settings').click();

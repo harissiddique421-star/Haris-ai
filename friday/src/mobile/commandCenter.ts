@@ -6,6 +6,7 @@ import type { AgentName, AgentStats } from './agents';
 
 /** Modules the owner can switch off. Health (status, autonomy, pause) always stays on, so FRIDAY can always be resumed. */
 export const MODULES: { agent: AgentName; label: string; covers: string }[] = [
+  { agent: 'planning', label: 'Multi-step tasks', covers: 'Planning a goal into steps, progress, retry and cancel' },
   { agent: 'communication', label: 'Messages & calls', covers: 'WhatsApp, calls, SMS, email, notifications, SOS, voice notes' },
   { agent: 'media', label: 'Media', covers: 'YouTube, music, playback' },
   { agent: 'device', label: 'Phone controls', covers: 'Torch, volume, brightness, alarms, apps, maps' },

@@ -140,6 +140,12 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Multi-step tasks (rc.62)
+
+Ask for several things at once, for example "Ali ko message karo, phir 5 baje ka reminder lagao, phir Spotify chalao". FRIDAY (Gemini) plans the steps and starts a task; the phone keeps the plan and tells her which step is next. She does each step with the normal phone actions and reports it done or failed. A failed step waits until you say retry, skip or cancel; a step that fails three times stops the task. Only one task runs at a time, a repeated "done" for the same step cannot skip the next one, and Settings > Multi-step tasks shows the progress with a Cancel button.
+
+What it does not do: the plan is not a new permission. Every step still goes through the master pause, the module switches, the autonomy level and the usual confirmations (a WhatsApp message still needs your yes). Planning quality depends on Gemini; the phone only records and enforces the order. Tested with unit tests only, not yet on a phone.
+
 ## Female and male voices (rc.62)
 
 Settings > Voice now lists the 30 Gemini Live voices in two groups, Female voices and Male voices, each with its style, for example "Aoede, female, breezy" or "Charon, male, informative". The styles are the words Google publishes for its voices; female/male is how each voice is commonly heard. Each persona (FRIDAY, GF, Professional, Venom) keeps its own voice, and a change applies the next time a Live call starts. Nothing else about the call changed.

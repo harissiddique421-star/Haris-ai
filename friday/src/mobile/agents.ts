@@ -5,9 +5,10 @@
  * structured result instead of a crash, and times every agent. The user only ever talks to
  * FRIDAY: agent names appear in Settings diagnostics, never in replies.
  */
-export type AgentName = 'communication' | 'media' | 'device' | 'accessibility' | 'memory' | 'document' | 'research' | 'health' | 'core';
+export type AgentName = 'planning' | 'communication' | 'media' | 'device' | 'accessibility' | 'memory' | 'document' | 'research' | 'health' | 'core';
 
 const OWNERS: Record<AgentName, string[]> = {
+  planning: ['task'],
   communication: ['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'open_contact', 'open_dialer', 'read_notifications', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'missed_calls', 'set_call_announce', 'set_driving_mode', 'reply_message', 'emergency', 'emergency_contact', 'voice_note'],
   media: ['search_youtube', 'play_music', 'resume_video', 'media'],
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
@@ -35,6 +36,7 @@ export type Autonomy = 'assisted' | 'balanced' | 'maximum';
 export interface Policy { autonomy: Autonomy; paused: boolean; modulesOff?: AgentName[]; }
 const NOTE_READS = new Set(['find', 'list', 'pending']);
 function readOnly(action: string, args: any) {
+  if (action === 'task') return true;
   return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear') || (action === 'note' && NOTE_READS.has(String(args?.command || 'save')));
 }
 /** Deleting a note removes the user's data, like forget, so it needs the user's own words too. */
