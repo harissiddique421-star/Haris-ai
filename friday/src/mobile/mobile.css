@@ -225,3 +225,6 @@ body.app-locked #app,body.app-locked main,body.app-locked .bottom-nav{filter:blu
 .selfdev-item .row{margin-top:8px}
 .selfdev-item.sev-high>b{color:#ff8f8f}
 .selfdev-text{white-space:pre-wrap;font-size:14px;line-height:1.5}
+
+.cc-list .cc-row{margin:4px 0;font-size:.9em}
+.cc-row.cc-ok span{color:#3fb950}.cc-row.cc-warn span{color:#d29922}.cc-row.cc-off span{color:#8b949e}

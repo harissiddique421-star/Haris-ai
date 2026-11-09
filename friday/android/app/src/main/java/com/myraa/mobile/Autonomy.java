@@ -24,8 +24,24 @@ final class Autonomy {
 
   static JSONObject state(Context c){
     JSONObject s=new JSONObject();
-    try{s.put("level",level(c)).put("paused",paused(c));}catch(JSONException ignored){}
+    try{s.put("level",level(c)).put("paused",paused(c)).put("modulesOff",new org.json.JSONArray(modulesOff(c)));}catch(JSONException ignored){}
     return s;
+  }
+
+  static final java.util.List<String> MODULES=java.util.Arrays.asList("communication","media","device","accessibility","memory","document","research","core");
+  /** Modules the owner switched off in the Command Center (the screen code refuses their actions). */
+  static java.util.List<String> modulesOff(Context c){
+    java.util.List<String> out=new java.util.ArrayList<>();
+    for(String m:prefs(c).getString("modulesOff","").split(","))if(MODULES.contains(m)&&!out.contains(m))out.add(m);
+    return out;
+  }
+  static JSONObject setModule(Context c,String module,boolean on){
+    if(MODULES.contains(module)){
+      java.util.List<String> off=modulesOff(c);off.remove(module);if(!on)off.add(module);
+      prefs(c).edit().putString("modulesOff",android.text.TextUtils.join(",",off)).apply();
+      ControlLog.i("command center: "+module+(on?" on":" off"));
+    }
+    return state(c);
   }
 
   /** level: assisted, balanced, maximum, pause or resume. Returns a mobile action result with the new state. */

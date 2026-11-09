@@ -99,3 +99,34 @@ test('balanced and maximum: no extra question; set_autonomy only from the user',
   assert.equal((await o.dispatch('mobile_action', { action: 'set_autonomy', level: 'maximum' })).status, 'needs_user');
   assert.equal(agentFor('set_autonomy'), 'health');
 });
+test('command center: a switched-off module refuses its actions; status and resume stay on', async () => {
+  const calls: any[] = [];
+  const o = new Orchestrator(async (_n, a) => { calls.push(a); return { status: 'done' }; });
+  o.policy = { autonomy: 'balanced', paused: false, modulesOff: ['media', 'health' as any] };
+  o.userSpoke();
+  assert.equal((await o.dispatch('mobile_action', { action: 'search_youtube', query: 'naat' })).status, 'disabled');
+  assert.equal((await o.dispatch('mobile_action', { action: 'torch', on: true })).status, 'done');
+  assert.equal((await o.dispatch('mobile_action', { action: 'self_report' })).status, 'done', 'health can never be switched off');
+  assert.equal(calls.length, 2);
+});
+test('command center: health rows report problems and never call missing data fine', async () => {
+  const { moduleHealth, healthSummary, normalizeOff, MODULES } = await import('../src/mobile/commandCenter');
+  assert.deepEqual(normalizeOff(['media', 'media', 'health', 'nope', 5]), ['media']);
+  assert.ok(!MODULES.some(m => m.agent === 'health'));
+  const rows = moduleHealth({ keyConfigured: true, keyVerified: false, providerErrorCode: 'QUOTA_EXCEEDED', autonomy: { level: 'maximum', paused: true, modulesOff: ['media'] },
+    voiceId: { registered: true, on: true }, wake: { on: true, running: false, status: 'stopped' }, notificationAccess: false, phoneControl: true, providers: { kind: 'openrouter', ready: false } },
+    new Map([['device', { runs: 4, failures: 3, totalMs: 400, lastMs: 100 }]]) as any);
+  const get = (m: string) => rows.find(r => r.module === m)!;
+  assert.equal(get('Autonomy').health, 'warn'); assert.match(get('Autonomy').detail, /Paused/);
+  assert.equal(get('Gemini').health, 'warn'); assert.match(get('Gemini').detail, /QUOTA_EXCEEDED/);
+  assert.equal(get('Second provider').health, 'warn');
+  assert.equal(get('Wake word').health, 'warn');
+  assert.equal(get('Notifications').health, 'off');
+  assert.equal(get('Media').health, 'off');
+  assert.equal(get('Phone controls').health, 'warn', '3 of 4 failed');
+  assert.equal(get('Voice ID').health, 'ok');
+  assert.match(healthSummary(rows), /need attention/);
+  const empty = moduleHealth({});
+  assert.equal(empty.find(r => r.module === 'Gemini')!.health, 'off');
+  assert.equal(empty.find(r => r.module === 'Screen control')!.health, 'off');
+});

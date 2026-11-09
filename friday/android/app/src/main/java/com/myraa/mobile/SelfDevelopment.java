@@ -40,7 +40,7 @@ final class SelfDevelopment {
    */
   static void start(Context c,String version){
     final Context app=c.getApplicationContext();
-    ControlLog.init(app.getFilesDir());
+    ControlLog.init(app.getFilesDir()); Diagnostics.init(app.getFilesDir());
     lastExit(app);
     if(!crashHandlerInstalled){
       crashHandlerInstalled=true;

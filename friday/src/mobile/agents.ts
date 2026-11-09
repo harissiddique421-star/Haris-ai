@@ -32,7 +32,7 @@ export const READ_ONLY = new Set(['battery', 'clock', 'network_status', 'self_re
 /** Actions the phone itself reads back to the user once (WhatsApp, calls, SMS, SOS, replies): never asked twice. */
 export const SELF_CONFIRMING = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
 export type Autonomy = 'assisted' | 'balanced' | 'maximum';
-export interface Policy { autonomy: Autonomy; paused: boolean; }
+export interface Policy { autonomy: Autonomy; paused: boolean; modulesOff?: AgentName[]; }
 function readOnly(action: string, args: any) { return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear'); }
 
 export interface AgentStats { runs: number; failures: number; totalMs: number; lastMs: number; }
@@ -82,6 +82,8 @@ export class Orchestrator {
   private policyCheck(action: string, args: any, typed: boolean): { result?: any; args?: any } | null {
     if (action === 'set_autonomy') return null;
     if (this.policy.paused) return { result: { status: 'paused', message: 'FRIDAY is paused, so no phone action runs. Say so in one short line; the user can say "pause khatam karo" or turn it off in Settings.' } };
+    const agent = agentFor(action);
+    if (agent !== 'health' && this.policy.modulesOff?.includes(agent)) return { result: { status: 'disabled', message: `The ${agent} module is switched off in Settings > Command Center, so this did not run. Say so in one short line.` } };
     if (this.policy.autonomy !== 'assisted' || typed || readOnly(action, args) || SELF_CONFIRMING.has(action)) return null;
     const { confirm_token: token, ...rest } = (args && typeof args === 'object') ? args : {} as any;
     const request = JSON.stringify(rest), now = Date.now();
