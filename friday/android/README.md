@@ -140,6 +140,10 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Routine suggestions (rc.62)
+
+Stage 8. FRIDAY counts which kinds of things you ask for at which hour (only the action name and the hour: never message text, names or search words) and, when something has come up three or more times around the same hour on different days and not yet today, she can offer it: "Aap is waqt aksar Quran lagate hain, lagaun?" Ask "kuch suggest karo" or "ab kya karun", and the morning briefing mentions the strongest one. It is a guess from your own past requests, offered as a question; she never starts anything without your yes, says nothing when no routine stands out, and the counts fade so old habits drop out. Messages, calls, diagnostics and confirmations are never counted as habits. Unit-tested on the JVM only.
+
 ## Expense tracker and study help (rc.62)
 
 Stage 11. Tell FRIDAY what you spent ("500 rupay petrol", "lunch pe 800 lage") and she records the amount, a category (food, transport, bills, shopping, health, education, family, charity or other, guessed from the words unless you name one) and a short note, on this phone only. Ask "is mahine kitna kharch hua?" or "aaj ka kharcha?" for a total by category (today, yesterday, week, month, year or all), "kharche dikhao" for the entries, "ghalat hai, delete karo" for the last one, or correct its category. Amounts understand 1,200, 1.5k, 2 hazaar and 3 lakh; "5 baje" is not money.

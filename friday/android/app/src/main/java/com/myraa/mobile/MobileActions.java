@@ -291,7 +291,7 @@ public final class MobileActions {
   private JSONObject status(String status,String message){JSONObject value=new JSONObject();try{value.put("status",status).put("message",message);}catch(JSONException ignored){}return value;}
   private void finish(String id,String status,String message){finish(id,status(status,message));}
   private final Map<String,String> running=new HashMap<>();
-  private void finish(String id,JSONObject value){if(completed.containsKey(id))return;Diagnostics.record(running.remove(id),value.optString("status"));completed.put(id,value);while(completed.size()>64)completed.remove(completed.keySet().iterator().next());result.complete(id,value);}
+  private void finish(String id,JSONObject value){if(completed.containsKey(id))return;String doneAction=running.remove(id);Diagnostics.record(doneAction,value.optString("status"));try{Habits.record(activity,doneAction,value.optString("status"));}catch(RuntimeException ignored){}completed.put(id,value);while(completed.size()>64)completed.remove(completed.keySet().iterator().next());result.complete(id,value);}
   public void execute(String id,String name,String raw){
     if(id==null||!id.matches("[A-Za-z0-9-]{1,80}"))return;
     if(completed.containsKey(id)){result.complete(id,completed.get(id));return;}
@@ -381,6 +381,7 @@ public final class MobileActions {
       if("self_report".equals(action)){JSONObject r=SelfDevelopment.analyze(activity,false);try{r.put("message",r.optString("message")+" The full list is in Settings > Self-development.");}catch(JSONException ignored){}finish(id,r);return;}
       if("network_status".equals(action)){finish(id,Diagnostics.network(activity));return;}
       if("action_history".equals(action)){finish(id,Diagnostics.history(args.optInt("limit",10)));return;}
+      if("suggestions".equals(action)){finish(id,Habits.suggestions(activity));return;}
       if("upcoming_events".equals(action)){finish(id,Briefing.upcoming(activity,args.optInt("days",7)));return;}
       if("set_proactive".equals(action)){finish(id,Proactive.set(activity,args.optBoolean("on",true)));return;}
       if("set_style".equals(action)){finish(id,setStyle(args.optString("style")));return;}
