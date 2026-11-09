@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.myraa.mobile" android:versionCode="54" android:versionName="1.0.0-rc.54">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.myraa.mobile" android:versionCode="55" android:versionName="1.0.0-rc.55">
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -56,6 +56,9 @@
     <service android:name=".LiveVoiceService" android:exported="false" android:foregroundServiceType="microphone|mediaPlayback|mediaProjection" />
     <activity android:name=".MainActivity" android:launchMode="singleTask" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden" android:windowSoftInputMode="adjustResize">
       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+      <!-- WhatsApp voice note shared to FRIDAY (long-press, Share, FRIDAY): transcribed and summarised on request. -->
+      <intent-filter android:label="FRIDAY: explain voice note"><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="audio/*" /></intent-filter>
+      <intent-filter android:label="FRIDAY: explain voice note"><action android:name="android.intent.action.SEND" /><category android:name="android.intent.category.DEFAULT" /><data android:mimeType="application/ogg" /></intent-filter>
     </activity>
   </application>
 </manifest>

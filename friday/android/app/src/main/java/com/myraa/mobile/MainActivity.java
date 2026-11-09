@@ -82,7 +82,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.54";
+  static final String VERSION = "1.0.0-rc.55";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -120,12 +120,89 @@ public class MainActivity extends Activity {
     else registerReceiver(stopLiveReceiver,liveFilter());
     pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());wakeWindow(getIntent());
     createWebView();
+    sharedVoiceNote(getIntent());
   }
   @Override protected void onNewIntent(Intent intent){
     super.onNewIntent(intent);setIntent(intent);
     if(activationLocked)return;
     if(WakeWordService.WAKE.equals(intent.getAction())){pendingWake=true;wakeWindow(intent);}
     if(CompanionMode.OPEN.equals(intent.getAction())){pendingCheckin=true;emit(json("type","companion-checkin"));}
+    sharedVoiceNote(intent);
+  }
+
+  // ---- WhatsApp voice notes shared to FRIDAY (see VoiceNotes)
+  private final ExecutorService voiceNoteWork = Executors.newSingleThreadExecutor();
+  /** Audio the user shared to FRIDAY (WhatsApp: long-press the voice note, Share, FRIDAY). Read once, sent once to Gemini, never stored. */
+  private void sharedVoiceNote(Intent intent){
+    if(intent==null||!Intent.ACTION_SEND.equals(intent.getAction()))return;
+    String type=intent.getType()==null?"":intent.getType().toLowerCase(java.util.Locale.ROOT);
+    if(!type.startsWith("audio/")&&!type.equals("application/ogg"))return;
+    Uri uri=Build.VERSION.SDK_INT>=33?intent.getParcelableExtra(Intent.EXTRA_STREAM,Uri.class):intent.getParcelableExtra(Intent.EXTRA_STREAM);
+    setIntent(new Intent(this,MainActivity.class));
+    if(uri==null){voiceNoteEvent("error",null,"WhatsApp did not hand over the audio file. Nothing was analysed.");return;}
+    final String mime=type.startsWith("audio/ogg")||type.equals("application/ogg")||type.contains("opus")?"audio/ogg":type.replaceAll(";.*$","");
+    final long at=System.currentTimeMillis();
+    voiceNoteEvent("working",null,"Listening to the shared voice note…");
+    voiceNoteWork.execute(()->{
+      byte[] audio;
+      try(InputStream in=getContentResolver().openInputStream(uri)){
+        if(in==null)throw new IOException("no stream");
+        audio=readLimited(in,VoiceNotes.MAX_BYTES+1);
+      }catch(Exception e){ControlLog.i("voice note: shared audio could not be read ("+e.getClass().getSimpleName()+")");voiceNoteEvent("error",null,"FRIDAY could not open the shared audio. Nothing was analysed.");return;}
+      if(audio.length>VoiceNotes.MAX_BYTES){voiceNoteEvent("error",null,"This audio is too long for FRIDAY (over 14 MB). Nothing was analysed.");return;}
+      if(audio.length<200){voiceNoteEvent("error",null,"The shared audio is empty. Nothing was analysed.");return;}
+      String hash=VoiceNotes.sha256(audio);
+      JSONObject known=VoiceNotes.byHash(this,hash);
+      if(known!=null){ControlLog.i("voice note: same audio shared again, using the saved result");voiceNoteEvent("done",known,"");return;}
+      String key;try{key=readKey();}catch(Exception e){key="";}
+      if(key.isEmpty()){voiceNoteEvent("error",null,"Add your Gemini API key in Settings first. Nothing was analysed.");return;}
+      String model=prefs.getString("model","gemini-3.5-flash");if(!model.matches("[A-Za-z0-9._-]{1,100}"))model="gemini-3.5-flash";
+      String sender=VoiceNotes.recentSender(at);
+      long started=System.currentTimeMillis();
+      HttpsURLConnection connection=null;
+      try{
+        JSONObject request=json("systemInstruction",json("parts",new JSONArray().put(json("text",VoiceNotes.instruction(sender)))),
+          "contents",new JSONArray().put(json("role","user","parts",new JSONArray()
+            .put(json("inline_data",json("mime_type",mime,"data",Base64.encodeToString(audio,Base64.NO_WRAP))))
+            .put(json("text","Transcribe and explain this voice note as JSON.")))),
+          "generationConfig",json("temperature",0.1,"maxOutputTokens",4096,"responseMimeType","application/json"));
+        connection=(HttpsURLConnection)new URL("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent").openConnection();
+        connection.setInstanceFollowRedirects(false);connection.setRequestMethod("POST");
+        connection.setConnectTimeout(15000);connection.setReadTimeout(90000);connection.setDoOutput(true);
+        connection.setRequestProperty("Content-Type","application/json");connection.setRequestProperty("x-goog-api-key",key);
+        try(OutputStream out=connection.getOutputStream()){out.write(request.toString().getBytes(StandardCharsets.UTF_8));}
+        int status=connection.getResponseCode();
+        if(status/100!=2){String body=connection.getErrorStream()==null?"":new String(readLimited(connection.getErrorStream(),65536),StandardCharsets.UTF_8);throw GeminiAccess.failure(status,body);}
+        JSONObject result=new JSONObject(new String(readLimited(connection.getInputStream(),1024*1024),StandardCharsets.UTF_8));
+        JSONArray parts=result.getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts");
+        StringBuilder b=new StringBuilder();for(int i=0;i<parts.length();i++)if(!parts.getJSONObject(i).optBoolean("thought",false))b.append(parts.getJSONObject(i).optString("text",""));
+        int seconds=0;JSONArray seen=VoiceNotes.noticed();for(int i=0;i<seen.length();i++)if(seen.optJSONObject(i).optString("sender").equals(sender)){seconds=seen.optJSONObject(i).optInt("seconds");break;}
+        JSONObject e=VoiceNotes.entry(b.toString(),sender,!sender.isEmpty(),hash,seconds,at);
+        e.put("ms",System.currentTimeMillis()-started).put("model",model);
+        VoiceNotes.save(this,e);
+        ControlLog.i("voice note: analysed in "+(System.currentTimeMillis()-started)+" ms ("+(audio.length/1024)+" KB, "+e.optString("language")+(e.optBoolean("unclear")?", partly unclear":"")+")");
+        voiceNoteEvent("done",e,"");
+      }catch(GeminiAccess.Failure f){ControlLog.i("voice note: Gemini refused ("+f.code+")");voiceNoteEvent("error",null,"Gemini could not analyse the voice note: "+f.getMessage());}
+      catch(JSONException j){ControlLog.i("voice note: the answer was not readable");voiceNoteEvent("error",null,"Gemini's answer could not be read. Nothing was saved; share it again to retry.");}
+      catch(Exception x){ControlLog.i("voice note: failed ("+x.getClass().getSimpleName()+")");voiceNoteEvent("error",null,"The voice note could not be analysed (no internet or the request timed out). Share it again to retry.");}
+      finally{if(connection!=null)connection.disconnect();}
+    });
+  }
+  /** Tells the page; a finished note is also kept in the chat history, so it is there even if the page was still loading. */
+  private void voiceNoteEvent(String status,JSONObject entry,String message){
+    if("done".equals(status)&&entry!=null){
+      String who=entry.optString("sender");boolean guess=entry.optBoolean("senderGuess");
+      String text="Voice note"+(who.isEmpty()?"":" ("+(guess?"probably from ":"from ")+who+")")+": "+entry.optString("summary")
+        +(entry.optString("transcript").isEmpty()?"":"\n\n\u201C"+entry.optString("transcript_roman",entry.optString("transcript"))+"\u201D")
+        +(entry.optString("suggested_reply").isEmpty()?"":"\n\nSuggested reply: "+entry.optString("suggested_reply"))
+        +(entry.optBoolean("unclear")?"\n\n(Some words were unclear.)":"");
+      synchronized(chatLock){
+        try{JSONArray history=new JSONArray(prefs.getString("history","[]")),next=new JSONArray();
+          for(int i=Math.max(0,history.length()-99);i<history.length();i++)next.put(history.getJSONObject(i));
+          next.put(json("role","model","text",text,"at",System.currentTimeMillis()));prefs.edit().putString("history",next.toString()).apply();}catch(JSONException ignored){}
+      }
+      emit(json("type","voice-note","status","done","text",text,"entry",entry));
+    }else emit(json("type","voice-note","status",status,"message",message));
   }
   /** Woken on a locked phone: show over the lock screen and turn the screen on, then ask for the phone's own unlock. */
   private void wakeWindow(Intent intent){
@@ -665,6 +742,7 @@ public class MainActivity extends Activity {
       catch (RuntimeException e) { backupResult("error", "This phone has no file picker for opening a backup."); }
     }); }
     @JavascriptInterface public void requestPermission(String id) { runOnUiThread(() -> { if (!permissionsCenter.request(id == null ? "" : id)) emit(json("type", "permissions", "permissions", permissionsCenter.state(), "message", "That setting is not available on this phone.")); }); }
+    @JavascriptInterface public String voiceNotesClear() { return String.valueOf(VoiceNotes.clear(MainActivity.this)); }
     @JavascriptInterface public void clearHistory() { cancel(); prefs.edit().putString("history", "[]").remove("chatSummary").remove("chatSummarizedUntil").commit(); }
     /** A finished Live call's captions; summarised into memory when the user allows it. */
     @JavascriptInterface public void saveConversation(String raw) { rememberConversation(raw); }
