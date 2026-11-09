@@ -438,10 +438,31 @@ public final class MobileActions {
     long now=System.currentTimeMillis();confirmations.values().removeIf(c->c.until<now);
     String token=Long.toHexString(random.nextLong()&0xffffffffffL);confirmations.put(token,new Confirmation(kind,person,text));return token;
   }
+  /** The still-open confirmation for exactly this action, recipient and text, if FRIDAY already asked about it. */
+  private String pendingToken(String kind,String phone,String text){
+    long now=System.currentTimeMillis();
+    for(Map.Entry<String,Confirmation> e:confirmations.entrySet()){Confirmation c=e.getValue();
+      if(c.until>=now&&c.kind.equals(kind)&&c.phone.equals(phone)&&(c.text==null?text==null:c.text.equals(text)))return e.getKey();}
+    return null;
+  }
+  /** Messages sent in the last 2 minutes (recipient + text hash, time), so a repeated request is flagged instead of sent twice unnoticed. */
+  private final Map<String,Long> recentSends=new HashMap<>();
+  private static String sendKey(String kind,String phone,String text){return kind+":"+phone+":"+(text==null?0:text.hashCode());}
+  private void sent(String kind,String phone,String text){long now=System.currentTimeMillis();recentSends.values().removeIf(t->now-t>120_000);recentSends.put(sendKey(kind,phone,text),now);}
+  private long sentAgoMs(String kind,String phone,String text){Long t=recentSends.get(sendKey(kind,phone,text));return t==null?-1:System.currentTimeMillis()-t;}
   private Confirmation take(String kind,String token){Confirmation c=confirmations.remove(token);if(c==null||!c.kind.equals(kind)||c.until<System.currentTimeMillis())return null;return c;}
   private void askConfirmation(String id,String kind,Recipient person,String text,String question){
-    JSONObject value=status("needs_confirmation",question+" Ask the user this exact question and wait for a clear yes. Only after they say yes, call mobile_action again with the same action and confirm_token. If they say no or change anything, do not reuse the token.");
-    try{value.put("confirm_token",token(kind,person,text)).put("recipient_name",person.name).put("recipient_phone","+"+person.phone);if(text!=null)value.put("message_text",text);}catch(JSONException ignored){}
+    // The same request again while its question is still open (Gemini sometimes repeats the call after the user
+    // answered): keep the one confirmation instead of asking a second time.
+    String open=pendingToken(kind,person.phone,text);
+    long ago=sentAgoMs(kind,person.phone,text);
+    String warn=ago>=0?" Note: this exact message was already sent to "+person.name+" "+(ago/1000)+" s ago; say so in the question so the user does not send it twice by mistake.":"";
+    String how=open!=null
+      ?"This exact request was already read back to the user. If the user's latest answer to it was a clear yes, call mobile_action again now with only the action and this confirm_token, without asking again. If they have not answered yet, ask once: "+question
+      :question+" This is the only confirmation: ask the user this once, in one short line, and wait for a clear yes. After the yes, call mobile_action again right away with only the action and confirm_token, and do not ask about opening WhatsApp, choosing the contact, typing or pressing Send: those are part of what the user approved. If they say no or change the recipient or the words, do not reuse the token.";
+    ControlLog.i("confirm "+kind+": "+(open!=null?"same request again, same question kept":"asked once")+(ago>=0?", already sent "+(ago/1000)+" s ago":""));
+    JSONObject value=status("needs_confirmation",how+warn);
+    try{value.put("confirm_token",open!=null?open:token(kind,person,text)).put("recipient_name",person.name).put("recipient_phone","+"+person.phone);if(text!=null)value.put("message_text",text);}catch(JSONException ignored){}
     finish(id,value);
   }
   /** Typed commands have no voice round trip, so the user confirms on screen instead. */
@@ -481,7 +502,7 @@ public final class MobileActions {
     String pkg=whatsapp();
     WhatsAppSender.arm(pkg,person.phone,text,(sent,why)->main.post(()->{
       ControlLog.i("whatsapp message to "+person.name+": "+(sent?"sent and verified":"not sent, "+why));
-      if(sent)finish(id,"sent","WhatsApp message sent to "+person.name+". Checked: WhatsApp cleared the message box after Send.");
+      if(sent){sent("whatsapp",person.phone,text);finish(id,"sent","WhatsApp message sent to "+person.name+". Checked: WhatsApp cleared the message box after Send (sent from this phone; delivered and read ticks are not checked).");}
       else finish(id,"draft_opened","FRIDAY could not press Send ("+why+"). The draft for "+person.name+" is open; tap Send in WhatsApp. It has not been sent.");
     }));
     if(!launcher.open(draft(person.phone,text,pkg))){WhatsAppSender.disarm();finish(id,"unavailable","WhatsApp could not open this recipient. Nothing was sent.");}
@@ -882,8 +903,11 @@ public final class MobileActions {
     resolveWhatsApp(id,recipient,video?WA_VIDEO:WA_VOICE,false,wa->{
       String what=video?"WhatsApp video call":"WhatsApp voice call";
       if(onScreen){confirmOnScreen(id,what+"?",wa.name+" (+"+wa.phone+")",()->placeWaCall(id,wa,video));return;}
-      JSONObject value=status("needs_confirmation","Start a "+what+" to "+wa.name+" (+"+wa.phone+")? Ask the user this exact question and wait for a clear yes. Only after they say yes, call mobile_action again with action whatsapp_call and this confirm_token.");
-      try{value.put("confirm_token",token(video?"wavideo":"wavoice",new Recipient(wa.name,wa.phone),wa.mimetype+"#"+wa.dataId)).put("recipient_name",wa.name).put("recipient_phone","+"+wa.phone).put("video",video);}catch(JSONException ignored){}
+      String kind=video?"wavideo":"wavoice",ref=wa.mimetype+"#"+wa.dataId,open=pendingToken(kind,wa.phone,ref);
+      JSONObject value=status("needs_confirmation",open!=null
+        ?"This call was already read back to the user. If their latest answer was a clear yes, call mobile_action again now with action whatsapp_call and only this confirm_token, without asking again; otherwise ask once: Start a "+what+" to "+wa.name+"?"
+        :"Start a "+what+" to "+wa.name+" (+"+wa.phone+")? This is the only confirmation: ask it once in one short line and wait for a clear yes. After the yes, call mobile_action again right away with action whatsapp_call and this confirm_token, without asking anything else.");
+      try{value.put("confirm_token",open!=null?open:token(kind,new Recipient(wa.name,wa.phone),ref)).put("recipient_name",wa.name).put("recipient_phone","+"+wa.phone).put("video",video);}catch(JSONException ignored){}
       finish(id,value);
     });
   }

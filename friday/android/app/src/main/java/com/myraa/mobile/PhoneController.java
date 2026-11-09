@@ -93,13 +93,17 @@ public class PhoneController extends AccessibilityService {
     Job mine=finishJob(j.expire);if(mine==null)return;
     ControlLog.i("whatsapp send: message box matches, pressing Send");
     if(!send.performAction(AccessibilityNodeInfo.ACTION_CLICK)){ControlLog.i("whatsapp send: Send button refused the tap");mine.done.done(false,"WhatsApp did not accept the Send tap");return;}
-    // Verify: after a real send WhatsApp clears the message box.
-    main.postDelayed(()->{
+    // Verify: after a real send WhatsApp clears the message box. Checked every 150 ms (up to 2 s) instead of one
+    // fixed 900 ms wait, so a quick send is reported at once and a slow phone still gets time.
+    final long pressedAt=android.os.SystemClock.elapsedRealtime();
+    main.postDelayed(new Runnable(){public void run(){
       AccessibilityNodeInfo r=getRootInActiveWindow();AccessibilityNodeInfo box=r==null?null:first(r.findAccessibilityNodeInfosByViewId(mine.pkg+":id/entry"));
       boolean cleared=box==null||!squash(box.getText()).equals(squash(mine.text));
-      ControlLog.i("whatsapp send: verify "+(cleared?"ok, message box cleared":"failed, text still in the box"));
+      long waited=android.os.SystemClock.elapsedRealtime()-pressedAt;
+      if(!cleared&&waited<2000){main.postDelayed(this,150);return;}
+      ControlLog.i("whatsapp send: verify "+(cleared?"ok, message box cleared after "+waited+" ms":"failed, text still in the box after "+waited+" ms"));
       mine.done.done(cleared,cleared?"sent":"the message is still in WhatsApp's box after pressing Send");
-    },900);
+    }},150);
   }
   private static AccessibilityNodeInfo first(List<AccessibilityNodeInfo> nodes){return nodes==null||nodes.isEmpty()?null:nodes.get(0);}
 
