@@ -37,7 +37,7 @@ import org.json.JSONObject;
  */
 final class VoiceId {
   private static final String FILE="voice_id.bin",KEY_ALIAS="friday_voice_id";
-  private static final String PREF_ON="voiceIdOn",PREF_SENS="voiceIdSensitivity",PREF_TESTS="voiceIdTests";
+  private static final String PREF_ON="voiceIdOn",PREF_SENS="voiceIdSensitivity",PREF_TESTS="voiceIdTests",PREF_LAST_CALL="voiceIdLastCall";
   /**
    * Enrollment: twelve sentences of different lengths, said in the ways the owner really talks to
    * the phone (close, at arm's length, from across the table, quietly, with a little noise), so the
@@ -94,8 +94,16 @@ final class VoiceId {
       if(p!=null)o.put("threshold",Math.round(p.threshold(sensitivity(c))*100)/100.0).put("summary",p.summary(sensitivity(c)))
         .put("samples",Math.max(p.genuine.length,p.samples.size())).put("canAdd",p.canAdd());
       o.put("tests",new JSONObject(prefs(c).getString(PREF_TESTS,"{}")));
+      String last=prefs(c).getString(PREF_LAST_CALL,"");if(!last.isEmpty())o.put("lastCall",new JSONObject(last));
     }catch(JSONException ignored){}
     return o;
+  }
+
+  /** The last Live call's Voice ID numbers (counts, scores, mic level; no audio, no words), for Settings. */
+  static void saveLastCall(Context c,JSONObject summary){
+    if(summary==null||summary.optInt("owner")+summary.optInt("ignored")==0)return;
+    prefs(c).edit().putString(PREF_LAST_CALL,summary.toString()).apply();
+    ControlLog.i("voice id: call summary "+summary);
   }
 
   // ---- the encrypted profile
@@ -131,7 +139,7 @@ final class VoiceId {
   }
   static synchronized void delete(Context c){
     new File(c.getFilesDir(),FILE).delete();new File(c.getFilesDir(),FILE+".tmp").delete();cached=null;
-    prefs(c).edit().remove(PREF_TESTS).apply();
+    prefs(c).edit().remove(PREF_TESTS).remove(PREF_LAST_CALL).apply();
     try{KeyStore s=KeyStore.getInstance("AndroidKeyStore");s.load(null);if(s.containsAlias(KEY_ALIAS))s.deleteEntry(KEY_ALIAS);}catch(Exception ignored){}
     ControlLog.i("voice id: profile deleted");
   }
@@ -191,7 +199,7 @@ final class VoiceId {
         try{prof=adding?old.withSamples(full,shortPrints,echo,System.currentTimeMillis()):SpeakerProfile.build(full,shortPrints,echo,System.currentTimeMillis());}
         catch(IllegalArgumentException e){p.update("error",0,total,e.getMessage());return;}
         try{save(app,prof);}catch(Exception e){p.update("error",0,total,"Your voice profile could not be saved securely on this phone.");return;}
-        if(!adding)prefs(app).edit().remove(PREF_TESTS).putBoolean(PREF_ON,true).apply();
+        if(!adding)prefs(app).edit().remove(PREF_TESTS).remove(PREF_LAST_CALL).putBoolean(PREF_ON,true).apply();
         ControlLog.i("voice id: "+(adding?"samples added":"registered")+" ("+prof.summary(sensitivity(app))+(skipped>0?", "+skipped+" not recorded":"")+")");
         String left=prof.dropped>0?" "+prof.dropped+" unclear recording"+(prof.dropped==1?" was":"s were")+" left out.":"";
         p.update("registered",total,total,(adding?"Added. Your voice profile now has "+prof.genuine.length+" samples.":"Your voice has been successfully registered from "+prof.genuine.length+" samples.")+left);

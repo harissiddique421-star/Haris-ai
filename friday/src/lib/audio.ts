@@ -276,8 +276,12 @@ export class MyraaAudioSession {
   private onMemorySync?: (memories: any[]) => void;
   /** Local voice activity: the user started (true) or stopped (false) speaking. */
   private onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
-  /** Voice ID: the owner's words were hidden by other voices talking at the same time (ask them to repeat). */
-  private onVoiceUnclear?: () => void;
+  /**
+   * Voice ID did not accept a voice: "unclear" (the owner with other voices on top) or "low" (close under the
+   * threshold) ask the owner to repeat; "unknown" is someone else or too far from the owner's voice. score: the
+   * voice match (-1 when there was none).
+   */
+  private onVoiceUnclear?: (kind: "unclear" | "low" | "unknown", score: number) => void;
   /** Time from the end of the user's speech to the start of FRIDAY's spoken reply (self-development measurements). */
   private onReplyLatency?: (ms: number) => void;
   private onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
@@ -328,7 +332,7 @@ export class MyraaAudioSession {
     onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
     /** verified: Voice ID confirmed the owner's turn just ended (it will be answered, so FRIDAY is processing). */
     onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
-    onVoiceUnclear?: () => void;
+    onVoiceUnclear?: (kind: "unclear" | "low" | "unknown", score: number) => void;
     onReplyLatency?: (ms: number) => void;
     connection?: AudioConnection;
   }) {
@@ -796,7 +800,7 @@ export class MyraaAudioSession {
       return;
     }
     if (result.s) this.voiceIdState = result.s;
-    let ownerTurnEnded = false, unclear = false, endAgoMs = 0;
+    let ownerTurnEnded = false, refused: "unclear" | "low" | "unknown" | "" = "", refusedScore = -1, endAgoMs = 0;
     const now = Date.now();
     if ((result.s === "SPEECH_DETECTED" || result.s === "VERIFYING_SPEAKER") && !this.userSpeaking) this.turn.start(now);
     for (const event of result.e || []) {
@@ -815,8 +819,12 @@ export class MyraaAudioSession {
         }
       } else if (name === "end" || name === "lost") {
         ownerTurnEnded = true; endAgoMs = agoMs;
-      } else if (name === "unknown") this.voiceIdIgnored++;
-      else if (name === "unclear") { this.voiceIdIgnored++; unclear = true; }
+      } else if (name === "unknown" || name === "unclear" || name === "low") {
+        this.voiceIdIgnored++;
+        // The most useful one wins for this answer: unclear, then low, then unknown.
+        const rank = { unknown: 1, low: 2, unclear: 3 } as const;
+        if (!refused || rank[name as keyof typeof rank] > rank[refused]) { refused = name; refusedScore = Number(event[1]); }
+      }
     }
     const outputNow = this.currentState === "speaking" || this.activeSources.length > 0;
     for (const [kind, value] of result.a || []) {
@@ -837,7 +845,7 @@ export class MyraaAudioSession {
       const endAt = Date.now() - endAgoMs;
       this.turn.stopped(endAt - this.turn.endMs, endAt, sent ? Date.now() : 0);
     }
-    if (unclear && !outputNow) this.onVoiceUnclear?.();
+    if (refused && !outputNow) this.onVoiceUnclear?.(refused, Number.isFinite(refusedScore) ? refusedScore : -1);
   }
 
   private silence(samples: number): string {

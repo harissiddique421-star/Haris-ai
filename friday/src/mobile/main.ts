@@ -43,17 +43,35 @@ function voiceGateLink() {
   let started: { on?: boolean; id?: number; reason?: string; endMs?: number };
   try { started = JSON.parse(bridge.voiceGateStart()); } catch { return null; }
   voiceIdCallNote = started.on ? '' : String(started.reason || 'off');
+  voiceIdNeeds = Number(state.voiceId?.threshold) || 0;
   if (!started.on || typeof started.id !== 'number') return null;
   const id = started.id;
   return { feed: (pcm: string, ai: number) => bridge.voiceGateFeed!(id, pcm, ai), stop: () => bridge.voiceGateStop?.(id), endMs: Number(started.endMs) || 600 };
 }
 let voiceIdCallNote = '';
-let lastUnclearAt = 0;
-/** Voice ID heard the owner but other voices overlapped too much to be sure: FRIDAY asks once to repeat (at most every 10 s). */
-function voiceUnclear() {
-  if (Date.now() - lastUnclearAt < 10_000 || !liveSession || liveSession.getState() === 'disconnected') return;
+let lastUnclearAt = 0, lastRefusedNoteAt = 0;
+let voiceIdNeeds = 0;
+const lowAsks: { session: unknown; count: number } = { session: null, count: 0 };
+/**
+ * Voice ID did not let a voice through. "unclear" (other voices on top of the owner) and "low" (close under the
+ * threshold): FRIDAY asks once to repeat (at most every 10 s) and runs nothing. Any refusal also shows a short
+ * note with the match, so "FRIDAY keeps listening" is never a mystery (at most every 8 s).
+ */
+function voiceUnclear(kind: 'unclear' | 'low' | 'unknown' = 'unclear', score = -1) {
+  if (!liveSession || liveSession.getState() === 'disconnected') return;
+  const match = score >= 0 ? ` (match ${score.toFixed(2)}${voiceIdNeeds ? `, needs ${voiceIdNeeds.toFixed(2)}` : ''})` : '';
+  if (Date.now() - lastRefusedNoteAt >= 8_000) {
+    lastRefusedNoteAt = Date.now();
+    notice(kind === 'unknown' ? `Voice ID ignored a voice${match}.` : `Voice ID was not sure it was you${match}. Please say it again.`);
+  }
+  if (kind === 'unknown' || Date.now() - lastUnclearAt < 10_000) return;
+  // A near miss that keeps repeating is more likely another person: ask at most 3 times per call for it.
+  if (lowAsks.session !== liveSession) { lowAsks.session = liveSession; lowAsks.count = 0; }
+  if (kind === 'low' && ++lowAsks.count > 3) return;
   lastUnclearAt = Date.now(); metric('voice_unclear');
-  liveSession.sendText('[Phone] Voice ID: the owner said something but other people were talking at the same time, so it was not clear enough to accept. In one short line, in the owner\'s language, ask them to repeat. Do not guess what they said.');
+  liveSession.sendText(kind === 'unclear'
+    ? '[Phone] Voice ID: the owner said something but other people were talking at the same time, so it was not clear enough to accept. In one short line, in the owner\'s language, ask them to repeat. Do not guess what they said.'
+    : '[Phone] Voice ID: someone spoke but the voice was not clear enough to confirm it is the owner, so nothing was heard or done. In one short line, in the owner\'s language, ask them to repeat a little closer to the phone. Do not guess what they said.');
 }
 let fullBody = true;
 let liveSession: MyraaAudioSession | null = null;
@@ -586,7 +604,18 @@ function renderVoiceId() {
   const tests = [t.ownerTests ? `your voice accepted ${t.ownerAccepted || 0} of ${t.ownerTests}` : '', t.otherTests ? `other voices refused ${(t.otherTests || 0) - (t.otherAccepted || 0)} of ${t.otherTests}` : ''].filter(Boolean).join(', ');
   el('voiceid-note').textContent = v.models === false ? 'The voice model could not be loaded on this phone, so Voice ID cannot run.'
     : !v.registered ? 'No voice registered. Live calls answer any voice, as before.'
-    : `${v.on ? 'On' : 'Off'}: ${v.summary || ''}.${tests ? ` Tests on this phone: ${tests}.` : ' Use the Test buttons to check it with your voice and someone else\'s.'}`;
+    : `${v.on ? 'On' : 'Off'}: ${v.summary || ''}.${tests ? ` Tests on this phone: ${tests}.` : ' Use the Test buttons to check it with your voice and someone else\'s.'}${voiceIdLastCall(v)}`;
+}
+/** Voice intelligence summary of the last Live call (counts, match, mic level; no audio or words) and what to do about it. */
+function voiceIdLastCall(v: any) {
+  const c = v.lastCall; if (!c || !v.registered) return '';
+  const needs = Number(c.needs) || Number(v.threshold) || 0, closest = typeof c.closestIgnored === 'number' ? c.closestIgnored : -1;
+  let line = ` Last call: ${c.owner || 0} accepted, ${c.ignored || 0} ignored${c.low ? ` (${c.low} close)` : ''}${closest >= 0 ? `, closest ignored ${closest.toFixed(2)} vs needed ${needs.toFixed(2)}` : ''}, mic background ${c.noise || '-'}, clipping ${Number(c.clip || 0).toFixed(1)}%, voice check ${c.checkMs || 0} ms.`;
+  if (!c.owner && c.ignored) line += closest >= needs - 0.08
+    ? ' Your voice was close but not accepted: tap Add more samples, or choose Relaxed.'
+    : ' No voice was accepted. If that was you, tap Re-register and speak as you do in calls.';
+  if (Number(c.clip) > 1) line += ' The microphone was overloaded (clipping): keep the phone a little further from your mouth.';
+  return line;
 }
 function setAnnounce(change: Record<string, boolean>) { bridge?.setAssistant?.(JSON.stringify(change)); }
 function renderAssistant() {

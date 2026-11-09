@@ -41,6 +41,10 @@ final class VoiceGateSession {
   private volatile int ai;
   private final AtomicInteger backlog=new AtomicInteger();
   private ByteArrayOutputStream ownerRun;
+  /** Microphone quality for this call (numbers only): background level, clipped samples, all samples. */
+  private double noiseRms=Double.NaN;
+  private long clipped,samples;
+  private final long started=System.currentTimeMillis();
 
   VoiceGateSession(VoiceGate gate){
     this.gate=gate;
@@ -80,12 +84,42 @@ final class VoiceGateSession {
       while(running){
         short[] pcm=input.poll(500,TimeUnit.MILLISECONDS);
         if(pcm==null)continue;
+        measure(pcm);
         gate.push(pcm,pcm.length,out);
         backlog.addAndGet(-pcm.length);
         if(!gate.report.isEmpty()){for(String line:gate.report)ControlLog.i("voice id: "+line);gate.report.clear();}
       }
     }catch(InterruptedException e){Thread.currentThread().interrupt();}
     catch(RuntimeException e){failure="Voice ID stopped: "+e.getClass().getSimpleName();ControlLog.i("voice id: "+failure);}
+  }
+
+  /**
+   * Background level (a slow floor tracker over 20 ms windows: falls at once, rises slowly) and clipping (samples
+   * at full scale, which distort the voiceprint: the phone too close, or the input gain too high).
+   */
+  private void measure(short[] pcm){
+    for(int i=0;i+320<=pcm.length;i+=320){
+      double sum=0;
+      for(int j=i;j<i+320;j++){int v=pcm[j];sum+=(double)v*v;if(v>=32700||v<=-32700)clipped++;}
+      double rms=Math.sqrt(sum/320);
+      noiseRms=Double.isNaN(noiseRms)||rms<noiseRms?rms:noiseRms+(rms-noiseRms)*0.003;
+    }
+    samples+=pcm.length;
+  }
+  static String db(double rms){return Double.isNaN(rms)?"-":String.format(Locale.ROOT,"%.0f dB",20*Math.log10(Math.max(rms,1)/32768.0));}
+  double clipPercent(){return samples==0?0:100.0*clipped/samples;}
+
+  /** This call's Voice ID numbers, kept after it ends for Settings (no audio, no words). */
+  JSONObject summary(){
+    JSONObject o=new JSONObject();
+    try{
+      o.put("at",started).put("seconds",(System.currentTimeMillis()-started)/1000).put("owner",gate.owners).put("ignored",gate.unknowns)
+        .put("low",gate.lows).put("needs",Math.round(gate.threshold()*100)/100.0).put("checkMs",gate.checkMs)
+        .put("noise",db(noiseRms)).put("clip",Math.round(clipPercent()*100)/100.0);
+      if(!Double.isNaN(gate.bestRejected))o.put("closestIgnored",Math.round(gate.bestRejected*100)/100.0);
+      if(failure!=null)o.put("failure",failure);
+    }catch(JSONException ignored){}
+    return o;
   }
 
   /** ai: 0 FRIDAY is listening, 1 thinking, 2 speaking. Returns the JSON described above. */
@@ -129,8 +163,9 @@ final class VoiceGateSession {
   }
   int endMs(){return gate.endMs();}
   String diagnostics(){
-    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet%s",
-      gate.owners,gate.unknowns,gate.checks,Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),failure==null?"":" · "+failure);
+    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d (low confidence %d, closest %s) · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet · mic background %s · clipping %.2f%%%s",
+      gate.owners,gate.unknowns,gate.lows,Double.isNaN(gate.bestRejected)?"-":String.format(Locale.ROOT,"%.2f",gate.bestRejected),gate.checks,
+      Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),db(noiseRms),clipPercent(),failure==null?"":" · "+failure);
   }
   void stop(){running=false;worker.interrupt();input.clear();}
 }

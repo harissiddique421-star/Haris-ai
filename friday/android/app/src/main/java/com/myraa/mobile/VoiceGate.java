@@ -60,6 +60,8 @@ final class VoiceGate {
   static final double NEAR=0.06;
   /** A rejected burst this close to the threshold, and as loud as the owner, is "unclear" (overlap). */
   static final double UNCLEAR=0.10;
+  /** A rejected voice this close under the threshold is "low" confidence: FRIDAY asks to repeat, runs nothing. */
+  static final double LOW=0.08;
   /**
    * Within 20 dB of the owner's level may start a burst (the voiceprint, not loudness, decides who it
    * is: before rc.50 this was 9 dB, so once the owner had spoken close to the phone, the same owner
@@ -121,7 +123,7 @@ final class VoiceGate {
   /** Level of the current burst's talker, and of the owner once verified in this call (0 = not known). */
   private double talkerLevel,ownerLevel;
   // Counters for the diagnostics line.
-  int owners,unknowns,checks;double lastScore=Double.NaN;long checkMs;
+  int owners,unknowns,checks,lows;double lastScore=Double.NaN,bestRejected=Double.NaN;long checkMs;
 
   /** silenceMs: how long the owner must be quiet before the turn ends (clamped to 400-1000 ms). */
   VoiceGate(SileroVad vad,Scorer scorer,double threshold,int silenceMs){
@@ -260,7 +262,12 @@ final class VoiceGate {
     unknowns++;
     // As loud as the owner and only just under the threshold: probably the owner with other voices on top.
     boolean unclear=ownerLevel>0&&talkerLevel>=ownerLevel*0.5&&s>=threshold-UNCLEAR;
-    out.event(unclear?"unclear":"unknown",s);
+    // Close under the threshold with no overlap known: low confidence. Nothing is let through, but FRIDAY may
+    // ask for the words again instead of staying silent (the owner far away, tired, or speaking very softly).
+    boolean low=!unclear&&!Double.isNaN(s)&&s>=threshold-LOW;
+    if(low)lows++;
+    out.event(unclear?"unclear":low?"low":"unknown",s);
+    if(!Double.isNaN(s)&&(Double.isNaN(bestRejected)||s>bestRejected))bestRejected=s;
   }
   private void release(Output out,double s){
     owners++;out.event("owner",s);learnOwner(burstLevels);
