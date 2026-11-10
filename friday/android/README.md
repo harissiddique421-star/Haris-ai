@@ -140,6 +140,17 @@ captures the lock screen and never enters anything on it. Turn it off in
 Settings > Assistant > Wake word. Before rc.49 the wake on a locked phone showed
 FRIDAY over the lock screen but never asked for the unlock; that is fixed too.
 
+## Voice speed and accuracy audit (rc.63)
+
+The whole voice path was audited (microphone → Silero VAD → Voice ID check → Gemini Live → reply), with the phone's share of the delay measured on the JVM harness (`VoiceLatencyBench`, real-time frames, voice checks slowed 8x to stand for a slow phone). Measured causes and fixes:
+
+- **The voiceprint check was the bottleneck, and it ran at the wrong moments.** A short command with two small pauses inside it (as people speak) triggered an "early" voice check at each 96 ms pause, on 0.8 s of audio that is too short to recognise anyone (scores 0.59–0.64 against a 0.73 bar), and then the real check on the whole command. On a phone where one check takes about 0.85 s, the turn ended **2.4 s** after the last word instead of 0.6 s. Now a phone whose checks take longer than half the end-of-turn silence waits for a 256 ms pause before an early check, and audio that was already scored is never checked again at the end of the turn. Same scenario after the fix: **0.65–1.0 s** (fast phones unchanged at 0.58 s).
+- **The voiceprint itself is 1.9x faster** on phones with 3 or more cores: the three LSTM layers run as a pipeline on separate threads (layer 2 works on time step t while layer 1 is on t+1), and on phones with 6 or more cores the partial windows of longer audio run side by side. The output is bit-identical to the one-thread version (checked in `VoiceGateCheck`), so acceptance is unchanged. Measured here: 1.5 s check 102 → 56 ms, 2.2 s 197 → 86 ms, 4 s 383 → 160 ms.
+- **A warm-up check at call start** times this phone's check once (on silence), so the first real command does not pay for warming up and the gate knows from the start whether this phone is slow.
+- **Diagnostics** now show the voiceprint thread count; the per-turn stage timings (heard, verified, stopped, end sent, transcript, reply, playing; milliseconds only, never audio) were already in Settings since rc.57.
+
+What was measured and **not** changed: scoring the owner against each stored sample (nearest sample, top-3 mean, mixtures with the average print) instead of the average print gave no real gain on hard conditions (owner accepted 36–37 of 60 in all variants at 3–5 m, in noise and on 0.8–1.0 s clips; strangers 0 of 150 in all), so the scoring stays as it is. The limits are the model's: speech under about 1 s and distances over 3 m are not reliably recognised, and the honest fix remains **Add more samples** recorded where and how you usually speak. The threshold was not lowered anywhere. Nothing in this release was tested on a phone; all numbers are from the JVM harness on recorded speech.
+
 ## Camera, audio and emergency guidance (rc.62)
 
 Stages 7, 12 and 14 (emergency half), as guidance to Gemini rather than new modules, because the abilities already exist in the Live call:

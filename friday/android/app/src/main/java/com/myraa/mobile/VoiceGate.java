@@ -55,6 +55,13 @@ final class VoiceGate {
    * the end-of-turn silence is still being timed instead of after it.
    */
   private static final int EARLY=3;
+  /**
+   * On a phone whose voice check takes longer than the end-of-turn silence, an early check that
+   * turns out wasted (the owner goes on talking after a short pause) delays the real one by a whole
+   * check, so there the pause must be 256 ms before the early check runs (measured: with 96 ms a
+   * 1.1 s command with two small pauses cost two wasted 0.8 s checks, and its turn ended 2.4 s late).
+   */
+  private static final int EARLY_SLOW=8;
   /** A first check that would only come in the last 256 ms before the end of the turn counts as too late. */
   private static final int LATE=8;
   /** End-of-turn silence for the Live call: default and limits (Google recommends 500 ms or more). */
@@ -110,6 +117,8 @@ final class VoiceGate {
   /** Score of the current burst computed early (EARLY chunks into a pause), NaN when none. */
   private double early=Double.NaN;
   private boolean earlyTried;
+  /** How many chunks of the current burst the last voice check covered (0 = none yet), so the same audio is never checked twice. */
+  private int scoredChunks;
   private final short[] pending=new short[CHUNK];private int pendingLen;
   private final float[] floats=new float[CHUNK];
   private final ArrayDeque<short[]> before=new ArrayDeque<>();
@@ -140,6 +149,16 @@ final class VoiceGate {
   }
   /** The end-of-turn silence actually used, in milliseconds. */
   int endMs(){return silenceChunks*CHUNK_MS;}
+  /**
+   * Times one voice check on CHECK_MS of silence before the call's first word, so the gate knows from
+   * the start whether this phone's checks are slow (see EARLY_SLOW) and the first real check does not
+   * also pay for warming up. The result is not used.
+   */
+  void warmUp(){
+    long t=System.nanoTime();
+    try{scorer.score(new float[(SpeakerProfile.CHECK_MS/CHUNK_MS+PRE)*CHUNK]);}catch(RuntimeException ignored){}
+    checkMs=(System.nanoTime()-t)/1_000_000;
+  }
   State state(){return state;}
   double threshold(){return threshold;}
   double ownerLevel(){return ownerLevel;}
@@ -193,7 +212,9 @@ final class VoiceGate {
           // The burst ended before the first check: a short command, or noise.
           int voiced=burst.size()-silence;
           if(voiced-PRE<MIN_SPEECH){out.silence(burst.size()*CHUNK);out.event("noise",Double.NaN);reset();return;}
-          double s=!Double.isNaN(early)?early:check(burst,Math.min(burst.size(),voiced+EARLY));
+          int want=Math.min(burst.size(),voiced+EARLY);
+          // Already scored on this audio (an early check, or the regular check when the burst was only just long enough): reuse it.
+          double s=!Double.isNaN(early)?early:scoredChunks>=want?lastScore:check(burst,want);
           if(s>=threshold){release(out,s);out.event("end",s);reset();}
           else{out.silence(burst.size()*CHUNK);rejected(out,s);reset();}
           return;
@@ -201,14 +222,15 @@ final class VoiceGate {
         int need=secondDone?SECOND:CHECK,voicedNow=burst.size()-silence;
         // A pause in a burst whose next check would not come before the turn ends (or only just before):
         // check now, on exactly the audio the end-of-turn check would use, while the silence is timed.
-        if(silence>=EARLY&&!earlyTried&&!behind.now()&&voicedNow-PRE>=MIN_SPEECH&&burst.size()+silenceChunks-silence<need+LATE){
-          earlyTried=true;early=check(burst,voicedNow+EARLY);return;
+        int earlyAfter=checkMs*2>silenceChunks*CHUNK_MS?EARLY_SLOW:EARLY; // a check longer than half the end-of-turn silence: slow phone
+        if(silence>=earlyAfter&&!earlyTried&&!behind.now()&&voicedNow-PRE>=MIN_SPEECH&&burst.size()+silenceChunks-silence<need+LATE){
+          earlyTried=true;early=check(burst,voicedNow+EARLY);scoredChunks=voicedNow+EARLY;return;
         }
         // Already scored up to this pause: wait for the end of the turn or for the talker to go on.
         if(!Double.isNaN(early))return;
         if(burst.size()<need)return;
         state=State.VERIFYING_SPEAKER;
-        double s=check(burst,burst.size());
+        double s=check(burst,burst.size());scoredChunks=burst.size();
         if(s>=threshold){release(out,s);state=State.AUTHORIZED_USER;sinceCheck=0;recentFrom(burst,burstLevels);seedTurn(burstLevels);}
         else if(!secondDone&&s>=threshold-NEAR){secondDone=true;} // keep holding: one longer check
         else{out.silence(burst.size()*CHUNK);rejected(out,s);toUnknown(burst,burstLevels);}
@@ -265,7 +287,7 @@ final class VoiceGate {
   private void startBurst(ArrayDeque<short[]> pre,ArrayDeque<Double> preLevels){
     state=State.SPEECH_DETECTED;burst.clear();burstLevels.clear();
     burst.addAll(pre);burstLevels.addAll(preLevels);before.clear();beforeLevels.clear();
-    talkerLevel=voicedLevel(burstLevels,burst.size());silence=0;secondDone=false;jump=0;above=0;early=Double.NaN;earlyTried=false;voicedChunks=0;
+    talkerLevel=voicedLevel(burstLevels,burst.size());silence=0;secondDone=false;jump=0;above=0;early=Double.NaN;earlyTried=false;voicedChunks=0;scoredChunks=0;
   }
   private void rejected(Output out,double s){
     unknowns++;

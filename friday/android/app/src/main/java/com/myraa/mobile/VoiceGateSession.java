@@ -81,6 +81,7 @@ final class VoiceGateSession {
 
   private void loop(){
     try{
+      gate.warmUp();ControlLog.i("voice id: warm-up check "+gate.checkMs+" ms");
       while(running){
         short[] pcm=input.poll(500,TimeUnit.MILLISECONDS);
         if(pcm==null)continue;
@@ -163,9 +164,9 @@ final class VoiceGateSession {
   }
   int endMs(){return gate.endMs();}
   String diagnostics(){
-    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d (low confidence %d, closest %s) · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet · mic background %s · noise removal %s · clipping %.2f%%%s",
+    return String.format(Locale.ROOT,"Voice ID on · owner %d · ignored %d (low confidence %d, closest %s) · checks %d · last voice %s · needs %.2f · last check %d ms · turn ends after %d ms quiet · voiceprint threads %d · mic background %s · noise removal %s · clipping %.2f%%%s",
       gate.owners,gate.unknowns,gate.lows,Double.isNaN(gate.bestRejected)?"-":String.format(Locale.ROOT,"%.2f",gate.bestRejected),gate.checks,
-      Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),db(noiseRms),gate.noise.active()?"on, helped "+gate.cleaned+" check"+(gate.cleaned==1?"":"s"):"off (quiet)",clipPercent(),failure==null?"":" · "+failure)+tip();
+      Double.isNaN(gate.lastScore)?"-":String.format(Locale.ROOT,"%.2f",gate.lastScore),gate.threshold(),gate.checkMs,gate.endMs(),VoiceEncoder.threads,db(noiseRms),gate.noise.active()?"on, helped "+gate.cleaned+" check"+(gate.cleaned==1?"":"s"):"off (quiet)",clipPercent(),failure==null?"":" · "+failure)+tip();
   }
   /**
    * When ignored speech keeps scoring just under the limit, it is most likely the owner in conditions the
