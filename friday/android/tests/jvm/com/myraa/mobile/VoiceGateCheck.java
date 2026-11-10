@@ -24,6 +24,14 @@ public final class VoiceGateCheck {
       float[] w=wav("owner_enroll_"+i);full.add(enc.embed(w));echo.add(enc.embed(SpeakerProfile.roomEcho(w)));
       shortPrints.add(enc.embed(Arrays.copyOf(w,Math.min(w.length,SpeakerProfile.CHECK_MS*16+10*SileroVad.CHUNK))));
     }
+    {
+      // rc.63: the voiceprint's LSTM layers run as a pipeline on several threads; the numbers must be the ones the one-thread version gives.
+      float[] w=Arrays.copyOf(wav("owner_test_1"),35200);int saved=VoiceEncoder.threads,savedSlices=VoiceEncoder.sliceThreads;
+      VoiceEncoder.threads=1;VoiceEncoder.sliceThreads=1;float[] one=enc.embed(w);
+      VoiceEncoder.threads=3;VoiceEncoder.sliceThreads=2;float[] three=enc.embed(w);
+      VoiceEncoder.threads=saved;VoiceEncoder.sliceThreads=savedSlices;
+      expect("voiceprint on 3 threads (pipelined layers, parallel partials) is bit-identical to 1 thread",Arrays.equals(one,three));
+    }
     SpeakerProfile closeOnly=SpeakerProfile.build(full,shortPrints,1);
     SpeakerProfile p=SpeakerProfile.build(full,shortPrints,echo,1);
     System.out.printf(Locale.ROOT,"profile without room-echo training (before rc.50): %s%n",closeOnly.summary("balanced"));
@@ -176,6 +184,20 @@ public final class VoiceGateCheck {
       double lag=sc.endAt.isEmpty()?Double.POSITIVE_INFINITY:sc.endAt.get(0)-cmdEnd;
       System.out.printf(Locale.ROOT,"   events %s (owner speaks 1.0-%.1f s)%n",sc.events,cmdEnd);
       expect(String.format(Locale.ROOT,"J%d short command (%.1f s)%s: owner, turn ends %.2f s after (limit 0.70 s)",k+1,cmd.length/16000.0,k==0?"":" with people talking behind",lag),sc.owners==1&&lag>=0&&lag<=0.70);
+    }
+    {
+      // rc.63: on a phone whose voice check is slow (here: 400 ms, more than half the 600 ms end-of-turn silence), a short
+      // command with small pauses inside it must not spend checks on each pause: before, two 0.8 s checks were wasted and
+      // the turn ended 2.4 s after the last word. The same audio is also never checked twice at the end of the turn.
+      SileroVad vad;try(InputStream in=new FileInputStream(new File(models,SileroVad.ASSET))){vad=new SileroVad(in);}
+      int[] n={0};
+      VoiceGate g=new VoiceGate(vad,w->{n[0]++;try{Thread.sleep(400);}catch(InterruptedException e){Thread.currentThread().interrupt();}return p.score(enc.embed(w));},t,VoiceGate.DEFAULT_END_MS);
+      g.warmUp();int warm=n[0];
+      short[] pcm=shorts(cat(sil(1),cmd,sil(1.5)));int[] owners={0},ends={0};
+      VoiceGate.Output o=new VoiceGate.Output(){public void owner(short[] x){}public void silence(int s){}public void event(String name,double sc){if("owner".equals(name))owners[0]++;if("end".equals(name))ends[0]++;}};
+      short[] buf=new short[1024];
+      for(int i=0;i<pcm.length;i+=1024){int k=Math.min(1024,pcm.length-i);System.arraycopy(pcm,i,buf,0,k);g.push(buf,k,o);}
+      expect(String.format(Locale.ROOT,"J3 slow phone (check %d ms): short command accepted with one voice check, not three (%d)",g.checkMs,n[0]-warm),owners[0]==1&&ends[0]==1&&n[0]-warm==1);
     }
     endMs=800;
 

@@ -3,6 +3,7 @@ package com.myraa.mobile;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -61,9 +62,20 @@ final class VoiceEncoder {
     int need=slices.get(slices.size()-1)[1]*HOP;
     float[] padded=wav;
     if(need>wav.length){padded=new float[need];System.arraycopy(wav,0,padded,0,wav.length);}
-    float[][] mel=melSpectrogram(padded);
+    final float[][] mel=melSpectrogram(padded);
+    final float[][] parts=new float[slices.size()][];
+    if(parts.length>1&&sliceThreads>=2){
+      // Longer audio (the second look, enrollment): the partials are independent, so a phone with
+      // enough cores computes them side by side; the sum below stays in order, so the result is the same.
+      Thread[] ts=new Thread[parts.length];
+      try{
+        for(int k=1;k<parts.length;k++){final int kk=k,st=slices.get(k)[0];ts[k]=new Thread(()->parts[kk]=forward(mel,st),"friday-voiceprint-part-"+k);ts[k].setDaemon(true);ts[k].start();}
+      }catch(RuntimeException|OutOfMemoryError e){ /* whatever did not start is computed below */ }
+      parts[0]=forward(mel,slices.get(0)[0]);
+      for(int k=1;k<parts.length;k++){if(ts[k]!=null)try{ts[k].join();}catch(InterruptedException e){Thread.currentThread().interrupt();}if(parts[k]==null)parts[k]=forward(mel,slices.get(k)[0]);}
+    }else for(int k=0;k<parts.length;k++)parts[k]=forward(mel,slices.get(k)[0]);
     float[] sum=new float[DIM];
-    for(int[] sl:slices){float[] e=forward(mel,sl[0]);for(int i=0;i<DIM;i++)sum[i]+=e[i];}
+    for(float[] e:parts)for(int i=0;i<DIM;i++)sum[i]+=e[i];
     return normalize(sum);
   }
   static double cosine(float[] a,float[] b){
@@ -95,6 +107,15 @@ final class VoiceEncoder {
     return out;
   }
   /**
+   * Threads a voiceprint may use: the three LSTM layers run as a pipeline (layer l+1 works on time
+   * step t while layer l is already on t+1), which is 2-3 times faster on a phone with several
+   * cores and gives exactly the same numbers as the one-thread version (same operations in the
+   * same order per element). 1 = one thread (also the fallback when a thread cannot be started).
+   */
+  static volatile int threads=Math.min(LAYERS,Runtime.getRuntime().availableProcessors());
+  /** Partials computed side by side when the phone has cores to spare beyond the layer pipeline (2 = yes). */
+  static volatile int sliceThreads=Runtime.getRuntime().availableProcessors()>=2*LAYERS?2:1;
+  /**
    * One partial (160 mel frames from start) through the LSTM, linear layer, ReLU and L2 norm.
    * Float sums with four running totals: the same result to about 1e-6, and several times faster
    * on a phone than one double sum (this runs for every check of who is speaking).
@@ -102,6 +123,14 @@ final class VoiceEncoder {
   private float[] forward(float[][] mel,int start){
     float[] seq=new float[PARTIAL*MELS];
     for(int t=0;t<PARTIAL;t++)System.arraycopy(mel[start+t],0,seq,t*MELS,MELS);
+    float[] h=threads>=2?pipelined(seq):null;
+    if(h==null)h=sequential(seq);
+    float[] e=new float[DIM];
+    for(int i=0;i<DIM;i++)e[i]=Math.max(0f,linB[i]+dot(linW,i*HID,h,0,HID));
+    return normalize(e);
+  }
+  /** All layers on this thread; returns the last layer's final hidden state. */
+  private float[] sequential(float[] seq){
     int in=MELS;float[] h=null;
     for(int l=0;l<LAYERS;l++){
       float[] wi=wih[l],wh=whh[l],b=bias[l];
@@ -112,17 +141,56 @@ final class VoiceEncoder {
       for(int t=0;t<PARTIAL;t++){
         int go=t*4*HID;
         for(int r=0;r<4*HID;r++)g[r]=xg[go+r]+dot(wh,r*HID,h,0,HID);
-        for(int k=0;k<HID;k++){
-          float ig=sig(g[k]),fg=sig(g[HID+k]),cg=(float)Math.tanh(g[2*HID+k]),og=sig(g[3*HID+k]);
-          c[k]=fg*c[k]+ig*cg;h[k]=og*(float)Math.tanh(c[k]);
-        }
+        step(g,c,h);
         System.arraycopy(h,0,outSeq,t*HID,HID);
       }
       seq=outSeq;in=HID;
     }
-    float[] e=new float[DIM];
-    for(int i=0;i<DIM;i++)e[i]=Math.max(0f,linB[i]+dot(linW,i*HID,h,0,HID));
-    return normalize(e);
+    return h;
+  }
+  /** One LSTM cell update from the gate pre-activations g (i, f, g, o) into c and h. */
+  private static void step(float[] g,float[] c,float[] h){
+    for(int k=0;k<HID;k++){
+      float ig=sig(g[k]),fg=sig(g[HID+k]),cg=(float)Math.tanh(g[2*HID+k]),og=sig(g[3*HID+k]);
+      c[k]=fg*c[k]+ig*cg;h[k]=og*(float)Math.tanh(c[k]);
+    }
+  }
+  /**
+   * The layers as a pipeline: layer 0 runs on this thread, each further layer on its own thread,
+   * each waiting for the time step below it to be ready. Null when a thread could not be started
+   * (the caller then runs the one-thread version).
+   */
+  private float[] pipelined(float[] seq){
+    final int n=Math.min(threads,LAYERS);
+    final float[][] out=new float[LAYERS][PARTIAL*HID];
+    final java.util.concurrent.atomic.AtomicInteger[] ready=new java.util.concurrent.atomic.AtomicInteger[LAYERS];
+    for(int l=0;l<LAYERS;l++)ready[l]=new java.util.concurrent.atomic.AtomicInteger();
+    final float[] input=seq;final Thread[] workers=new Thread[LAYERS];final boolean[] failed=new boolean[1];
+    try{
+      // Layers 1.. on helper threads (with 2 threads layers 1 and 2 share the second thread).
+      for(int w=1;w<n;w++){
+        final int from=w,to=w==n-1?LAYERS-1:w;
+        workers[w]=new Thread(()->{for(int l=from;l<=to;l++)layer(l,out[l-1],ready[l-1],out[l],ready[l]);},"friday-voiceprint-"+w);
+        workers[w].setDaemon(true);workers[w].start();
+      }
+    }catch(RuntimeException|OutOfMemoryError e){failed[0]=true;}
+    if(failed[0]){ready[0].set(PARTIAL);for(int l=1;l<LAYERS;l++)ready[l].set(PARTIAL);for(Thread t:workers)if(t!=null)try{t.join();}catch(InterruptedException ie){Thread.currentThread().interrupt();}return null;}
+    layer(0,input,null,out[0],ready[0]);
+    for(int w=1;w<n;w++)try{workers[w].join();}catch(InterruptedException e){Thread.currentThread().interrupt();return null;}
+    return Arrays.copyOfRange(out[LAYERS-1],(PARTIAL-1)*HID,PARTIAL*HID);
+  }
+  /** One LSTM layer over all time steps, each step as soon as the layer below has produced it. */
+  private void layer(int l,float[] seq,java.util.concurrent.atomic.AtomicInteger below,float[] outSeq,java.util.concurrent.atomic.AtomicInteger ready){
+    int in=l==0?MELS:HID;float[] wi=wih[l],wh=whh[l],b=bias[l];
+    float[] h=new float[HID],c=new float[HID],g=new float[4*HID];
+    for(int t=0;t<PARTIAL;t++){
+      if(below!=null)for(int spins=0;below.get()<=t;spins++){if(spins>200)Thread.yield();}
+      int xo=t*in;
+      for(int r=0;r<4*HID;r++)g[r]=b[r]+dot(wi,r*in,seq,xo,in)+dot(wh,r*HID,h,0,HID);
+      step(g,c,h);
+      System.arraycopy(h,0,outSeq,t*HID,HID);
+      ready.set(t+1);
+    }
   }
   /** a[ao..ao+n) . x[xo..xo+n), n a multiple of 4. */
   private static float dot(float[] a,int ao,float[] x,int xo,int n){
