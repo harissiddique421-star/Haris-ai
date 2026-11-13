@@ -23,7 +23,7 @@ curl -fsSL -o "$JSON" https://repo1.maven.org/maven2/org/json/json/20240303/json
 echo "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  $JSON" | sha256sum -c -
 SRC=android/app/src/main/java/com/myraa/mobile
 javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" \
-  "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/Voiceprinter.java" "$SRC/VoiceEncoder.java" "$SRC/SpeechSegmenter.java" \
+  "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/Voiceprinter.java" "$SRC/VoiceEncoder.java" "$SRC/TitaNet.java" "$SRC/WakeSpotter.java" $(find android/app/src/main/java/com/k2fsa -name "*.java") "$SRC/SpeechSegmenter.java" \
   "$SRC/SpeakerProfile.java" "$SRC/NoiseReducer.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
   "$SRC/MemoryRank.java" "$SRC/NoteLogic.java" "$SRC/LinkSafety.java" "$SRC/ExpenseLogic.java" "$SRC/HabitLogic.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" "$SRC/UnlockTask.java" \
   "$SRC/VoiceNotes.java" "$SRC/ContactMatcher.java" "$SRC/TextProviders.java" "$SRC/GeminiAccess.java" android/tests/jvm/android/content/Context.java \
