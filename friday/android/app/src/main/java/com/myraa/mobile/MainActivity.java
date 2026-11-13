@@ -414,7 +414,7 @@ public class MainActivity extends Activity {
   /** Tells the Live model the real, current state of the control layer so it does not ask for Accessibility when it is already on. */
   private String controlPrompt() {
     boolean ready = PhoneController.get() != null, on = PhoneController.enabled(this);
-    ControlLog.i("live call starting: accessibility " + (ready ? "connected (ready)" : on ? "enabled, not connected yet" : "off"));
+    ControlLog.i((buildingAgentInstruction ? "agentic: instruction built, accessibility " : "live call starting: accessibility ") + (ready ? "connected (ready)" : on ? "enabled, not connected yet" : "off"));
     return "\nPhone control status right now: " + (ready ? "READY. FRIDAY's accessibility service is on and connected, so use the tools directly. Do not ask the user to turn on Accessibility." : on ? "the FRIDAY accessibility switch is on and Android is connecting it; use the tools normally, the phone waits for it." : "OFF. Phone control and WhatsApp auto-send need the FRIDAY accessibility switch; mention it only if a tool result says permission_required.")
       + " The phone re-checks this live on every action. Only tell the user to enable Accessibility when a mobile_action result has status permission_required, and say it once, not every turn.";
   }
@@ -669,7 +669,7 @@ public class MainActivity extends Activity {
     /** Agentic mode settings (voice engine, brain, ear language, who FRIDAY answers). Empty input reads them. */
     @JavascriptInterface public String agentOptions(String raw) { return agentOptionsJson(raw); }
     /** The same instructions a Live call gets, for agentic mode's system message. */
-    @JavascriptInterface public String agentInstruction() { try { return liveInstruction(); } catch (RuntimeException e) { return ""; } }
+    @JavascriptInterface public String agentInstruction() { synchronized (MainActivity.this) { buildingAgentInstruction = true; try { return liveInstruction(); } catch (RuntimeException e) { return ""; } finally { buildingAgentInstruction = false; } } }
     @JavascriptInterface public void stopSpeech() { if (tts != null) tts.stop(); if (geminiVoice != null) geminiVoice.stop(); emit(json("type", "speech", "active", false)); }
     /** Agentic mode's spoken reply: the phone's voice (default), or Gemini's natural voice when chosen in Settings. */
     @JavascriptInterface public void agentSpeak(String text) { agentSpeakText(text == null ? "" : text); }
@@ -1077,7 +1077,7 @@ public class MainActivity extends Activity {
 
   private void speakText(String text) {
     runOnUiThread(() -> {
-      if (!foreground) return;
+      if (!foreground && !agentBackground) return;
       if (!ttsReady || tts == null) { error("tts", "No ready Android text-to-speech engine is available. Text chat still works.", null); return; }
       int language = tts.setLanguage(Locale.forLanguageTag(prefs.getString("language", "hi-IN")));
       if ((language == TextToSpeech.LANG_MISSING_DATA || language == TextToSpeech.LANG_NOT_SUPPORTED) && prefs.getString("language", "").startsWith("ur")) language = tts.setLanguage(Locale.forLanguageTag("hi-IN"));
@@ -1147,11 +1147,31 @@ public class MainActivity extends Activity {
   private final ExecutorService agentExec = Executors.newSingleThreadExecutor();
   private volatile HttpsURLConnection agentConnection;
   private Ear agentEar;
+  private volatile boolean buildingAgentInstruction;
+  /** True while agentic mode holds the call service, so it keeps listening, working and speaking in other apps. */
+  private volatile boolean agentBackground;
+
+  /**
+   * Agentic mode opens WhatsApp, Settings and other apps, so FRIDAY leaves the screen while it works. Like a Live call it
+   * then needs the call service (a microphone foreground service): without it Android pauses the page and the
+   * microphone the moment another app comes to the front, and the task stops half way.
+   */
+  private void agentService(boolean on) {
+    if (on) {
+      if (agentBackground) return;
+      if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) { ControlLog.i("agentic: no call service (notifications blocked), it stops if FRIDAY leaves the screen"); return; }
+      try { startForegroundService(new Intent(this, LiveVoiceService.class)); allowBackgroundLive = true; agentBackground = true; backgroundPage(true); ControlLog.i("agentic: call service started, keeps working in other apps"); }
+      catch (RuntimeException e) { ControlLog.i("agentic: call service not started (" + e.getClass().getSimpleName() + ")"); }
+    } else if (agentBackground) {
+      agentBackground = false; allowBackgroundLive = false; backgroundPage(false);
+      stopService(new Intent(this, LiveVoiceService.class));
+    }
+  }
   private GeminiVoice geminiVoice;
 
   private void agentSpeakText(String text) {
     if (!"gemini".equals(prefs.getString("agentVoice", "phone")) || !prefs.contains("keyCipher")) { speakText(text); return; }
-    if (!foreground) return;
+    if (!foreground && !agentBackground) return;
     if (tts != null) tts.stop();
     if (geminiVoice == null) geminiVoice = new GeminiVoice(this::readKey);
     String voice = memory == null ? "Aoede" : memory.voice();
@@ -1176,6 +1196,7 @@ public class MainActivity extends Activity {
       java.util.function.Supplier<VoiceGate> gates = prefs.contains("keyCipher") ? VoiceId.gates(this, why) : null;
       if (!prefs.contains("keyCipher") && VoiceId.active(this)) why[0] = "no Gemini key";
       WakeWordService.livePaused(this, true);
+      runOnUiThread(() -> agentService(true));
       if (gates != null) {
         if (agentEar instanceof GatedEar) ((GatedEar) agentEar).shutdown();
         agentEar = new GatedEar(gates, this::transcribeSpeech, listener);
@@ -1190,7 +1211,7 @@ public class MainActivity extends Activity {
       return "ok";
     }
     if (agentEar == null) return "ok";
-    if ("stop".equals(command)) { agentEar.stop(); WakeWordService.livePaused(this, false); }
+    if ("stop".equals(command)) { agentEar.stop(); WakeWordService.livePaused(this, false); runOnUiThread(() -> agentService(false)); }
     else if ("pause".equals(command)) agentEar.pause(true);
     else if ("resume".equals(command)) agentEar.pause(false);
     return "ok";
