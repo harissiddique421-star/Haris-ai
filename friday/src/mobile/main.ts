@@ -20,6 +20,7 @@ import { evelynConfig } from '../character/config/characters/evelyn';
 import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
+import { ConfirmMemory } from './confirmYes';
 
 interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; moduleOptions?(module: string, on: boolean): string; activityHistory?(): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; agentStep?(id: string, json: string): void; agentCancel?(): void; agentEar?(command: string, lang: string): string; agentOptions?(json: string): string; agentInstruction?(): string; agentSpeak?(text: string): void; consumeOrder?(): string; ordersList?(): string; ordersDelete?(id: string): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
@@ -223,7 +224,33 @@ setInterval(() => {
   liveSession.sendText('[Phone] The user has not said anything since your opening line. Say one very short, calm line such as "Main yahin hoon, jab bolo." and then stay silent until they speak.');
 }, 3000);
 /** Contact actions also get what the user actually said (stays on the phone), so a name the model misheard can still be found. */
-const CONTACT_ACTIONS = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'open_contact', 'email', 'emergency_contact']);
+const CONTACT_ACTIONS = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'open_contact', 'email', 'emergency_contact', 'send_document', 'reply_message']);
+/** The last "send this?" question; a clear yes from the user is carried out by the phone itself (see confirmYes.ts). */
+const confirmMemory = new ConfirmMemory();
+/** A mobile_action from the model: a token the phone already used returns that result instead of running twice. */
+function modelDispatch(name: string, args: any): Promise<any> {
+  const done = confirmMemory.already(args);
+  if (done) return Promise.resolve(done);
+  return orchestrator.dispatch(name, withHeard(args)).then(result => { confirmMemory.saw(args, result); return result; });
+}
+/**
+ * The user answered yes ("haan", "hn kro") to the last send question: the phone sends it at once, then tells the
+ * model what happened, so a model that lost the thread can't ask again or change the message. Returns true when it acted.
+ */
+function phoneYes(text: string): boolean {
+  const p = confirmMemory.answer(text);
+  if (!p) return false;
+  const run = orchestrator.dispatch('mobile_action', { ...p.args, confirm_token: p.token }, true);
+  confirmMemory.ran(p.token, run);
+  void run.then(result => {
+    confirmMemory.ran(p.token, result);
+    notice(String(result?.message || 'Done.')); appendAction(p.action, result); trackAction(p.action, p.args, String(result?.status || ''));
+    const what = `${p.action}${p.args.recipient ? ` to ${String(p.args.recipient).slice(0, 60)}` : ''}${p.args.message ? `: "${String(p.args.message).slice(0, 200)}"` : ''}`;
+    orchestrator.phonePrompted();
+    voiceSend(`[Phone] The user answered "${text.slice(0, 60)}" (yes) to your question, so the phone already did it (${what}). Result: ${String(result?.message || result?.status || '').slice(0, 300)} Tell the user in one short line. Do not call ${p.action} again for this.`);
+  });
+  return true;
+}
 function withHeard(args: any) {
   if (!args || typeof args !== 'object' || !CONTACT_ACTIONS.has(String(args.action || ''))) return args;
   const said = (liveCaption?.role === 'user' ? liveCaption.body.textContent : lastUserCaption) || '';
@@ -323,7 +350,7 @@ function liveTranscription(role: 'user' | 'model', text: string) {
   markActivity(); logCaption(role, text);
   if (role === 'user') { orchestrator.userSpoke(); userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; }
   // A finished user sentence (FRIDAY starts answering) sets the tone for the reply.
-  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption, lastToneCue); lastToneCue = null; topics.heard(lastUserCaption); }
+  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption, lastToneCue); lastToneCue = null; topics.heard(lastUserCaption); phoneYes(lastUserCaption); }
   if (!liveCaption || liveCaption.role !== role) {
     append(role, ''); liveCaption = { role, body: el('messages').lastElementChild!.querySelector('p')! };
   }
@@ -1175,6 +1202,7 @@ function send() {
   if (mobile) { input.value = ''; append('user', text); void runTyped(mobile); showView('chat'); return; }
   showView('chat');
   // Typed into a Live call: this is the user's own request, exactly like speaking it (so the security check lets it act).
+  if ((agentSession?.active() || (liveSession && liveSession.getState() !== 'disconnected')) && phoneYes(text)) { orchestrator.userSpoke(); input.value = ''; append('user', text); return; }
   if (agentSession?.active()) { orchestrator.userSpoke(); agentSession.sendText(text); input.value = ''; append('user', text); return; }
   if (liveSession && liveSession.getState() !== 'disconnected') { orchestrator.userSpoke(); userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; liveSession.sendText(text); input.value = ''; append('user', text); return; }
   const command = parseCharacterCommand(text);
@@ -1253,7 +1281,7 @@ function startAgentic(startedBy: string) {
   const session = new AgenticSession({
     step: (messages, tools) => new Promise((resolve, reject) => { const id = crypto.randomUUID(); agentSteps.set(id, { resolve, reject }); bridge!.agentStep!(id, JSON.stringify({ messages, tools })); }),
     cancelStep: () => { bridge?.agentCancel?.(); for (const [, p] of agentSteps) p.reject(new Error('cancelled')); agentSteps.clear(); },
-    dispatch: (name, args) => orchestrator.dispatch(name, withHeard(args)),
+    dispatch: (name, args) => modelDispatch(name, args),
     speak: agentSpeak,
     ear: command => bridge?.agentEar?.(command, '') || 'Agentic mode needs the updated Android app.',
     instruction: () => bridge?.agentInstruction?.() || '',
@@ -1263,7 +1291,7 @@ function startAgentic(startedBy: string) {
       system?.setFrameInput({ activity: s === 'speaking' ? 'talking' : s === 'thinking' || s === 'acting' ? 'thinking' : s === 'listening' ? 'listening' : 'idle', emotion: s === 'thinking' || s === 'acting' ? 'thinking' : 'idle' } as any);
       bridge?.companion?.(s === 'stopped' ? 'idle' : s === 'speaking' ? 'speaking' : 'listening', '', 0);
     },
-    onUser: text => { orchestrator.userSpoke(); markActivity(); lastUserCaption = text; append('user', text); },
+    onUser: text => { orchestrator.userSpoke(); markActivity(); lastUserCaption = text; append('user', text); phoneYes(text); },
     onReply: text => { lastReply = text; append('model', text); },
     onNotice: text => notice(text),
     onIgnored: text => notice(`Not answered, it sounded meant for someone else: "${text.slice(0, 60)}". Say "FRIDAY" first if it was for me.`),
@@ -1300,7 +1328,7 @@ el('voice').onclick = () => {
     onReplyLatency: ms => { if (ms >= 0 && ms < 60_000) { metric('live_reply'); metric('live_reply_ms', ms); } },
     connection: { createSocket: () => new MobileLiveTransport(bridge), voiceGate: voiceGateLink },
     onStateChange: liveState, onTranscription: liveTranscription,
-    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void orchestrator.dispatch(name, withHeard(args)).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
+    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void modelDispatch(name, args).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
       // Gemini gets the tone to use and what is open/playing now, so follow-ups like "volume kam karo" or "Quran wali video chalao" need no extra questions.
       callback({ ...result, tone, tone_hint: TONE_HINT[tone], context: { current_app: convo.currentApp || 'unknown', now_playing: convo.media || 'nothing known', last_action: action } }); if (/^(?:set_(?:driving_mode|call_announce|wake_word|language)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => { noGreeting = true; el('voice').click(); }, 900); }, 3500); } }); },
     onError: message => {
