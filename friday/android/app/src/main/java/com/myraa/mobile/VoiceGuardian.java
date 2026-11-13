@@ -177,11 +177,11 @@ final class VoiceGuardian {
     // TitaNet voiceprint too, when sherpa-onnx runs on this phone: it tells the owner from others far better.
     TitaNet tn=SherpaVoice.titanet(c);
     if(tn!=null){
-      float[][] tp=new float[takes.size()][];float[] sum=null;boolean ok=true;
-      for(int i=0;i<tp.length&&ok;i++){tp[i]=tn.embed(VoiceEncoder.toFloat(takes.get(i)));if(tp[i]==null){ok=false;break;}if(sum==null)sum=new float[tp[i].length];for(int k=0;k<sum.length;k++)sum[k]+=tp[i][k];}
+      float[][] tp=new float[takes.size()][];float[] tsum=null;boolean ok=true;
+      for(int i=0;i<tp.length&&ok;i++){tp[i]=tn.embed(VoiceEncoder.toFloat(takes.get(i)));if(tp[i]==null){ok=false;break;}if(tsum==null)tsum=new float[tp[i].length];for(int k=0;k<tsum.length;k++)tsum[k]+=tp[i][k];}
       if(ok){
-        float[] mean=VoiceEncoder.normalize(sum);double self=1;for(float[] e:tp)self=Math.min(self,VoiceEncoder.cosine(e,mean));
-        if(self>=TitaNet.GUARDIAN_MIN_ENROLL){v.tPrint=mean;v.tSelf=self;}
+        float[] tmean=VoiceEncoder.normalize(tsum);double self=1;for(float[] e:tp)self=Math.min(self,VoiceEncoder.cosine(e,tmean));
+        if(self>=TitaNet.GUARDIAN_MIN_ENROLL){v.tPrint=tmean;v.tSelf=self;}
         else ControlLog.i(String.format(Locale.ROOT,"guardian: TitaNet recordings disagree (%.2f), using the basic voiceprint",self));
       }
     }
