@@ -21,10 +21,28 @@ final class Autonomy {
   static String normalize(String level){return "assisted".equals(level)||"maximum".equals(level)?level:"balanced";}
   static String level(Context c){return normalize(prefs(c).getString("level","balanced"));}
   static boolean paused(Context c){return prefs(c).getBoolean("paused",false);}
+  /** WhatsApp messages the owner dictated (name and words in their own sentence) are sent without a second question. On by default. */
+  static boolean directMessages(Context c){return prefs(c).getBoolean("directMessages",true);}
+
+  /**
+   * True when the user's own last sentence already holds the recipient and the message: a word of the contact's
+   * name (or of the name the model passed) and at least 70% of the message words. Then that sentence was the
+   * confirmation. Any rewording, translation or extra text by the model fails this, so FRIDAY asks once as before.
+   */
+  static boolean dictated(String heard,String contactName,String asked,String text){
+    String h=" "+norm(heard)+" ";if(h.trim().isEmpty()||text==null)return false;
+    boolean named=false;
+    for(String n:(norm(contactName)+" "+norm(asked)).split(" "))if(n.length()>=3&&h.contains(" "+n+" ")){named=true;break;}
+    if(!named)return false;
+    String[] words=norm(text).split(" ");int all=0,found=0;
+    for(String w:words){if(w.isEmpty())continue;all++;if(h.contains(" "+w+" "))found++;}
+    return all>0&&found*10>=all*7;
+  }
+  private static String norm(String s){return s==null?"":s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+"," ").trim();}
 
   static JSONObject state(Context c){
     JSONObject s=new JSONObject();
-    try{s.put("level",level(c)).put("paused",paused(c)).put("modulesOff",new org.json.JSONArray(modulesOff(c)));}catch(JSONException ignored){}
+    try{s.put("level",level(c)).put("paused",paused(c)).put("directMessages",directMessages(c)).put("modulesOff",new org.json.JSONArray(modulesOff(c)));}catch(JSONException ignored){}
     return s;
   }
 
@@ -50,6 +68,7 @@ final class Autonomy {
     JSONObject r=new JSONObject();
     try{
       if("pause".equals(l)){prefs(c).edit().putBoolean("paused",true).apply();ControlLog.i("autonomy: paused");r.put("status","done").put("message","FRIDAY is paused: no phone actions and no check-ins until you say \"pause khatam karo\" or turn it off in Settings.");}
+      else if("direct_on".equals(l)||"direct_off".equals(l)){boolean on="direct_on".equals(l);prefs(c).edit().putBoolean("directMessages",on).apply();ControlLog.i("autonomy: direct messages "+on);r.put("status","done").put("message",on?"WhatsApp messages you dictate yourself (name and words) are sent without asking again.":"FRIDAY asks once before every WhatsApp message.");}
       else if("resume".equals(l)){prefs(c).edit().putBoolean("paused",false).apply();ControlLog.i("autonomy: resumed");r.put("status","done").put("message","Pause is off. FRIDAY works normally again ("+label(level(c))+" mode).");}
       else if(l.matches("assisted|balanced|maximum")){prefs(c).edit().putString("level",l).apply();ControlLog.i("autonomy: "+l);r.put("status","done").put("message",label(l)+" mode is on. "+explain(l));}
       else r.put("status","error").put("message","Say assisted, balanced, maximum, pause or resume.");
