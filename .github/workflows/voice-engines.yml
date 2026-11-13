@@ -1,6 +1,6 @@
 name: Compare voice engines
 
-# Downloads sherpa-onnx speaker, wake word and TTS models and compares them with FRIDAY's current
+# Downloads sherpa-onnx speaker and wake word models and compares them with FRIDAY's current
 # voice engine on the Voice ID test recordings. Read-only: it builds nothing and changes nothing.
 # The report is in the run summary and in the voice-engines-report artifact.
 
@@ -31,14 +31,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install sherpa-onnx
-        run: pip install "sherpa-onnx==2.0.1" "numpy<3" "sentencepiece==0.2.1" "pypinyin==0.55.0"
+      - name: Install sherpa-onnx and espeak-ng
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+          pip install "sherpa-onnx==2.0.1" "numpy<3" "sentencepiece==0.2.1" "pypinyin==0.55.0"
       - name: Download models
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -u
-          M="$RUNNER_TEMP/models"; mkdir -p "$M/speaker" "$M/kws" "$M/tts"
+          M="$RUNNER_TEMP/models"; mkdir -p "$M/speaker" "$M/kws"
           R=k2-fsa/sherpa-onnx
           # Speaker models: each one is optional, so a renamed file skips that model only.
           for f in wespeaker_en_voxceleb_resnet34.onnx wespeaker_en_voxceleb_CAM++.onnx \
@@ -48,9 +50,7 @@ jobs:
           done
           gh release download kws-models -R "$R" -p "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2" -D "$M" \
             && tar -xjf "$M"/sherpa-onnx-kws-zipformer-gigaspeech-*.tar.bz2 -C "$M/kws" || echo "skipped wake word model"
-          gh release download tts-models -R "$R" -p "vits-piper-en_US-amy-low.tar.bz2" -D "$M" \
-            && tar -xjf "$M"/vits-piper-en_US-amy-low.tar.bz2 -C "$M/tts" || echo "skipped TTS model"
-          ls -la "$M/speaker"; find "$M/kws" "$M/tts" -maxdepth 2 | head -40
+          ls -la "$M/speaker"; find "$M/kws" -maxdepth 2 | head -40
           echo "MODELS=$M" >> "$GITHUB_ENV"
       - name: Score the current voiceprint (GE2E)
         run: |

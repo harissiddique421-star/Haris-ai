@@ -8,7 +8,7 @@ voiceprint. Scores from different models are not on the same scale, so the compa
   - gap: lowest owner score minus highest other score (positive = a threshold separates them all),
   - EER: equal error rate over the 1.2 s windows (lower is better).
 
-Wake word: sherpa-onnx keyword spotting on synthetic speech (a Piper TTS voice, clean and with the
+Wake word: sherpa-onnx keyword spotting on synthetic speech (espeak-ng voices, clean and with the
 TV recordings mixed in). The repository has no real "Wake up FRIDAY" recordings, so this only shows
 whether the engine can hear the phrases, not how it does on the owner's voice.
 
@@ -95,15 +95,13 @@ def find_one(root, pattern):
 
 def wake_word(sherpa_onnx, models, fx):
     kws_dir = os.path.join(models, "kws")
-    tts_dir = os.path.join(models, "tts")
     enc = find_one(kws_dir, "encoder*.int8.onnx") or find_one(kws_dir, "encoder*.onnx")
     dec = find_one(kws_dir, "decoder*.onnx")
     joi = find_one(kws_dir, "joiner*.int8.onnx") or find_one(kws_dir, "joiner*.onnx")
     tokens = find_one(kws_dir, "tokens.txt")
     bpe = find_one(kws_dir, "bpe.model")
-    vits = find_one(tts_dir, "*.onnx")
-    if not all([enc, dec, joi, tokens, bpe, vits]):
-        return {"error": "wake word or TTS model files not found"}
+    if not all([enc, dec, joi, tokens, bpe]):
+        return {"error": "wake word model files not found"}
 
     phrases = ["WAKE UP FRIDAY", "HEY FRIDAY", "FRIDAY WAKE UP"]
     lines = sherpa_onnx.text2token(phrases, tokens=tokens, tokens_type="bpe", bpe_model=bpe)
@@ -112,21 +110,13 @@ def wake_word(sherpa_onnx, models, fx):
         for toks, p in zip(lines, phrases):
             f.write(" ".join(toks) + " @" + p.replace(" ", "_") + "\n")
 
-    tts = sherpa_onnx.OfflineTts(sherpa_onnx.OfflineTtsConfig(model=sherpa_onnx.OfflineTtsModelConfig(
-        vits=sherpa_onnx.OfflineTtsVitsModelConfig(
-            model=vits, tokens=find_one(tts_dir, "tokens.txt"),
-            data_dir=os.path.dirname(find_one(tts_dir, "phontab") or "")),
-        num_threads=2)))
+    import subprocess, tempfile
 
-    def say(text, speed=1.0):
-        a = tts.generate(text, sid=0, speed=speed)
-        wav = np.array(a.samples, dtype=np.float32)
-        if len(wav) == 0 or a.sample_rate <= 0:
-            raise RuntimeError(f"TTS produced no audio for {text!r} (sample rate {a.sample_rate}); model {vits}")
-        if a.sample_rate != 16000:
-            idx = np.arange(0, len(wav), a.sample_rate / 16000)
-            wav = np.interp(idx, np.arange(len(wav)), wav).astype(np.float32)
-        return wav
+    def say(text, voice="en-us", speed=1.0):
+        # espeak-ng (installed by the workflow): several accents and voices, no model download.
+        with tempfile.NamedTemporaryFile(suffix=".wav") as f:
+            subprocess.run(["espeak-ng", "-v", voice, "-s", str(int(160 * speed)), "-w", f.name, text], check=True)
+            return read_wav(f.name)
 
     kws = sherpa_onnx.KeywordSpotter(tokens=tokens, encoder=enc, decoder=dec, joiner=joi,
                                      num_threads=2, keywords_file=kw_file, provider="cpu",
@@ -154,13 +144,14 @@ def wake_word(sherpa_onnx, models, fx):
         return (wav + noise * scale).astype(np.float32)
 
     tests = []
-    for p, speed in [("Wake up Friday", 1.0), ("Wake up Friday", 1.2), ("Hey Friday", 1.0), ("Friday, wake up", 1.0)]:
-        w = say(p, speed)
-        tests.append({"say": p, "speed": speed, "noise": "none", "expect": True, "heard": heard(w)})
-        tests.append({"say": p, "speed": speed, "noise": "TV at 10 dB below", "expect": True, "heard": heard(with_tv(w, 10))})
-    for p in ["What day is it today", "Wake me up at six on Friday", "Hey, open WhatsApp", "Play some music"]:
-        tests.append({"say": p, "speed": 1.0, "noise": "none", "expect": False, "heard": heard(say(p))})
-    tests.append({"say": "(TV recordings only)", "speed": 1.0, "noise": "-", "expect": False, "heard": heard(tv)})
+    for p in ["Wake up Friday", "Hey Friday", "Friday, wake up"]:
+        for voice, speed in [("en-us", 1.0), ("en-gb", 1.0), ("en-us+f3", 1.2), ("en-gb+m3", 0.9)]:
+            w = say(p, voice, speed)
+            tests.append({"say": p, "voice": voice, "speed": speed, "noise": "none", "expect": True, "heard": heard(w)})
+            tests.append({"say": p, "voice": voice, "speed": speed, "noise": "TV at 10 dB below", "expect": True, "heard": heard(with_tv(w, 10))})
+    for p in ["What day is it today", "Wake me up at six on Friday", "Hey, open WhatsApp", "Play some music", "I will see you on Friday"]:
+        tests.append({"say": p, "voice": "en-us", "speed": 1.0, "noise": "none", "expect": False, "heard": heard(say(p))})
+    tests.append({"say": "(TV recordings only)", "voice": "-", "speed": 1.0, "noise": "-", "expect": False, "heard": heard(tv)})
     for t in tests:
         t["ok"] = bool(t["heard"]) == t["expect"]
     return {"model": os.path.basename(os.path.dirname(enc)), "tests": tests}
@@ -198,14 +189,14 @@ def main():
         md.append(f"| {r['model']} | {r['owner_min']:.3f} | {r['other_max']:.3f} | {r['gap']:+.3f} | {r['window_eer']*100:.1f}% ({r['windows']} windows) |")
     for e in errors:
         md.append(f"\nFailed: {e}")
-    md += ["", "## Wake word (sherpa-onnx keyword spotting, synthetic TTS speech)", ""]
+    md += ["", "## Wake word (sherpa-onnx keyword spotting, synthetic espeak-ng speech)", ""]
     if "error" in wake:
         md.append(f"Not run: {wake['error']}")
     else:
         md.append(f"Model: {wake['model']}. Passed {sum(t['ok'] for t in wake['tests'])} of {len(wake['tests'])}.")
-        md += ["", "| Said | Speed | Noise | Should wake | Heard | OK |", "|---|---|---|---|---|---|"]
+        md += ["", "| Said | Voice | Speed | Noise | Should wake | Heard | OK |", "|---|---|---|---|---|---|---|"]
         for t in wake["tests"]:
-            md.append(f"| {t['say']} | {t['speed']} | {t['noise']} | {'yes' if t['expect'] else 'no'} | {', '.join(t['heard']) or '-'} | {'yes' if t['ok'] else 'NO'} |")
+            md.append(f"| {t['say']} | {t['voice']} | {t['speed']} | {t['noise']} | {'yes' if t['expect'] else 'no'} | {', '.join(t['heard']) or '-'} | {'yes' if t['ok'] else 'NO'} |")
     text = "\n".join(md) + "\n"
     print(text)
     with open(a.out, "w") as f:
