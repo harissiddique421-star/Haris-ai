@@ -17,7 +17,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(503).json({ error: "AI service is not configured yet." });
 
-  const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+  let body: any;
+  try {
+    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+  } catch {
+    return res.status(400).json({ error: "Request body must be valid JSON." });
+  }
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const history = Array.isArray(body?.history) ? body.history.slice(-12) : [];
   if (!message) return res.status(400).json({ error: "Message is required." });
