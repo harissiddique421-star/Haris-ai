@@ -114,7 +114,7 @@ final class Research {
    * Google is often busy ("overloaded", 503) or a model's quota runs out (429). Try the user's model twice with a
    * short wait, then FRIDAY's other models, so a busy moment does not end the research. Key problems stop at once.
    */
-  private static JSONObject call(String key,String model,JSONObject request) throws Exception {
+  static JSONObject call(String key,String model,JSONObject request) throws Exception {
     Exception last=null;long started=System.currentTimeMillis();
     for(String m:models(model)){
       for(int attempt=0;attempt<2;attempt++){
@@ -159,7 +159,7 @@ final class Research {
   }
   private static String clip(String s,int n){return s.length()<=n?s:s.substring(0,n).trim();}
 
-  private static JSONObject post(String key,String model,JSONObject request) throws Exception {
+  static JSONObject post(String key,String model,JSONObject request) throws Exception {
     HttpsURLConnection c=(HttpsURLConnection)new URL("https://generativelanguage.googleapis.com/v1beta/models/"+model+":generateContent").openConnection();
     try{
       c.setInstanceFollowRedirects(false);c.setRequestMethod("POST");c.setConnectTimeout(15000);c.setReadTimeout(150000);c.setDoOutput(true);

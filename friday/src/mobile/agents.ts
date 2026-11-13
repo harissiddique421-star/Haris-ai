@@ -16,7 +16,7 @@ const OWNERS: Record<AgentName, string[]> = {
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
   memory: ['remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'set_language', 'save_routine', 'standing_order', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
-  document: ['make_document', 'list_documents', 'open_document', 'share_document', 'send_document'],
+  document: ['make_document', 'build_website', 'list_documents', 'open_document', 'share_document', 'send_document'],
   research: ['search_web', 'research_report'],
   health: ['health_check', 'network_status', 'set_proactive', 'self_report', 'set_autonomy'],
   core: ['suggestions', 'briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
