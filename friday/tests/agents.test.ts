@@ -10,6 +10,8 @@ test('each action has its agent', () => {
   assert.equal(agentFor('remember'), 'memory');
   assert.equal(agentFor('make_document'), 'document');
   assert.equal(agentFor('search_web'), 'research');
+  assert.equal(agentFor('research_report'), 'research');
+  assert.equal(agentFor('send_document'), 'document');
   assert.equal(agentFor('health_check'), 'health');
   assert.equal(agentFor('something_new'), 'core');
 });

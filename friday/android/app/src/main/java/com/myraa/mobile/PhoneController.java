@@ -73,6 +73,17 @@ public class PhoneController extends AccessibilityService {
     job=new Job(pkg,text,done,expire);main.postDelayed(expire,TIMEOUT_MS);
     ControlLog.i("whatsapp send: armed for "+pkg);
   }
+  /**
+   * Presses Send once on WhatsApp's attachment preview (the screen it shows after a document was
+   * shared to a chat), only for a document the user just confirmed. Checked: the preview's Send
+   * button is gone afterwards.
+   */
+  public static synchronized void armFile(String pkg,Done done){
+    disarm();
+    Runnable expire=new Runnable(){public void run(){Job j=finishJob(this);if(j!=null){ControlLog.i("whatsapp file: timed out waiting for the send screen");j.done.done(false,"WhatsApp did not show the send screen for the document in time");}}};
+    job=new Job(pkg,null,done,expire);main.postDelayed(expire,TIMEOUT_MS);
+    ControlLog.i("whatsapp file: armed for "+pkg);
+  }
   public static synchronized void disarm(){if(job!=null){main.removeCallbacks(job.expire);job=null;}}
   private static synchronized Job finishJob(Runnable expectedExpire){
     if(job==null||(expectedExpire!=null&&job.expire!=expectedExpire))return null;
@@ -84,6 +95,7 @@ public class PhoneController extends AccessibilityService {
   @Override public void onAccessibilityEvent(AccessibilityEvent event){
     Job j=current();if(j==null||event==null||event.getPackageName()==null||!j.pkg.contentEquals(event.getPackageName()))return;
     AccessibilityNodeInfo root=getRootInActiveWindow();if(root==null||root.getPackageName()==null||!j.pkg.contentEquals(root.getPackageName()))return;
+    if(j.text==null){pressFileSend(j,root);return;}
     AccessibilityNodeInfo entry=first(root.findAccessibilityNodeInfosByViewId(j.pkg+":id/entry"));
     if(entry==null){List<AccessibilityNodeInfo> all=new ArrayList<>();collect(root,all,0);for(AccessibilityNodeInfo n:all)if(n.isEditable()&&n.isVisibleToUser()&&!n.isPassword()){entry=n;break;}}
     if(entry==null||!squash(entry.getText()).equals(squash(j.text)))return;
@@ -104,6 +116,31 @@ public class PhoneController extends AccessibilityService {
       ControlLog.i("whatsapp send: verify "+(cleared?"ok, message box cleared after "+waited+" ms":"failed, text still in the box after "+waited+" ms"));
       mine.done.done(cleared,cleared?"sent":"the message is still in WhatsApp's box after pressing Send");
     }},150);
+  }
+  /** The visible, enabled Send button on this WhatsApp screen, or null. */
+  private static AccessibilityNodeInfo sendButton(String pkg,AccessibilityNodeInfo root){
+    AccessibilityNodeInfo send=first(root.findAccessibilityNodeInfosByViewId(pkg+":id/send"));
+    if(send!=null&&!send.isVisibleToUser())send=null;
+    if(send==null){List<AccessibilityNodeInfo> all=new ArrayList<>();collect(root,all,0);for(AccessibilityNodeInfo n:all)if(n.isVisibleToUser()&&SEND_LABELS.contains(MobileActions.normalize(squash(n.getContentDescription())))){send=clickableAncestor(n);if(send!=null)break;}}
+    return send!=null&&send.isEnabled()?send:null;
+  }
+  private void pressFileSend(Job j,AccessibilityNodeInfo root){
+    // Only the attachment preview: the chat's own message box must not hold typed text (that would be a different message).
+    AccessibilityNodeInfo entry=first(root.findAccessibilityNodeInfosByViewId(j.pkg+":id/entry"));
+    if(entry!=null&&!squash(entry.getText()).isEmpty()&&first(root.findAccessibilityNodeInfosByViewId(j.pkg+":id/caption"))==null)return;
+    AccessibilityNodeInfo send=sendButton(j.pkg,root);if(send==null)return;
+    Job mine=finishJob(j.expire);if(mine==null)return;
+    ControlLog.i("whatsapp file: send screen shown, pressing Send");
+    if(!send.performAction(AccessibilityNodeInfo.ACTION_CLICK)){mine.done.done(false,"WhatsApp did not accept the Send tap");return;}
+    final long pressedAt=android.os.SystemClock.elapsedRealtime();
+    main.postDelayed(new Runnable(){public void run(){
+      AccessibilityNodeInfo r=getRootInActiveWindow();
+      boolean gone=r==null||r.getPackageName()==null||!mine.pkg.contentEquals(r.getPackageName())||first(r.findAccessibilityNodeInfosByViewId(mine.pkg+":id/caption"))==null&&sendButton(mine.pkg,r)==null;
+      long waited=android.os.SystemClock.elapsedRealtime()-pressedAt;
+      if(!gone&&waited<3000){main.postDelayed(this,200);return;}
+      ControlLog.i("whatsapp file: verify "+(gone?"ok, send screen closed after "+waited+" ms":"not sure, send screen still open after "+waited+" ms"));
+      mine.done.done(gone,gone?"sent":"the send screen is still open after pressing Send");
+    }},200);
   }
   private static AccessibilityNodeInfo first(List<AccessibilityNodeInfo> nodes){return nodes==null||nodes.isEmpty()?null:nodes.get(0);}
 

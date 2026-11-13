@@ -1,12 +1,13 @@
 import { noteMatches, noteGroups, type Note } from './notes';
 import './mobile.css';
-import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, type LiveState } from '../lib/audio';
+import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, base64ArrayBuffer, type LiveState } from '../lib/audio';
 import { MobileLiveTransport, liveResume, liveMic } from './LiveTransport';
 import { voiceGroups, voiceLabel } from './voices';
 import { TaskTracker } from './tasks';
 import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
+import { VoiceTone, type ToneCue } from './voiceTone';
 import { Orchestrator, QUICK } from './agents';
 import { MODULES, moduleHealth, healthSummary, normalizeOff } from './commandCenter';
 import { ConversationContextManager, ConversationCooldownManager, ConversationInitiativeManager, FollowUpQuestionGenerator, TopicSuggestionEngine, inQuietHours, normalizeFrequency, normalizeMode } from './initiative';
@@ -134,8 +135,7 @@ async function startVoiceIdCapture() {
       if (stopped) return;
       const f = e.inputBuffer.getChannelData(0); const bytes = new Uint8Array(f.length * 2);
       for (let i = 0; i < f.length; i++) { const v = Math.max(-1, Math.min(1, f[i])); const x = v < 0 ? v * 0x8000 : v * 0x7fff; const n = Math.round(x) & 0xffff; bytes[2 * i] = n & 0xff; bytes[2 * i + 1] = n >> 8; }
-      let bin = ''; for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      bridge?.voiceIdPcm?.(btoa(bin));
+      bridge?.voiceIdPcm?.(base64ArrayBuffer(bytes));
     };
   } catch (error) {
     bridge?.voiceIdPcmFailed?.(String((error as Error)?.name || 'microphone unavailable'));
@@ -150,6 +150,8 @@ function voiceIdDiagnostics() {
 }
 /** Tone of the conversation (see emotion.ts) and what FRIDAY is doing on the phone, for follow-up commands. */
 const emotions = new EmotionEngine();
+/** How the user's last sentence sounded (louder/higher or quieter/flatter than usual); used once with its caption. */
+const voiceTone = new VoiceTone(); let lastToneCue: ToneCue = null;
 const orchestrator = new Orchestrator(runMobileAction);
 /** Self-development measurements: counts and timings only, stored on the phone. */
 function metric(kind: string, value = 1) { try { bridge?.selfDevMetric?.(kind, value); } catch { /* never breaks a call */ } }
@@ -237,6 +239,7 @@ function showThinking(on: boolean) {
 function userSpeech(speaking: boolean, verified = false) {
   markActivity(); userTalkingNow = speaking;
   if (speaking) { if (thinkingTimer) showThinking(false); return; }
+  lastToneCue = voiceTone.end();
   // Voice ID ended the owner's verified turn: it goes to Gemini now, so show Thinking at once
   // (Gemini's transcript of it usually arrives only after this, so waiting for it kept "Listening").
   if (verified || heardUserSinceReply) showThinking(true);
@@ -315,7 +318,7 @@ function liveTranscription(role: 'user' | 'model', text: string) {
   markActivity(); logCaption(role, text);
   if (role === 'user') { orchestrator.userSpoke(); userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; }
   // A finished user sentence (FRIDAY starts answering) sets the tone for the reply.
-  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption); topics.heard(lastUserCaption); }
+  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption, lastToneCue); lastToneCue = null; topics.heard(lastUserCaption); }
   if (!liveCaption || liveCaption.role !== role) {
     append(role, ''); liveCaption = { role, body: el('messages').lastElementChild!.querySelector('p')! };
   }
@@ -420,7 +423,7 @@ app.innerHTML = `
       <div class="card"><b>AI providers</b><small>Gemini runs Live voice and text chat. You can add OpenRouter or any OpenAI-compatible API for text chat only. Your messages then go to that provider under its own privacy terms. It is never used unless you choose Backup or Main here, and each reply it gives is labelled.</small>
         <label>Second provider<select id="alt-kind"><option value="none">None</option><option value="openrouter">OpenRouter</option><option value="custom">OpenAI-compatible (custom address)</option></select></label>
         <label id="alt-base-row">API address<input id="alt-base" autocomplete="off" placeholder="https://api.example.com/v1"></label>
-        <label>Model<input id="alt-model" autocomplete="off" placeholder="e.g. openai/gpt-4o-mini"></label>
+        <label>Model<input id="alt-model" autocomplete="off" placeholder="OpenRouter: leave empty, FRIDAY chooses"></label><p id="alt-model-note" class="muted">OpenRouter: just add the key. Leave Model empty and OpenRouter Auto picks a good model for each message; if your account has no credit, FRIDAY switches to OpenRouter's best free model by itself. Type free to use only free models, or a model name to fix one. A custom provider needs its model name.</p>
         <label>API key<input id="alt-key" type="password" autocomplete="off" placeholder="Leave empty to keep the saved key"></label><p id="alt-key-state" class="muted"></p>
         <label>Use for text chat<select id="alt-use"><option value="off">Off · saved, not used</option><option value="backup">Backup · only when Gemini fails</option><option value="primary">Main · instead of Gemini</option></select></label>
         <div class="row"><button id="alt-save" type="button">Save provider</button><button id="alt-test" type="button">Test provider</button><button id="alt-remove" type="button">Remove key</button></div>
@@ -568,7 +571,7 @@ function showView(view: 'home' | 'chat') {
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
 const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy', task: 'Task', check_link: 'Link safety', set_language: 'Language', expense: 'Expense', suggestions: 'Suggestion' };
+const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', research_report: 'Research report', list_documents: 'Documents', open_document: 'Document', share_document: 'Share', send_document: 'WhatsApp document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy', task: 'Task', check_link: 'Link safety', set_language: 'Language', expense: 'Expense', suggestions: 'Suggestion' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
@@ -955,6 +958,18 @@ window.MyraaEvents = event => {
     } else if (event.message) notice(String(event.message));
     return;
   }
+  if (event.type === 'research-done') {
+    const ok = event.ok === true;
+    const name = String(event.name || '').slice(0, 160), title = String(event.title || '').slice(0, 160);
+    notice(ok ? `Research report ready: ${name} (in Downloads/FRIDAY).` : String(event.message || 'The research report could not be made.'));
+    if (liveSession && liveSession.getState() !== 'disconnected') {
+      orchestrator.phonePrompted();
+      liveSession.sendText(ok
+        ? `[Phone] The research report "${title}" is ready and saved as ${name} in Downloads/FRIDAY (${Number(event.searches) || 0} web searches, ${Number(event.sources) || 0} sources). Executive summary: "${String(event.summary || '').slice(0, 700)}". Tell the user in two or three short lines what it found, then offer to open it or send it on WhatsApp.`
+        : `[Phone] The research report failed: ${String(event.message || '').slice(0, 300)} Tell the user in one short line and offer to try again.`);
+    }
+    return;
+  }
   if (event.type === 'mobile-action-result') {
     if (event.result?.autonomy) applyAutonomy(event.result.autonomy);
     const request = actionRequests.get(event.id); if (request) { clearTimeout(request.timer); actionRequests.delete(event.id); request.resolve(event.result); }
@@ -1087,11 +1102,12 @@ el('voice').onclick = () => {
   if (navigator.onLine === false) { notice('No internet connection. Connect to the internet and try again.'); return; }
   bridge.stopSpeech(); liveCaption = null;
   callStartedBy = startedBy; greetedAt = 0; greetFollowUpDone = false; userTalkingNow = false;
-  if (startedBy) { emotions.reset(); topics.reset(); checkinsThisCall = 0; }
+  if (startedBy) { emotions.reset(); voiceTone.reset(); lastToneCue = null; topics.reset(); checkinsThisCall = 0; }
   userSpokeThisCall = false; spokeSinceCheckin = true; checkinPending = false; heardUserSinceReply = false; lastActivityAt = Date.now();
   const resuming = liveResume.resuming; liveUpSince = 0;
   liveSession = new MyraaAudioSession({
     onUserSpeech: userSpeech,
+    onUserVoiceFrame: frame => voiceTone.feed(frame),
     onVoiceUnclear: voiceUnclear,
     onReplyLatency: ms => { if (ms >= 0 && ms < 60_000) { metric('live_reply'); metric('live_reply_ms', ms); } },
     connection: { createSocket: () => new MobileLiveTransport(bridge), voiceGate: voiceGateLink },

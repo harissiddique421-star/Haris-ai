@@ -124,15 +124,13 @@ function pcm16ToFloats(uint8Array: Uint8Array): Float32Array {
   return floats;
 }
 
-// Convert ArrayBuffer to Base64 String
-function base64ArrayBuffer(arrayBuffer: ArrayBuffer): string {
-  let binary = '';
-  const bytes = new Uint8Array(arrayBuffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
+// Convert ArrayBuffer to Base64 String. Builds the binary string in 8 KB slices instead of one
+// character at a time: this runs for every microphone frame, so it must not churn the garbage collector.
+export function base64ArrayBuffer(arrayBuffer: ArrayBuffer | Uint8Array): string {
+  const bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += 0x2000) parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 0x2000) as unknown as number[]));
+  return window.btoa(parts.join(''));
 }
 
 // Convert Base64 string to Uint8Array
@@ -276,6 +274,7 @@ export class MyraaAudioSession {
   private onMemorySync?: (memories: any[]) => void;
   /** Local voice activity: the user started (true) or stopped (false) speaking. */
   private onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
+  private onUserVoiceFrame?: (samples: Float32Array) => void;
   /**
    * Voice ID did not accept a voice: "unclear" (the owner with other voices on top) or "low" (close under the
    * threshold) ask the owner to repeat; "unknown" is someone else or too far from the owner's voice. score: the
@@ -332,11 +331,14 @@ export class MyraaAudioSession {
     onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
     /** verified: Voice ID confirmed the owner's turn just ended (it will be answered, so FRIDAY is processing). */
     onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
+    /** Each microphone frame while the user (the owner, with Voice ID) is speaking, for the voice tone. */
+    onUserVoiceFrame?: (samples: Float32Array) => void;
     onVoiceUnclear?: (kind: "unclear" | "low" | "unknown", score: number) => void;
     onReplyLatency?: (ms: number) => void;
     connection?: AudioConnection;
   }) {
     this.onUserSpeech = handlers.onUserSpeech;
+    this.onUserVoiceFrame = handlers.onUserVoiceFrame;
     this.onReplyLatency = handlers.onReplyLatency;
     this.onVoiceUnclear = handlers.onVoiceUnclear;
     this.connection = handlers.connection;
@@ -755,6 +757,7 @@ export class MyraaAudioSession {
   private onMicrophoneFrame(channelData: Float32Array) {
     this.lastMicFrameAt = performance.now();
     if (this.currentState === "disconnected") return;
+    if (this.userSpeaking && this.onUserVoiceFrame) { try { this.onUserVoiceFrame(channelData); } catch { /* tone is optional */ } }
     if (this.gate) { this.onGatedFrame(this.gate, channelData); return; }
 
     const shouldForwardMicrophone = this.updateVoiceActivity(channelData);

@@ -37,7 +37,7 @@ export function moduleHealth(state: any, stats: Map<AgentName, AgentStats> = new
     !s.keyConfigured ? 'No key saved' : s.providerErrorCode ? `Last error: ${s.providerErrorCode}` : s.keyVerified ? `Key accepted for ${s.model || 'the text model'}` : 'Key saved, not checked for this model');
   const p = s.providers || {};
   add('Second provider', !p.kind || p.kind === 'none' ? 'off' : p.ready ? 'ok' : 'warn',
-    !p.kind || p.kind === 'none' ? 'Not set up' : !p.ready ? 'Key or model missing' : `${p.kind === 'openrouter' ? 'OpenRouter' : 'Custom'} · ${p.model} · ${p.use === 'primary' ? 'main' : p.use === 'backup' ? 'backup' : 'off'}`);
+    !p.kind || p.kind === 'none' ? 'Not set up' : !p.ready ? 'Key or model missing' : `${p.kind === 'openrouter' ? 'OpenRouter' : 'Custom'} · ${p.model || 'auto model'} · ${p.use === 'primary' ? 'main' : p.use === 'backup' ? 'backup' : 'off'}`);
   const v = s.voiceId || {};
   add('Voice ID', v.unreadable ? 'warn' : !v.registered ? 'off' : v.on ? 'ok' : 'warn',
     v.unreadable ? 'Profile unreadable: register again' : !v.registered ? 'Not registered' : v.on ? 'Only your voice in Live calls' : 'Registered, switched off');

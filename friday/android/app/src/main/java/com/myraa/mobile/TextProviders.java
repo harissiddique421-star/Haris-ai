@@ -26,7 +26,101 @@ import org.json.JSONObject;
  */
 final class TextProviders {
   static final String OPENROUTER="https://openrouter.ai/api/v1";
+  /** OpenRouter's own router: it picks a suitable model for each message, so the user only adds a key. */
+  static final String AUTO="openrouter/auto";
+  /** Typed as the model: only OpenRouter's free models, chosen by FRIDAY. */
+  static final String FREE="free";
   private TextProviders(){}
+
+  /** OpenRouter with no model typed (or "auto") uses the Auto router; any other provider needs its model. */
+  static String effectiveModel(String kind,String model){
+    String m=model==null?"":model.trim();
+    if("openrouter".equals(kind)&&(m.isEmpty()||"auto".equalsIgnoreCase(m)))return AUTO;
+    if("openrouter".equals(kind)&&FREE.equalsIgnoreCase(m))return FREE;
+    return m;
+  }
+  /** True when the saved model is enough to send a request (OpenRouter needs none). */
+  static boolean modelReady(String kind,String model){return "openrouter".equals(kind)?model==null||model.trim().isEmpty()||validModel(model.trim()):validModel(model);}
+
+  /** Remembers the free model that worked last, so the next message does not look it up again. */
+  interface Cache { String get(); void put(String model); }
+  /** The answer and the model that actually wrote it. */
+  static final class Answer { final JSONObject reply;final String model; Answer(JSONObject r,String m){reply=r;model=m;} }
+
+  /**
+   * One chat request in which FRIDAY chooses the model when the user did not: OpenRouter Auto first;
+   * if that cannot answer (no credit on the account, limit reached, unavailable) or the user typed
+   * "free", OpenRouter's free models, best first, until one answers. A typed model is used as it is.
+   */
+  static Answer chatSmart(String base,String kind,String key,JSONObject gemini,String model,int maxTokens,Opened opened,Cache cache) throws Exception {
+    String m=effectiveModel(kind,model);
+    GeminiAccess.Failure first=null;
+    if(!FREE.equals(m)){
+      try{JSONObject r=chat(base,kind,key,fromGemini(gemini,m,maxTokens),opened);return new Answer(r,r.optString("model",m));}
+      catch(GeminiAccess.Failure f){
+        boolean retry=AUTO.equals(m)&&("ALT_NO_CREDIT".equals(f.code)||"ALT_QUOTA".equals(f.code)||"ALT_UNAVAILABLE".equals(f.code)||"ALT_MODEL_UNAVAILABLE".equals(f.code));
+        if(!retry)throw f;first=f;
+      }
+    }
+    java.util.List<String> tries=new java.util.ArrayList<>();
+    String known=cache==null?null:cache.get();if(known!=null&&validModel(known))tries.add(known);
+    for(String f:freeModels())if(!tries.contains(f))tries.add(f);
+    GeminiAccess.Failure last=first;
+    for(int i=0;i<tries.size()&&i<4;i++){
+      String f=tries.get(i);
+      try{JSONObject r=chat(base,kind,key,fromGemini(gemini,f,maxTokens),opened);if(cache!=null)cache.put(f);return new Answer(r,r.optString("model",f));}
+      catch(GeminiAccess.Failure e){
+        if("ALT_KEY_REJECTED".equals(e.code))throw e;
+        last=e;
+      }
+    }
+    if(last!=null)throw last;
+    throw new GeminiAccess.Failure("ALT_UNAVAILABLE",0,"OpenRouter has no free model available right now. Try again later or add credit on openrouter.ai.");
+  }
+
+  /** OpenRouter's free text models, best first (strong model families, then the longest context). Empty on any failure. */
+  static java.util.List<String> freeModels(){
+    java.util.List<String> out=new java.util.ArrayList<>();
+    HttpsURLConnection c=null;
+    try{
+      c=(HttpsURLConnection)new URL(OPENROUTER+"/models").openConnection();
+      c.setInstanceFollowRedirects(false);c.setConnectTimeout(10000);c.setReadTimeout(20000);c.setRequestProperty("Accept","application/json");
+      if(c.getResponseCode()/100!=2)return out;
+      return freeFrom(new JSONObject(read(c.getInputStream(),8*1024*1024)).optJSONArray("data"));
+    }catch(Exception ignored){}
+    finally{if(c!=null)c.disconnect();}
+    return out;
+  }
+  /** The free text models in OpenRouter's /models list, best first, at most 8. */
+  static java.util.List<String> freeFrom(JSONArray data){
+    java.util.List<String> out=new java.util.ArrayList<>();
+    if(data==null)return out;
+    {
+      java.util.List<JSONObject> free=new java.util.ArrayList<>();
+      for(int i=0;i<data.length();i++){
+        JSONObject m=data.optJSONObject(i);if(m==null)continue;
+        String id=m.optString("id","");JSONObject price=m.optJSONObject("pricing");
+        if(!id.endsWith(":free")||!validModel(id)||price==null)continue;
+        if(!isZero(price.optString("prompt","1"))||!isZero(price.optString("completion","1")))continue;
+        JSONObject arch=m.optJSONObject("architecture");
+        if(arch!=null&&arch.optString("modality","text->text").contains("->")&&!arch.optString("modality").endsWith("->text"))continue;
+        free.add(m);
+      }
+      java.util.Collections.sort(free,(a,b)->{int r=Integer.compare(rank(b.optString("id")),rank(a.optString("id")));return r!=0?r:Long.compare(b.optLong("context_length"),a.optLong("context_length"));});
+      for(JSONObject m:free){out.add(m.optString("id"));if(out.size()>=8)break;}
+    }
+    return out;
+  }
+  private static boolean isZero(String v){try{return Double.parseDouble(v)==0;}catch(NumberFormatException e){return false;}}
+  /** Rough quality order for chat in Urdu/Hindi/English: bigger, newer general models first. */
+  static int rank(String id){
+    String s=id.toLowerCase(Locale.ROOT);int r=0;
+    String[] good={"deepseek","qwen3","llama-4","llama-3.3-70b","gemini","gpt-oss","mistral-small","gemma-3-27b","kimi","glm"};
+    for(int i=0;i<good.length;i++)if(s.contains(good[i])){r=good.length-i+10;break;}
+    if(s.contains("70b")||s.contains("235b")||s.contains("120b")||s.contains("405b"))r+=3;
+    if(s.contains("vision")||s.contains("-vl")||s.contains("coder")||s.contains("embed"))r-=6;
+    return r;
+  }
 
   static String kind(String k){return "openrouter".equals(k)||"custom".equals(k)?k:"none";}
   static String use(String u){return "backup".equals(u)||"primary".equals(u)?u:"off";}
@@ -91,7 +185,7 @@ final class TextProviders {
     String who=label(kind);
     if(status==401||status==403)return new GeminiAccess.Failure("ALT_KEY_REJECTED",status,who+" did not accept the key. Check it in Settings > AI providers.");
     if(status==402)return new GeminiAccess.Failure("ALT_NO_CREDIT",status,who+" says the account has no credit left for this model.");
-    if(status==404)return new GeminiAccess.Failure("ALT_MODEL_UNAVAILABLE",status,who+" could not find this model. Check the model name in Settings > AI providers.");
+    if(status==404)return new GeminiAccess.Failure("ALT_MODEL_UNAVAILABLE",status,who+" could not find this model. Leave the model empty to let FRIDAY choose, or check the name in Settings > AI providers.");
     if(status==429)return new GeminiAccess.Failure("ALT_QUOTA",status,who+"'s limit for this model is reached. Try again later.");
     if(status>=500)return new GeminiAccess.Failure("ALT_UNAVAILABLE",status,who+" is temporarily unavailable.");
     return new GeminiAccess.Failure("ALT_HTTP_ERROR",status,who+" returned HTTP "+status+".");

@@ -128,6 +128,7 @@ public final class WakeWordService extends Service {
 
   @Override public IBinder onBind(Intent intent){return null;}
   @Override public int onStartCommand(Intent intent,int flags,int startId){
+    VoiceModels.preload(this);
     String action=intent==null?null:intent.getAction();
     if(STOP.equals(action)){if(intent!=null&&intent.getBooleanExtra("user",false))setWanted(this,false);stopSelf();return START_NOT_STICKY;}
     if(!wanted(this)||checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED){stopSelf();return START_NOT_STICKY;}
