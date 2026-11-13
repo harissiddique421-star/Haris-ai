@@ -552,7 +552,7 @@ public class MainActivity extends Activity {
         if (in.optBoolean("clearKey")) edit.remove("altKeyCipher").remove("altKeyIv");
         if (!"none".equals(kind)) {
           if ("custom".equals(kind)) base = TextProviders.base(kind, base);
-          if (!TextProviders.validModel(model)) throw new IllegalArgumentException("Enter the model name exactly as the provider lists it, for example openai/gpt-4o-mini.");
+          if (!TextProviders.modelReady(kind, model)) throw new IllegalArgumentException("openrouter".equals(kind) ? "Leave the model empty to let FRIDAY choose, or type it exactly as OpenRouter lists it." : "Enter the model name exactly as the provider lists it, for example openai/gpt-4o-mini.");
           if (!key.isEmpty()) { if (!TextProviders.validKey(key)) throw new IllegalArgumentException("Enter the complete API key without spaces."); writeSecret(edit, "altKey", key); }
         } else use = "off";
         edit.putString("altProvider", kind).putString("altUse", use).putString("altModel", model).putString("altBase", "custom".equals(kind) ? base : "");
@@ -566,13 +566,15 @@ public class MainActivity extends Activity {
     @JavascriptInterface public void providerTest() {
       settingsNetwork.execute(() -> {
         try {
-          if (!altReady()) throw new GeminiAccess.Failure("ALT_NOT_READY", 0, "Choose a provider and save its key and model first.");
+          if (!altReady()) throw new GeminiAccess.Failure("ALT_NOT_READY", 0, "Choose a provider and save its key first.");
           JSONObject request = json("contents", new JSONArray().put(json("role", "user", "parts", new JSONArray().put(json("text", "Reply with the single word OK.")))));
           String kind = altKind(), key = readSecret("altKey"), model = prefs.getString("altModel", "");
-          JSONObject r = TextProviders.chat(TextProviders.base(kind, prefs.getString("altBase", "")), kind, key, TextProviders.fromGemini(request, model, 16), null);
+          TextProviders.Answer a = TextProviders.chatSmart(TextProviders.base(kind, prefs.getString("altBase", "")), kind, key, request, model, 16, null, freeModelCache);
+          JSONObject r = a.reply; altUsedModel = a.model;
           String answer = TextProviders.text(r);
           countUsage(kind, TextProviders.openAiTokens(r), answer.isEmpty());
-          emit(json("type", "provider", "ok", !answer.isEmpty(), "message", answer.isEmpty() ? TextProviders.label(kind) + " answered without text. Try another model." : TextProviders.label(kind) + " answered with " + model + ".", "providers", providerState()));
+          String chosen = TextProviders.AUTO.equals(TextProviders.effectiveModel(kind, model)) || TextProviders.FREE.equals(TextProviders.effectiveModel(kind, model)) ? " (FRIDAY chose it for you)" : "";
+          emit(json("type", "provider", "ok", !answer.isEmpty(), "message", answer.isEmpty() ? TextProviders.label(kind) + " answered without text. Try again or type a model name." : TextProviders.label(kind) + " works. It answered with " + a.model + chosen + ".", "providers", providerState()));
         } catch (GeminiAccess.Failure f) { emit(json("type", "provider", "ok", false, "message", f.getMessage(), "providers", providerState())); }
         catch (Exception e) { emit(json("type", "provider", "ok", false, "message", "Could not reach the provider. Check the address and internet.", "providers", providerState())); }
       });
@@ -909,10 +911,10 @@ public class MainActivity extends Activity {
           ControlLog.i("chat: Gemini failed (" + why + "), backup " + altKind() + " answering");
           altText = altReply(request, token);
           if (altText == null) return;
-          healNote = "Gemini failed (" + why + "), so your backup provider " + TextProviders.label(altKind()) + " (" + prefs.getString("altModel", "") + ") answered.";
+          healNote = "Gemini failed (" + why + "), so your backup provider " + TextProviders.label(altKind()) + " (" + altModelLabel() + ") answered.";
           SelfDevelopment.record(MainActivity.this, "heal_alt_provider", 1);
         }
-        if (altFirst) healNote = "Answered by " + TextProviders.label(altKind()) + " (" + prefs.getString("altModel", "") + "), your chosen text provider.";
+        if (altFirst) healNote = "Answered by " + TextProviders.label(altKind()) + " (" + altModelLabel() + "), your chosen text provider.";
         if (result == null && altText == null) throw lastFailure == null ? new Exception("No reply was returned.") : lastFailure;
         if (!model.equals(saved)) SelfDevelopment.record(MainActivity.this, "heal_fallback", 1);
         if (lastFailure != null) { SelfDevelopment.record(MainActivity.this, "heal_recovered", 1); SelfDevelopment.remember(MainActivity.this, "fix", "Text reply recovered automatically", healNote.isEmpty() ? "A retry after a timeout or Google outage worked." : healNote); }
@@ -1098,7 +1100,14 @@ public class MainActivity extends Activity {
   // ---- Second text provider (OpenRouter or OpenAI-compatible) and usage counting
   private String altKind() { return TextProviders.kind(prefs.getString("altProvider", "none")); }
   private String altUse() { return TextProviders.use(prefs.getString("altUse", "off")); }
-  private boolean altReady() { return !"none".equals(altKind()) && prefs.contains("altKeyCipher") && TextProviders.validModel(prefs.getString("altModel", "")); }
+  private boolean altReady() { return !"none".equals(altKind()) && prefs.contains("altKeyCipher") && TextProviders.modelReady(altKind(), prefs.getString("altModel", "")); }
+  /** The model that wrote the last reply from the second provider (FRIDAY may have chosen it). */
+  private volatile String altUsedModel = "";
+  private final TextProviders.Cache freeModelCache = new TextProviders.Cache() {
+    public String get() { long at = prefs.getLong("altFreeAt", 0); return System.currentTimeMillis() - at < 86_400_000L ? prefs.getString("altFreeModel", null) : null; }
+    public void put(String m) { prefs.edit().putString("altFreeModel", m).putLong("altFreeAt", System.currentTimeMillis()).apply(); }
+  };
+  private String altModelLabel() { String m = altUsedModel.isEmpty() ? TextProviders.effectiveModel(altKind(), prefs.getString("altModel", "")) : altUsedModel; return TextProviders.AUTO.equals(m) ? "chosen by OpenRouter" : m; }
   private JSONObject providerState() {
     JSONObject usage; synchronized (usageLock) { usage = TextProviders.summary(usageLedger(), TextProviders.day(System.currentTimeMillis()), TextProviders.lastDays(System.currentTimeMillis(), 7)); }
     return json("kind", altKind(), "base", prefs.getString("altBase", ""), "model", prefs.getString("altModel", ""), "use", altUse(),
@@ -1112,10 +1121,9 @@ public class MainActivity extends Activity {
   /** One text reply from the second provider, or null when the user stopped it. Counts usage; throws GeminiAccess.Failure or IOException. */
   private String altReply(JSONObject geminiRequest, int token) throws Exception {
     String kind = altKind(), key = readSecret("altKey"), model = prefs.getString("altModel", "");
-    if (key.isEmpty() || !TextProviders.validModel(model)) throw new GeminiAccess.Failure("ALT_NOT_READY", 0, "The second AI provider is not set up. Add its key and model in Settings > AI providers.");
-    JSONObject body = TextProviders.fromGemini(geminiRequest, model, 2048);
+    if (key.isEmpty() || !TextProviders.modelReady(kind, model)) throw new GeminiAccess.Failure("ALT_NOT_READY", 0, "The second AI provider is not set up. Add its key (and, for a custom provider, its model) in Settings > AI providers.");
     JSONObject r;
-    try { r = TextProviders.chat(TextProviders.base(kind, prefs.getString("altBase", "")), kind, key, body, c -> activeConnection = c); }
+    try { TextProviders.Answer a = TextProviders.chatSmart(TextProviders.base(kind, prefs.getString("altBase", "")), kind, key, geminiRequest, model, 2048, c -> activeConnection = c, freeModelCache); r = a.reply; altUsedModel = a.model; }
     catch (GeminiAccess.Failure | IOException e) { if (generation.get() == token) countUsage(kind, new long[]{0, 0}, true); throw e; }
     if (generation.get() != token) return null;
     String text = TextProviders.text(r);
