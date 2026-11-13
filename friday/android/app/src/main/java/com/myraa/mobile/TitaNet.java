@@ -22,14 +22,16 @@ final class TitaNet implements Voiceprinter {
   static final double GUARDIAN_MIN_ENROLL=0.55;
   /**
    * Lowest TitaNet similarity accepted as the user. Voice Guardian (wake phrase). Same idea as VoiceGuardian.voiceThreshold, on TitaNet's scale:
-   * on the test recordings the owner scored 0.63 or more and other voices 0.27 or less (SherpaCheck).
+   * with three recordings the owner's other sentences scored 0.72-0.79, the friend and the TV 0.22 or less (SherpaCheck).
    */
   static double guardianThreshold(double enrollSelf,String sensitivity,int recentNearMisses){
-    double margin="low".equals(sensitivity)?0.20:"high".equals(sensitivity)?0.30:0.25;
-    double t=Math.max(0.45,Math.min(0.62,enrollSelf-margin));
+    boolean low="low".equals(sensitivity),high="high".equals(sensitivity);
+    double margin=low?0.20:high?0.30:0.25,cap=low?0.62:high?0.52:0.57;
+    double t=Math.max(0.45,Math.min(cap,enrollSelf-margin));
     if(recentNearMisses>=3)t=Math.min(0.70,t+0.05);
     return t;
   }
+
 
   TitaNet(File model,int threads){
     SpeakerEmbeddingExtractorConfig c=new SpeakerEmbeddingExtractorConfig();

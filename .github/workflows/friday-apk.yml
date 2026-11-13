@@ -47,20 +47,6 @@ jobs:
           npm run test:activation
       - name: Voice model checks (Silero VAD, speaker encoder, speech segmentation)
         run: ./scripts/test-voice-models.sh
-      - name: Bootstrap sherpa-onnx pins (temporary)
-        run: |
-          python3 -m venv "$RUNNER_TEMP/venv" && "$RUNNER_TEMP/venv/bin/pip" install -q "sherpa-onnx==2.0.1" "sentencepiece==0.2.1" "pypinyin==0.55.0" "numpy<3"
-          SHERPA_ALLOW_UNPINNED=1 SHERPA_KEEP_BPE="$RUNNER_TEMP/bpe.model" ./scripts/fetch-sherpa.sh jvm "$RUNNER_TEMP/s-jvm" 2> >(tee "$RUNNER_TEMP/pins.txt" >&2)
-          SHERPA_ALLOW_UNPINNED=1 ./scripts/fetch-sherpa.sh android "$RUNNER_TEMP/s-android" 2> >(tee -a "$RUNNER_TEMP/pins.txt" >&2)
-          "$RUNNER_TEMP/venv/bin/python" - "$RUNNER_TEMP/s-jvm/models/kws/tokens.txt" "$RUNNER_TEMP/bpe.model" > android/models/sherpa-keywords.txt <<'PY'
-          import sys, sherpa_onnx
-          phrases = ["WAKE UP FRIDAY", "FRIDAY WAKE UP", "HEY FRIDAY"]
-          for toks, p in zip(sherpa_onnx.text2token(phrases, tokens=sys.argv[1], tokens_type="bpe", bpe_model=sys.argv[2]), phrases):
-              print(" ".join(toks) + " @" + p.replace(" ", "_"))
-          PY
-          echo "== keywords"; cat android/models/sherpa-keywords.txt
-          echo "== pins"; grep UNPINNED "$RUNNER_TEMP/pins.txt" | sed 's/^UNPINNED //' | sort -u | tee -a android/models/sherpa-onnx.sha256
-          du -sh "$RUNNER_TEMP"/s-android/assets/sherpa/* "$RUNNER_TEMP"/s-android/lib/*/* || true
       - name: Voice engine checks (sherpa-onnx TitaNet and wake phrase spotting)
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng

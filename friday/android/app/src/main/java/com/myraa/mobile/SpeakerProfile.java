@@ -48,6 +48,7 @@ final class SpeakerProfile {
     double margin(String sensitivity){return "strict".equals(sensitivity)?strict:"relaxed".equals(sensitivity)?relaxed:balanced;}
   }
   static final Calib CALIB_GE2E=new Calib(MIN_THRESHOLD,MAX_THRESHOLD,MAX_WITH_IMPOSTORS,MIN_CONSISTENCY,OUTLIER_GAP,0.04,0.06,0.10,0.13);
+  // TitaNet on the test recordings (SherpaCheck): own sentences 0.65-0.74 at 1.2 s (mean 0.70), owner tests 0.68+, friend and TV 0.26 or less.
   static final Calib CALIB_TITANET=new Calib(0.45,0.60,0.70,0.45,0.15,0.08,0.10,0.15,0.20);
   static Calib calib(String model){return Voiceprinter.TITANET.equals(model)?CALIB_TITANET:CALIB_GE2E;}
 
