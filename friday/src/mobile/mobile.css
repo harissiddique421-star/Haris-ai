@@ -225,6 +225,20 @@ body.app-locked #app,body.app-locked main,body.app-locked .bottom-nav{filter:blu
 .selfdev-item small{display:block;color:var(--muted);font-size:13px;margin-top:3px;line-height:1.4}
 .selfdev-item .row{margin-top:8px}
 .selfdev-item.sev-high>b{color:#ff8f8f}
+.evo-overall{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0 4px}
+.evo-overall small{color:var(--muted);font-size:12px}
+.evo-group{margin-top:10px}
+.evo-row{border-top:1px solid #2f6bff22;padding:8px 0}
+.evo-row summary{display:block;cursor:pointer;list-style:none}
+.evo-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.evo-row summary::-webkit-details-marker{display:none}
+.evo-row b{font-size:15px;min-width:0;overflow-wrap:anywhere}
+.evo-row small{display:block;color:var(--muted);font-size:13px;margin-top:4px;line-height:1.4;overflow-wrap:anywhere}
+.evo-pill{flex:none;font-size:12px;font-weight:600;border-radius:999px;padding:3px 10px;white-space:nowrap}
+.evo-healthy{background:#0f3d2a;color:#7dffb4}
+.evo-warning{background:#43330a;color:#ffd36b}
+.evo-recovering{background:#10305f;color:#8fc0ff}
+.evo-error{background:#4a1418;color:#ff9b9b}
 .selfdev-text{white-space:pre-wrap;font-size:14px;line-height:1.5}
 
 .cc-list .cc-row{margin:4px 0;font-size:.9em}

@@ -14,6 +14,8 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -86,6 +88,7 @@ public class MainActivity extends Activity {
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
+    new Handler(Looper.getMainLooper()).postDelayed(() -> healthCheck("app start"), 20000);
     Updater.afterStart(this);
     if (!Activation.isActivated(this)) { activationLocked = true; Activation.showGate(this, this::recreate); return; }
     prefs = getSharedPreferences("myraa.mobile.v1", MODE_PRIVATE);
@@ -831,6 +834,15 @@ public class MainActivity extends Activity {
     /** A finished Live call's captions; summarised into memory when the user allows it. */
     @JavascriptInterface public void saveConversation(String raw) { rememberConversation(raw); }
     // ---- Self-development (Settings > Self-development). Measurements and ideas stay on the phone.
+    @JavascriptInterface public String evolutionState() { return SelfHealing.state(MainActivity.this).toString(); }
+    @JavascriptInterface public String evolutionAction(String raw) {
+      JSONObject input; try { input = new JSONObject(raw); } catch (JSONException e) { input = new JSONObject(); }
+      if ("check".equals(input.optString("action"))) { healthCheck("owner"); return SelfHealing.state(MainActivity.this).toString(); }
+      return SelfHealing.act(MainActivity.this, input).toString();
+    }
+    @JavascriptInterface public void healthEvent(String module, String type, String action, String result, String detail) {
+      SelfHealing.report(MainActivity.this, module, type, action, "ok".equals(result) ? Boolean.TRUE : "failed".equals(result) ? Boolean.FALSE : null, detail == null ? "" : detail.replaceAll("[^A-Za-z0-9 _.:()-]", "").trim());
+    }
     @JavascriptInterface public String selfDevState() { return SelfDevelopment.state(MainActivity.this, VERSION).toString(); }
     @JavascriptInterface public String selfDevAction(String raw) {
       JSONObject input; try { input = new JSONObject(raw == null ? "{}" : raw); } catch (JSONException e) { return "{\"message\":\"Invalid request.\"}"; }
@@ -1119,6 +1131,14 @@ public class MainActivity extends Activity {
   }
   private void writeKey(SharedPreferences.Editor edit, String key) throws Exception { writeSecret(edit, "key", key); }
   private String readKey() throws Exception { return readSecret("key"); }
+  /** Self-diagnostics and safe self-healing on a background thread; the page hears an "evolution" event when it is done. */
+  private void healthCheck(String why) {
+    if (!SelfHealing.on(this) && !"owner".equals(why)) return;
+    new Thread(() -> {
+      try { SelfHealing.check(MainActivity.this, true, this::readKey, why); emit(json("type", "evolution")); }
+      catch (RuntimeException e) { ControlLog.i("self-healing: check stopped (" + e.getClass().getSimpleName() + ")"); }
+    }, "friday-health").start();
+  }
   /** API keys are encrypted with a key kept in the Android Keystore: "key" is Gemini's, "altKey" the second provider's. */
   private void writeSecret(SharedPreferences.Editor edit, String name, String value) throws Exception {
     Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, secretKey());

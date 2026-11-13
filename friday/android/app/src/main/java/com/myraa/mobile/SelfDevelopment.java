@@ -110,11 +110,17 @@ final class SelfDevelopment {
     }
   }
 
+  /** Counters summed over the last `days` days including today (numbers only). */
+  static Map<String,Long> counts(Context c,int days){
+    synchronized(lock){return SelfImprovement.window(ledger(prefs(c)),SelfImprovement.day(System.currentTimeMillis()),0,days);}
+  }
+
   /** Self-analysis: findings for the last 7 days; refreshes ideas and quiet bugs at most once a day unless forced. */
   static JSONObject analyze(Context c,boolean force){
     synchronized(lock){
       SharedPreferences p=prefs(c);long now=System.currentTimeMillis();String today=SelfImprovement.day(now);
       JSONObject l=ledger(p);List<SelfImprovement.Finding> findings=SelfImprovement.analyze(l,today);
+      findings.addAll(Evolution.proposals(SelfHealing.kb(c)));findings.sort((x,y)->Double.compare(y.score,x.score));
       if(force||!today.equals(p.getString("analyzedOn",""))){
         JSONArray mem=SelfImprovement.settle(SelfImprovement.proposeFrom(memory(p),findings,now),now);
         p.edit().putString("memory",mem.toString()).putString("analyzedOn",today).putLong("analyzedAt",now).apply();

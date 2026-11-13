@@ -48,6 +48,16 @@ final class VoiceModels {
     t.start();
   }
 
+  /** False when a model failed to load in this app process (FRIDAY then uses weaker fallbacks). */
+  static synchronized boolean vadOk(){return !vadFailed;}
+  static synchronized boolean encoderOk(){return !encoderFailed;}
+  /** Self-healing: forgets a failed load and loads the models again. True when both load now. */
+  static boolean reload(Context c){
+    synchronized(VoiceModels.class){vadFailed=false;encoderFailed=false;vadWeights=null;}
+    boolean ok=vad(c)!=null&&encoder(c)!=null;
+    ControlLog.i("voice: models loaded again ("+(ok?"ok":"still failing")+")");
+    return ok;
+  }
   /** A new Silero VAD for one audio stream (each stream has its own state), or null. */
   static synchronized SileroVad vad(Context c){
     if(vadFailed)return null;

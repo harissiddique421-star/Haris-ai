@@ -78,16 +78,18 @@ function voiceUnclear(kind: 'unclear' | 'low' | 'unknown' = 'unclear', score = -
   const match = score >= 0 ? ` (match ${score.toFixed(2)}${voiceIdNeeds ? `, needs ${voiceIdNeeds.toFixed(2)}` : ''})` : '';
   if (Date.now() - lastRefusedNoteAt >= 8_000) {
     lastRefusedNoteAt = Date.now();
-    notice(kind === 'unknown' ? `Voice ID ignored a voice${match}.` : `Voice ID was not sure it was you${match}. Please say it again.`);
+    notice(kind === 'unknown' ? `Voice ID ignored a voice${match}.` : kind === 'low' ? `Voice ID was not sure it was you${match}, so it was ignored.` : `Voice ID heard you with other voices at the same time${match}.`);
   }
-  if (kind === 'unknown' || Date.now() - lastUnclearAt < 10_000) return;
-  // A near miss that keeps repeating is more likely another person: ask at most 3 times per call for it.
+  // Noise rule: a voice that was not confirmed as the owner ("unknown", "low") is ignored silently; FRIDAY asks to
+  // repeat only when the owner's own voice was heard but other voices made it unclear, at most every 10 s and 3 times a call.
+  if (kind !== 'unclear') { metric(kind === 'unknown' ? 'voice_ignored' : 'voice_unsure'); return; }
+  if (Date.now() - lastUnclearAt < 10_000) { metric('voice_dup'); return; }
   if (lowAsks.session !== liveSession) { lowAsks.session = liveSession; lowAsks.count = 0; }
-  if (kind === 'low' && ++lowAsks.count > 3) return;
+  if (++lowAsks.count > 3) { metric('voice_dup'); return; }
   lastUnclearAt = Date.now(); metric('voice_unclear');
   liveSession.sendText(kind === 'unclear'
     ? '[Phone] Voice ID: the owner said something but other people were talking at the same time, so it was not clear enough to accept. In one short line, in the owner\'s language, ask them to repeat. Do not guess what they said.'
-    : '[Phone] Voice ID: someone spoke but the voice was not clear enough to confirm it is the owner, so nothing was heard or done. In one short line, in the owner\'s language, ask them to repeat a little closer to the phone. Do not guess what they said.');
+    : '');
 }
 let fullBody = true;
 let liveSession: MyraaAudioSession | null = null;
@@ -279,7 +281,7 @@ async function startCamera() {
 // keepScreen: the call is only reconnecting inside the running call service, so the user's screen-share consent
 // (MediaProjection) is kept. Android cannot reuse that consent, so stopping it here would force a new prompt.
 function stopVision(keepScreen = false) { stopCamera(); if (!keepScreen) { if (screenSharing) bridge?.stopScreenShare?.(); screenSharing = false; } updateVisionButtons(); }
-function stopVoice(keepService = false) { if (agentSession) { const a = agentSession; agentSession = null; a.stop(); bridge?.stopSpeech(); } stopVision(keepService); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; lastVoiceTurns = session.turn; cancelMobileActions(); } session?.disconnect(); if (!keepService) { bridge?.endLive(); flushCallLog(); } }
+function stopVoice(keepService = false) { if (liveHealing && !autoRetry) { const [type, action] = liveHealing.split(':'); liveHealing = ''; health('live', type, action, 'failed', 'call ended before it worked'); } if (agentSession) { const a = agentSession; agentSession = null; a.stop(); bridge?.stopSpeech(); } stopVision(keepService); if (!keepService) { backgroundLive = false; liveResume.handoff = false; liveMic.muted = false; liveMic.ended = false; updateMicButton(); } const session = liveSession; liveSession = null; if (session) { lastVoiceTimings = session.timings; lastVoiceTurns = session.turn; cancelMobileActions(); } session?.disconnect(); if (!keepService) { bridge?.endLive(); flushCallLog(); } }
 /** Builds without the licensed 3D model show the FRIDAY core instead of an error. */
 function showCore() {
   el('avatar-status').textContent = '';
@@ -287,12 +289,14 @@ function showCore() {
   const core = document.createElement('img'); core.src = fridayCore; core.alt = ''; core.className = 'friday-core'; avatar.append(core);
   document.querySelector('.gestures')?.setAttribute('hidden', '');
 }
+let liveHealing = '';
 function liveState(value: LiveState) {
   markActivity();
   if (value === 'disconnected') { thinkingNow = false; toolsRunning = 0; stopCompanion(); } else startCompanion();
   if (value === 'speaking') { heardUserSinceReply = false; checkinPending = false; if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; } }
   queueMicrotask(() => { if (value === "disconnected") stopVision(liveResume.handoff); else updateVisionButtons(); });
   const active = value !== 'disconnected';
+  if (value === 'listening' && liveHealing) { const [type, action] = liveHealing.split(':'); liveHealing = ''; health('live', type, action, 'ok', 'connected again'); }
   if (value === 'listening') { if (!liveUpSince) { liveUpSince = Date.now(); if (pendingOrderPrompt) { const order = pendingOrderPrompt; pendingOrderPrompt = ''; setTimeout(() => { orchestrator.phonePrompted(); liveSession?.sendText(order); }, 400); } else if (callStartedBy) setTimeout(sendGreeting, 400); } notice('Live voice connected. Speak naturally.'); }
   el('voice').setAttribute('aria-pressed', String(active));
   el('voice').querySelector('span')!.textContent = active ? 'Live' : 'AI';
@@ -379,7 +383,7 @@ app.innerHTML = `
   <dialog id="settings-panel" class="settings"><div class="settings-top"><button id="settings-back" class="icon-button" aria-label="Back">←</button><h2 id="settings-title">Settings</h2><form method="dialog"><button class="icon-button" aria-label="Close settings">×</button></form></div>
     <div class="settings-page" data-page="menu">
       <p class="group">ACCOUNT</p><div class="menu"><button data-go="personal"><b>Personal</b><small>Your name, Gemini key, models, language</small></button></div>
-      <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button><button data-go="selfdev"><b>Self-development</b><small>Health, self-analysis, improvement ideas and approvals</small></button></div>
+      <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button><button data-go="selfdev"><b>FRIDAY Evolution</b><small>Health, self-healing, error history, improvement ideas and approvals</small></button></div>
       <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button><button data-go="security"><b>Security</b><small>FRIDAY Pattern, fingerprint or phone lock</small></button></div>
       <p class="group">SYSTEM</p><div class="menu"><button data-go="command"><b>Command Center</b><small>Health of every part, module switches, recent activity</small></button><button data-go="advanced"><b>Advanced</b><small>Graphics, read aloud, history, diagnostics</small></button></div>
     </div>
@@ -488,6 +492,15 @@ app.innerHTML = `
         <p id="pattern-note" class="muted" role="status" aria-live="polite"></p></div>
     </div>
     <div class="settings-page" data-page="selfdev" hidden>
+      <div class="card"><b>FRIDAY Evolution</b><small>FRIDAY checks her own health every 30 minutes, repairs simple problems by herself (restart the wake listener or voice listener, load voice models again, reconnect, test the AI connection), checks that the repair worked, and stops after two failed tries so nothing loops. Permissions, security, keys, your data, messages and calls are never changed by a repair.</small>
+        <div id="evo-overall" class="evo-overall"></div>
+        <div id="evo-groups"></div>
+        <div class="row"><button id="evo-check" class="primary" type="button">Check now</button><button id="evo-resume" type="button" hidden>Allow repairs again</button></div>
+        <p id="evo-note" class="muted" role="status" aria-live="polite"></p></div>
+      <div class="card"><b>Self-healing status</b><small>What FRIDAY repaired by herself recently, in simple words.</small><div id="evo-events"></div></div>
+      <div class="card"><b>Error history</b><small>Problem, where it happened, the repair tried and how often it worked. Module names and counts only: no words, contacts, keys or audio. Problems that keep coming back become improvement ideas below, which wait for your approval.</small><div id="evo-kb"></div>
+        <label class="check"><input id="evo-on" type="checkbox"> Optional diagnostics (background checks, automatic repairs, error history)</label>
+        <div class="row"><button id="evo-clear" type="button">Clear error history</button></div></div>
       <div class="card"><b>System health</b><small>Measured on this phone over the last 7 days, compared with the week before. Numbers only: no words, contacts or audio are kept.</small><div id="selfdev-health" class="selfdev-grid"></div><p id="selfdev-summary" class="muted" role="status" aria-live="polite"></p><div class="row"><button id="selfdev-analyze" class="primary">Analyse now</button><button id="selfdev-ideas">Ask Gemini for ideas</button></div></div>
       <div class="card"><b>Updates and rollback</b><small>New tested versions are published on GitHub only when you run "Publish FRIDAY update" there. FRIDAY checks the file's SHA-256 and that it's signed with your key, saves the current version and a data backup to Downloads/FRIDAY, and Android asks you before installing. Your data is kept.</small>
         <p id="update-status" class="muted" role="status" aria-live="polite"></p>
@@ -775,12 +788,12 @@ function renderPermissions() {
     card.append(text, action); list.append(card);
   }
 }
-const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', security: 'Security', advanced: 'Advanced', selfdev: 'Self-development' };
+const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', security: 'Security', advanced: 'Advanced', selfdev: 'FRIDAY Evolution' };
 function settingsPage(page: string) {
   for (const section of document.querySelectorAll<HTMLElement>('.settings-page')) section.hidden = section.dataset.page !== page;
   el('settings-title').textContent = pageTitles[page] || 'Settings'; el('settings-back').toggleAttribute('hidden', page === 'menu');
   if (page === 'permissions') refreshState();
-  if (page === 'selfdev') { renderSelfDev(); renderUpdate(); }
+  if (page === 'selfdev') { renderEvolution(); renderSelfDev(); renderUpdate(); }
 }
 function renderUpdate(data?: any) {
   if (!data) { try { data = JSON.parse(bridge?.updateState?.() || 'null'); } catch { data = null; } }
@@ -799,6 +812,56 @@ function renderUpdate(data?: any) {
   for (const r of [...(data.rollback || [])].reverse()) { const p = document.createElement('small'); p.textContent = `Before leaving ${r.version} (${new Date(r.at).toLocaleDateString()}): ${(r.files || []).join(', ') || 'no files saved'}`; list.append(p); }
   if (!data.rollbackCopies) { const p = document.createElement('small'); p.textContent = 'This Android version can\'t save rollback copies by itself: save a backup in Settings > Advanced before updating.'; list.append(p); }
 }
+// ---- FRIDAY Evolution: health, self-healing and error history (Android does the checks and repairs)
+const EVO_LABEL: Record<string, string> = { healthy: 'Healthy', warning: 'Needs attention', recovering: 'Recovering', error: 'Error' };
+const EVO_GROUPS: [string, string][] = [['voice', 'Voice health'], ['ai', 'AI connection'], ['system', 'System health']];
+function evoPill(state: string) { const pill = document.createElement('span'); pill.className = `evo-pill evo-${state || 'healthy'}`; pill.textContent = EVO_LABEL[state] || state; return pill; }
+function evolutionCall(input: Record<string, unknown>) { try { return JSON.parse((bridge as any)?.evolutionAction?.(JSON.stringify(input)) || 'null'); } catch { return null; } }
+function renderEvolution(data?: any) {
+  const b = bridge as any;
+  if (!data) { try { data = JSON.parse(b?.evolutionState?.() || 'null'); } catch { data = null; } }
+  if (!data) { el('evo-note').textContent = 'FRIDAY Evolution needs the updated Android app.'; return; }
+  const overall = el('evo-overall'); overall.replaceChildren();
+  const parts: any[] = data.parts || [];
+  if (parts.length) { const head = document.createElement('b'); head.textContent = 'Overall '; overall.append(head, evoPill(data.overall), Object.assign(document.createElement('small'), { textContent: ` Checked ${new Date(data.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}${data.why ? ` (${data.why})` : ''}` })); }
+  else overall.textContent = 'Not checked yet. Tap "Check now".';
+  const groups = el('evo-groups'); groups.replaceChildren();
+  for (const [id, title] of EVO_GROUPS) {
+    const mine = parts.filter(p => p.group === id); if (!mine.length) continue;
+    const box = document.createElement('div'); box.className = 'evo-group';
+    const h = document.createElement('p'); h.className = 'group'; h.textContent = title.toUpperCase(); box.append(h);
+    for (const p of mine) {
+      const row = document.createElement('details'); row.className = 'evo-row';
+      // Simple words always show; the technical line opens on tap (Diagnostics detail).
+      const sum = document.createElement('summary'); const head = document.createElement('span'); head.className = 'evo-head';
+      const name = document.createElement('b'); name.textContent = p.label; head.append(name, evoPill(p.state));
+      const simple = document.createElement('small'); simple.textContent = p.simple + (p.note ? ` ${p.note}` : '');
+      sum.append(head, simple);
+      const tech = document.createElement('small'); tech.className = 'evo-tech'; tech.textContent = `Technical: ${p.detail}${p.heal ? ` · safe repair: ${p.heal}` : ''}${p.healed ? ` · ${p.healed}` : ''}`;
+      row.append(sum, tech); box.append(row);
+    }
+    groups.append(box);
+  }
+  const paused = Object.keys(data.paused || {});
+  el('evo-resume').hidden = !paused.length;
+  el('evo-note').textContent = paused.length ? `Automatic repair is paused for: ${paused.map(m => m.replace(/_/g, ' ')).join(', ')} (it failed twice). It tries again in a few hours, or tap "Allow repairs again".` : data.message || '';
+  const events = el('evo-events'); events.replaceChildren();
+  const ev: any[] = (data.events || []).slice().reverse().slice(0, 8);
+  if (!ev.length) events.textContent = 'Nothing needed repairing yet.';
+  for (const e of ev) { const item = document.createElement('div'); item.className = 'selfdev-item'; const t = document.createElement('b'); t.textContent = `${e.ok ? 'Repaired' : 'Not repaired'} · ${String(e.module).replace(/_/g, ' ')}`; const s2 = document.createElement('small'); s2.textContent = `${new Date(e.at).toLocaleString()} · ${e.text}`; item.append(t, s2); events.append(item); }
+  const kb = el('evo-kb'); kb.replaceChildren();
+  const entries: any[] = (data.kb || []).slice().sort((x: any, y: any) => (y.last || 0) - (x.last || 0)).slice(0, 15);
+  if (!entries.length) kb.textContent = data.on === false ? 'Optional diagnostics are off.' : 'No errors recorded.';
+  for (const k of entries) {
+    const item = document.createElement('div'); item.className = 'selfdev-item';
+    const t = document.createElement('b'); t.textContent = `${String(k.module).replace(/_/g, ' ')}: ${String(k.type).replace(/_/g, ' ')} · ${k.count}×`;
+    const s2 = document.createElement('small'); const tries = (k.ok || 0) + (k.fail || 0);
+    s2.textContent = `${k.explain || ''}${tries ? ` Repair "${String(k.action).replace(/_/g, ' ')}" worked ${k.ok || 0} of ${tries}.` : ''} Last ${new Date(k.last).toLocaleString()}.${k.detail ? ` Technical: ${k.detail}` : ''}`;
+    item.append(t, s2); kb.append(item);
+  }
+  el<HTMLInputElement>('evo-on').checked = data.on !== false;
+}
+
 // ---- Self-development page
 function selfDevCall(input: Record<string, unknown>) {
   if (!bridge?.selfDevAction) return null;
@@ -962,9 +1025,17 @@ window.MyraaEvents = event => {
     if (!agentSession) return;
     if (event.kind === 'partial') { el('presence').textContent = `Sun rahi hoon: ${String(event.text || '').slice(-70)}`; }
     // Voice ID ear: another voice was left out, or FRIDAY was not sure it was the owner (nothing is acted on).
-    if (event.kind === 'ignored') { el('presence').textContent = 'Kisi aur ki awaz thi, ignore kar di.'; return; }
-    if (event.kind === 'unclear') { el('presence').textContent = event.code === 1 ? 'Awaz text mein nahi badal saki (internet?). Dobara boliye.' : 'Yaqeen nahi hua ke aap thay. Thoda qareeb ho kar dobara boliye.'; return; }
-    if (event.kind === 'error') { notice(String(event.text || 'The microphone stopped.')); const a = agentSession; agentSession = null; a.stop(); return; }
+    // Noise rule: other voices and voices not confirmed as the owner are ignored silently (no "dobara boliye").
+    if (event.kind === 'ignored') { metric('voice_ignored'); el('presence').textContent = 'Sun rahi hoon…'; return; }
+    if (event.kind === 'speech') metric('voice_owner');
+    if (event.kind === 'unclear') {
+      if (event.code !== 1) { metric('voice_unsure'); el('presence').textContent = 'Sun rahi hoon…'; return; }
+      // The owner's verified voice could not be turned into text: ask once, then stay quiet for 20 s.
+      if (Date.now() - lastRepeatAskAt < 20_000) { metric('voice_dup'); return; }
+      lastRepeatAskAt = Date.now(); el('presence').textContent = 'Awaz text mein nahi badal saki (internet?). Dobara boliye.'; return;
+    }
+    if (event.kind === 'error') { if (healAgentEar(String(event.text || ''))) return; notice(String(event.text || 'The microphone stopped.')); const a = agentSession; agentSession = null; a.stop(); return; }
+    if (event.kind === 'ready' && earHealPending) { earHealPending = false; health('agent_ear', 'ear_stopped', 'restart_ear', 'ok', 'listener ready again'); }
     agentSession.heard(String(event.kind), String(event.text || '')); return;
   }
   if (event.type === 'speech' && !event.active) speechWaiter?.();
@@ -1063,6 +1134,7 @@ window.MyraaEvents = event => {
   if (event.type === 'state') { state = event.state; refreshSettings(); renderHistory(); renderAssistant(); }
   if (event.type === 'assistant') { state.assistant = event.assistant; if (event.announce) state.announce = event.announce; if (event.wake) state.wake = event.wake; renderAssistant(); if (event.message) notice(event.message); }
   if (event.type === 'update') { renderUpdate(event.state); if (event.notify && event.state?.latest) notice(`FRIDAY ${event.state.latest.versionName} is ready. See Settings > Self-development to read what changed and install it.`); else if (event.state?.message && !el<HTMLDialogElement>('settings-panel').open) notice(event.state.message); }
+  if (event.type === 'evolution') { if (!el('settings-panel').querySelector<HTMLElement>('[data-page="selfdev"]')!.hidden) { renderEvolution(); renderSelfDev(); } return; }
   if (event.type === 'selfdev') { if (event.message) notice(event.message); if (event.refresh && !el('settings-panel').querySelector<HTMLElement>('[data-page="selfdev"]')!.hidden) renderSelfDev(); }
   if (event.type === 'permissions') { state.permissions = event.permissions; renderPermissions(); if (event.message) notice(event.message); }
   if (event.type === 'reply' && event.id === requestId) {
@@ -1116,6 +1188,19 @@ let liveFallbacks = 0, liveReconnects = 0, liveUpSince = 0, autoRetry = false;
 function retryCall() { setTimeout(() => { el('voice').click(); if (!liveSession && liveResume.handoff) { liveResume.handoff = false; backgroundLive = false; bridge?.endLive(); } }, 900); }
 // ---- Agentic voice mode (Settings > Voice engine): Android hears, the chosen brain thinks and acts, the phone speaks.
 let agentSession: AgenticSession | null = null;
+/** Self-healing for agentic mode's voice listener: restart it when it stops, at most twice in 10 minutes, then report. */
+let lastRepeatAskAt = 0, earHealPending = false; const earHeals: number[] = [];
+function health(module: string, type: string, action: string, result: 'ok' | 'failed' | '', detail = '') { try { (bridge as any)?.healthEvent?.(module, type, action, result, detail.slice(0, 120)); } catch { /* never breaks voice */ } }
+function healAgentEar(why: string) {
+  const now = Date.now(); while (earHeals.length && now - earHeals[0] > 600_000) earHeals.shift();
+  if (!agentSession?.active() || earHeals.length >= 2) { health('agent_ear', 'ear_stopped', earHeals.length >= 2 ? 'restart_ear' : '', earHeals.length >= 2 ? 'failed' : '', why.replace(/[^A-Za-z .]/g, '').slice(0, 80)); return false; }
+  earHeals.push(now); earHealPending = true;
+  const r = bridge?.agentEar?.('start', '') || '';
+  if (r && r !== 'ok' && !/^listening|started|ok/i.test(r)) { earHealPending = false; health('agent_ear', 'ear_stopped', 'restart_ear', 'failed', 'restart refused'); return false; }
+  el('presence').textContent = 'Mic dobara chalu kar rahi hoon…'; metric('heal_ear');
+  setTimeout(() => { if (earHealPending) { earHealPending = false; health('agent_ear', 'ear_stopped', 'restart_ear', 'failed', 'no ready after restart'); } }, 5000);
+  return true;
+}
 let agentOpts: any = {};
 const agentSteps = new Map<string, { resolve: (r: any) => void; reject: (e: Error) => void }>();
 let speechWaiter: (() => void) | null = null;
@@ -1168,6 +1253,7 @@ function startAgentic(startedBy: string) {
     onNotice: text => notice(text),
     onIgnored: text => notice(`Not answered, it sounded meant for someone else: "${text.slice(0, 60)}". Say "FRIDAY" first if it was for me.`),
     onAction: (action, args, result) => { appendAction(action, result); trackAction(action, args, String(result?.status || '')); },
+    onDropped: why => metric(why === 'noise' ? 'voice_noise' : 'voice_dup'),
   });
   const why = session.start(startedBy === 'checkin' || startedBy === '' ? '' : 'Ji, boliye. Main sun rahi hoon.');
   if (why !== 'ok') { notice(why); return; }
@@ -1217,11 +1303,11 @@ el('voice').onclick = () => {
       if (recovery === 'switch_model' && bridge?.nextLiveModel) {
         const next = bridge.nextLiveModel(bridge.liveModel?.() || '');
         if (!next) { liveResume.handoff = false; bridge?.endLive(); }
-        if (next) { metric('live_switch'); liveFallbacks++; liveResume.resuming = false; liveResume.handle = ''; notice(`This Live model is unavailable right now. Trying ${next}…`); state.liveModel = next; autoRetry = true; retryCall(); return; }
+        if (next) { metric('live_switch'); liveHealing = 'model_refused:switch_model'; liveFallbacks++; liveResume.resuming = false; liveResume.handle = ''; notice(`This Live model is unavailable right now. Trying ${next}…`); state.liveModel = next; autoRetry = true; retryCall(); return; }
       }
       // The call dropped or Google ended the session: connect again, resuming the conversation when Google gave a handle.
       if (recovery === 'reconnect') {
-        metric('live_reconnect'); liveReconnects++; liveResume.resuming = !(resuming && /while starting/i.test(message)) && !!liveResume.handle; if (!liveResume.resuming) liveResume.handle = '';
+        metric('live_reconnect'); liveHealing = 'connection_dropped:reconnect'; liveReconnects++; liveResume.resuming = !(resuming && /while starting/i.test(message)) && !!liveResume.handle; if (!liveResume.resuming) liveResume.handle = '';
         notice('Connection dropped. Reconnecting…'); bridge?.companion?.('connecting', '', 0); autoRetry = true; retryCall(); return;
       }
       notice(message);
@@ -1266,6 +1352,10 @@ el('update-check').onclick = () => { if (!bridge?.updateCheck) return notice('Up
 el('update-download').onclick = () => { el('update-status').textContent = 'Downloading and checking…'; bridge?.updateDownload?.(); };
 el('update-install').onclick = () => { if (!confirm('Install the new FRIDAY? The current version and a data backup are saved to Downloads/FRIDAY first, and Android will ask you to confirm.')) return; bridge?.updateInstall?.(); };
 el('update-auto').onchange = () => { try { renderUpdate(JSON.parse(bridge?.updateOptions?.(JSON.stringify({ auto: el<HTMLInputElement>('update-auto').checked })) || 'null')); } catch { /* keep */ } };
+el('evo-check').onclick = () => { if (!(bridge as any)?.evolutionAction) return notice('This runs inside the Android app.'); el('evo-note').textContent = 'Checking…'; renderEvolution(evolutionCall({ action: 'check' })); el('evo-note').textContent = 'Checking… (a few seconds)'; };
+el('evo-resume').onclick = () => { const r = evolutionCall({ action: 'resume' }); if (r) renderEvolution(r); };
+el('evo-clear').onclick = () => { if (!confirm('Clear FRIDAY\'s error history on this phone?')) return; const r = evolutionCall({ action: 'clear' }); if (r) { renderEvolution(r); notice(r.message || ''); } };
+el<HTMLInputElement>('evo-on').onchange = () => { const on = el<HTMLInputElement>('evo-on').checked; if (!on && !confirm('Turn off optional diagnostics? Background checks and automatic repairs stop, and the error history is deleted.')) { el<HTMLInputElement>('evo-on').checked = true; return; } const r = evolutionCall({ action: 'options', on }); if (r) { renderEvolution(r); notice(r.message || ''); } };
 el('selfdev-analyze').onclick = () => { const r = selfDevCall({ action: 'analyze' }); if (r) { renderSelfDev(); notice('Self-analysis updated.'); } };
 el('selfdev-ideas').onclick = () => { if (!bridge?.selfDevIdeas) return notice('This runs inside the Android app.'); notice('Asking Gemini for ideas from the measured numbers…'); bridge.selfDevIdeas(); };
 el('selfdev-clear').onclick = () => { if (!confirm('Clear all self-development measurements, ideas and the development memory on this phone?')) return; const r = selfDevCall({ action: 'clear' }); if (r) { renderSelfDev(r); notice(r.message || ''); } };

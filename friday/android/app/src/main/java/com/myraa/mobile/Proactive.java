@@ -42,6 +42,7 @@ final class Proactive {
   /** One round of checks. Each alert has a key and a quiet period so it never nags. */
   static void check(Context c){
     Orders.onBattery(c);
+    if(SelfHealing.on(c)&&!Autonomy.paused(c)){final Context app=c.getApplicationContext();new Thread(()->{try{SelfHealing.check(app,true,null,"periodic");}catch(RuntimeException e){ControlLog.i("self-healing: check stopped ("+e.getClass().getSimpleName()+")");}},"friday-health").start();}
     if(!on(c)||Autonomy.paused(c))return;
     try{
       BatteryManager b=c.getSystemService(BatteryManager.class);

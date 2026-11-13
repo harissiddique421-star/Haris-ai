@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addressee, turnState, openAiSchema, agentTools, repairHistory, trimHistory, toolContent, AgenticSession, STOP_WORDS } from '../src/mobile/agentic.ts';
+import { addressee, turnState, openAiSchema, agentTools, repairHistory, trimHistory, toolContent, AgenticSession, STOP_WORDS, isNoise, isNotUnderstood, sameSentence } from '../src/mobile/agentic.ts';
 
 test('turn detection waits for unfinished sentences', () => {
   assert.equal(turnState('Instagram kholo aur'), 'wait');
@@ -59,7 +59,7 @@ function harness(steps: any[]) {
     ear: c => { log.push('ear:' + c); return 'ok'; },
     instruction: () => 'You are FRIDAY.',
     addresseeMode: () => 'smart',
-    onState: () => {}, onUser: t => log.push('user:' + t), onReply: t => log.push('reply:' + t), onNotice: () => {}, onIgnored: t => log.push('ignored:' + t),
+    onState: () => {}, onUser: t => log.push('user:' + t), onReply: t => log.push('reply:' + t), onNotice: () => {}, onIgnored: t => log.push('ignored:' + t), onDropped: w => log.push('drop:' + w),
   });
   return { s, log, dispatched };
 }
@@ -93,5 +93,42 @@ test('unfinished sentence waits, chatter for others is ignored', async () => {
   assert.ok(!log.some(l => l.startsWith('user:YouTube')));
   s.heard('final', 'gaana chalao');
   assert.ok(log.includes('user:YouTube kholo aur gaana chalao'));
+  s.stop();
+});
+
+test('noise rules: fillers are dropped, real short answers stay', () => {
+  for (const t of ['hmm', 'Hmmm.', 'uh', 'umm', 'ah ah', 'oh', 'a', '...', 'hahaha']) assert.ok(isNoise(t), t);
+  for (const t of ['haan', 'ji', 'ok', 'nahi', 'no', 'ruko', 'YouTube kholo', 'hmm YouTube kholo']) assert.ok(!isNoise(t), t);
+  assert.ok(isNotUnderstood('Maaf kijiye, samajh nahi aaya, dobara boliye.'));
+  assert.ok(isNotUnderstood("Sorry, I didn't catch that."));
+  assert.ok(!isNotUnderstood('YouTube khul gaya.'));
+  assert.ok(sameSentence('YouTube kholo.', 'youtube kholo'));
+  assert.ok(!sameSentence('', 'youtube kholo'));
+});
+
+test('noise never reaches the brain, an echoed sentence is taken once', async () => {
+  const { s, log } = harness([{ text: 'Ji.', calls: [], assistant: { role: 'assistant', content: 'Ji.' } }, { text: 'Ji.', calls: [], assistant: { role: 'assistant', content: 'Ji.' } }]);
+  s.start();
+  s.heard('final', 'hmm');
+  assert.ok(log.includes('drop:noise'));
+  assert.ok(!log.some(l => l.startsWith('user:')));
+  s.heard('final', 'YouTube kholo');
+  s.heard('final', 'YouTube kholo.');
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(log.filter(l => l === 'user:YouTube kholo').length, 1);
+  assert.ok(log.includes('drop:dup'));
+  s.stop();
+});
+
+test('"I did not understand" is spoken at most once in 20 seconds', async () => {
+  const sorry = { text: 'Samajh nahi aaya, dobara boliye.', calls: [], assistant: { role: 'assistant', content: 'Samajh nahi aaya, dobara boliye.' } };
+  const { s, log } = harness([sorry, sorry]);
+  s.start();
+  s.heard('final', 'YouTube kholo');
+  await new Promise(r => setTimeout(r, 20));
+  s.heard('final', 'Instagram kholo');
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(log.filter(l => l.startsWith('say:Samajh')).length, 1);
+  assert.ok(log.includes('drop:repeat'));
   s.stop();
 });
