@@ -40,6 +40,7 @@ public final class VoiceGateCheck {
     expect("threshold within the calibrated bounds",t>=SpeakerProfile.MIN_THRESHOLD&&t<=SpeakerProfile.MAX_THRESHOLD);
     expect("strict is stricter than relaxed",p.threshold("strict")>=p.threshold("balanced")&&p.threshold("balanced")>=p.threshold("relaxed"));
     expect("an accepted other voice raises the threshold above it",p.withImpostor(0.79).threshold("balanced")>=0.83-1e-9);
+    expect("an other-voice test as close as the owner's own recordings is treated as the owner",p.tooCloseToOwner(p.meanGenuine())&&!p.tooCloseToOwner(0.79));
     SpeakerProfile back=SpeakerProfile.fromJson(new org.json.JSONObject(p.toJson().toString()));
     expect("profile survives save and load",Math.abs(back.threshold("balanced")-t)<1e-9&&VoiceEncoder.cosine(back.print,p.print)>0.99999&&back.samples.size()==5&&back.canAdd());
     SpeakerProfile v1=SpeakerProfile.fromJson(new org.json.JSONObject(closeOnly.toJson().toString()));

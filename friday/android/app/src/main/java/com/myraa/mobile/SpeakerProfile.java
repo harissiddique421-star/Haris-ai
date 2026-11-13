@@ -73,6 +73,13 @@ final class SpeakerProfile {
     return t;
   }
 
+  /**
+   * An "other voice" test that scores as high as the owner's own recordings agree with each other
+   * is most likely the owner (or a voice this profile cannot tell apart). Storing it would raise the
+   * threshold above the owner's own voice and lock the owner out, so it is not stored.
+   */
+  boolean tooCloseToOwner(double score){return score>=meanGenuine();}
+
   /** Similarity of a voiceprint to the owner (cosine, 1 = same direction). */
   double score(float[] e){return e==null?0:VoiceEncoder.cosine(e,print);}
 

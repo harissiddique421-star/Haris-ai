@@ -73,6 +73,12 @@ final class VoiceGate {
   static final double NEAR=0.06;
   /** A rejected burst this close to the threshold, and as loud as the owner, is "unclear" (overlap). */
   static final double UNCLEAR=0.10;
+  /**
+   * A recheck during the owner's turn this far under the threshold is clearly another voice and ends
+   * the turn at once. A weaker miss (the owner pausing, quieter or turning away) ends it only when
+   * the next recheck misses too, so the owner is not cut off mid-command by one low score.
+   */
+  static final double TAKEOVER=0.15;
   /** A rejected voice this close under the threshold is "low" confidence: FRIDAY asks to repeat, runs nothing. */
   static final double LOW=0.08;
   /**
@@ -132,6 +138,8 @@ final class VoiceGate {
   private static final int TURN_LEVELS=3000/CHUNK_MS;
   private State state=State.LISTENING;
   private int above,silence,sinceCheck,jump,voicedChunks;
+  /** Rechecks in a row during the owner's turn that scored under threshold-NEAR (but not clearly another voice). */
+  private int weakRechecks;
   /** A held burst's talker level counts as known after this much speech (640 ms); only then can a louder voice cut in. */
   private static final int SETTLED=20;
   private boolean secondDone;
@@ -231,7 +239,7 @@ final class VoiceGate {
         if(burst.size()<need)return;
         state=State.VERIFYING_SPEAKER;
         double s=check(burst,burst.size());scoredChunks=burst.size();
-        if(s>=threshold){release(out,s);state=State.AUTHORIZED_USER;sinceCheck=0;recentFrom(burst,burstLevels);seedTurn(burstLevels);}
+        if(s>=threshold){release(out,s);state=State.AUTHORIZED_USER;sinceCheck=0;weakRechecks=0;recentFrom(burst,burstLevels);seedTurn(burstLevels);}
         else if(!secondDone&&s>=threshold-NEAR){secondDone=true;} // keep holding: one longer check
         else{out.silence(burst.size()*CHUNK);rejected(out,s);toUnknown(burst,burstLevels);}
         return;
@@ -249,9 +257,11 @@ final class VoiceGate {
         if(turnChunks%TURN_REPORT==0)report.add(turnInfo("owner turn still open"));
         if(++sinceCheck>=RECHECK_OWNER&&silence==0&&!behind.now()){
           sinceCheck=0;double s=check(new ArrayList<>(recent),recent.size());
-          // Someone as loud as the owner took over: end the owner's turn here (a little lenient,
-          // so the owner is not cut off mid-sentence).
-          if(s<threshold-NEAR){endInfo=turnInfo(String.format(java.util.Locale.ROOT,"someone else took over (voice %.2f)",s));out.event("end",s);toUnknown(new ArrayList<>(recent),new ArrayList<>(recentLevels));}
+          // Someone as loud as the owner took over: end the owner's turn here. A clearly different voice
+          // ends it at once; a weaker miss only when the next recheck misses too (see TAKEOVER).
+          if(s>=threshold-NEAR)weakRechecks=0;
+          else if(s>=threshold-TAKEOVER&&++weakRechecks<2){}
+          else{weakRechecks=0;endInfo=turnInfo(String.format(java.util.Locale.ROOT,"someone else took over (voice %.2f)",s));out.event("end",s);toUnknown(new ArrayList<>(recent),new ArrayList<>(recentLevels));}
         }
         return;
       }
@@ -361,6 +371,6 @@ final class VoiceGate {
   }
   private void reset(){
     state=State.LISTENING;burst.clear();burstLevels.clear();recent.clear();recentLevels.clear();before.clear();beforeLevels.clear();
-    turnLevels.clear();above=0;silence=0;sinceCheck=0;jump=0;secondDone=false;talkerLevel=0;early=Double.NaN;
+    turnLevels.clear();above=0;silence=0;sinceCheck=0;jump=0;weakRechecks=0;secondDone=false;talkerLevel=0;early=Double.NaN;
   }
 }

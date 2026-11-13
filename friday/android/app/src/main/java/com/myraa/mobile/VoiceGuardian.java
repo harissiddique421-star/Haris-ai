@@ -182,6 +182,8 @@ final class VoiceGuardian {
   }
   /** The three enrollment voiceprints must all be at least this close to their average. */
   static final double MIN_ENROLL_CONSISTENCY=0.70;
+  /** A refused try this close under the threshold is most likely the owner, so it is not a near miss. */
+  static final double OWNER_MISS=0.05;
   /**
    * Lowest voiceprint similarity accepted as the user. It starts from how close the user's own
    * three recordings were to each other and leaves a margin set by the sensitivity, within fixed
@@ -236,7 +238,9 @@ final class VoiceGuardian {
     double threshold=voiceThreshold(v.printSelf,WakeWordService.sensitivity(c),misses);
     if(cleanPcm!=null&&sim<threshold&&sim>=threshold-NoiseReducer.REACH){float[] ce=enc.embed(VoiceEncoder.toFloat(cleanPcm));double cs=ce==null?0:VoiceEncoder.cosine(ce,v.print)-NoiseReducer.PENALTY;if(cs>sim){sim=cs;cleaned=true;}}
     boolean ok=phraseRatio<=1&&sim>=threshold;
-    if(phraseRatio<=1&&!ok)nearMiss();
+    // Only a clearly different voice counts toward the stricter check; the owner's own narrow misses
+    // (a second or third try right after one that was not heard) must not make the next try harder.
+    if(phraseRatio<=1&&!ok&&sim<threshold-OWNER_MISS)nearMiss();
     ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.2f, needs %.2f%s%s)",phrase,v.limit*k,sim,threshold,cleaned?", with background noise removed":"",misses>=3?", stricter after repeated misses":""));
     // Voice ratio: at or under 1 exactly when the similarity reaches the threshold.
     return new double[]{phraseRatio,(1-sim)/Math.max(1e-6,1-threshold)};

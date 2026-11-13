@@ -235,13 +235,15 @@ final class VoiceId {
         // As in a call: the first 1.2 s decides, with a second look when it is close.
         boolean accepted=first>=t||(first>=t-VoiceGate.NEAR&&whole>=t);
         recordTest(app,other,accepted);
-        if(other){
+        // A score as high as the owner's own recordings is most likely the owner; storing it would lock the owner out.
+        boolean ownerLike=other&&prof.tooCloseToOwner(first);
+        if(other&&!ownerLike){
           try{save(app,prof.withImpostor(first));}catch(Exception ignored){}
         }
         ControlLog.i(String.format(Locale.ROOT,"voice id: test %s %s (voice %.2f, whole %.2f, needs %.2f)",other?"other voice":"my voice",accepted?"accepted":"refused",first,whole,t));
         String msg=String.format(Locale.ROOT,"%s (voice match %.2f, needs %.2f).",
-          other?(accepted?"This voice was ACCEPTED as you. FRIDAY has raised the bar for it; consider Strict sensitivity":"Correct: this voice was refused")
-               :(accepted?"Recognised: this is your voice":"Not recognised. Try again at your normal distance, or choose Relaxed sensitivity"),first,other?prof.withImpostor(first).threshold(sensitivity(app)):t);
+          other?(ownerLike?"This sounds just like your own voice, so FRIDAY did not raise the bar (that would lock you out). If this really was someone else, choose Strict sensitivity":accepted?"This voice was ACCEPTED as you. FRIDAY has raised the bar for it; consider Strict sensitivity":"Correct: this voice was refused")
+               :(accepted?"Recognised: this is your voice":"Not recognised. Try again at your normal distance, or choose Relaxed sensitivity"),first,other&&!ownerLike?prof.withImpostor(first).threshold(sensitivity(app)):t);
         p.update(accepted^other?"pass":"fail",1,1,msg);
       }catch(RuntimeException e){p.update("error",0,0,"The microphone is busy. End any call or recording and try again.");}
       finally{if(mic!=null)mic.close();recording=false;done.run();}
