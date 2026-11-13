@@ -35,12 +35,13 @@ final class TextProviders {
   /** OpenRouter with no model typed (or "auto") uses the Auto router; any other provider needs its model. */
   static String effectiveModel(String kind,String model){
     String m=model==null?"":model.trim();
+    if(m.isEmpty()&&preset(kind)!=null)return preset(kind)[1];
     if("openrouter".equals(kind)&&(m.isEmpty()||"auto".equalsIgnoreCase(m)))return AUTO;
     if("openrouter".equals(kind)&&FREE.equalsIgnoreCase(m))return FREE;
     return m;
   }
   /** True when the saved model is enough to send a request (OpenRouter needs none). */
-  static boolean modelReady(String kind,String model){return "openrouter".equals(kind)?model==null||model.trim().isEmpty()||validModel(model.trim()):validModel(model);}
+  static boolean modelReady(String kind,String model){return "openrouter".equals(kind)||preset(kind)!=null?model==null||model.trim().isEmpty()||validModel(model.trim()):validModel(model);}
 
   /** Remembers the free model that worked last, so the next message does not look it up again. */
   interface Cache { String get(); void put(String model); }
@@ -122,13 +123,21 @@ final class TextProviders {
     return r;
   }
 
-  static String kind(String k){return "openrouter".equals(k)||"custom".equals(k)?k:"none";}
+  /** Providers FRIDAY knows: their API address and a good default model (used when Model is left empty). */
+  static String[] preset(String kind){
+    if("deepseek".equals(kind))return new String[]{"https://api.deepseek.com/v1","deepseek-chat"};
+    if("openai".equals(kind))return new String[]{"https://api.openai.com/v1","gpt-4o-mini"};
+    if("groq".equals(kind))return new String[]{"https://api.groq.com/openai/v1","llama-3.3-70b-versatile"};
+    return null;
+  }
+  static String kind(String k){return "openrouter".equals(k)||"custom".equals(k)||preset(k)!=null?k:"none";}
   static String use(String u){return "backup".equals(u)||"primary".equals(u)?u:"off";}
-  static String label(String kind){return "openrouter".equals(kind)?"OpenRouter":"custom".equals(kind)?"Custom provider":"Gemini";}
+  static String label(String kind){return "openrouter".equals(kind)?"OpenRouter":"deepseek".equals(kind)?"DeepSeek":"openai".equals(kind)?"OpenAI":"groq".equals(kind)?"Groq":"custom".equals(kind)?"Custom provider":"Gemini";}
 
   /** The API base for a provider: OpenRouter's, or a custom https URL without user, query or fragment. */
   static String base(String kind,String custom){
     if("openrouter".equals(kind))return OPENROUTER;
+    if(preset(kind)!=null)return preset(kind)[0];
     if(!"custom".equals(kind))throw new IllegalArgumentException("No second provider is chosen.");
     String b=custom==null?"":custom.trim();
     while(b.endsWith("/"))b=b.substring(0,b.length()-1);
