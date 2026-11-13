@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GoogleGenAI, Modality } from "@google/genai";
 
 const SYSTEM_PROMPT = `
@@ -29,6 +29,10 @@ export default function MayaPage() {
   const [heard, setHeard] = useState("");
   const [reply, setReply] = useState("");
   const [manualText, setManualText] = useState("");
+  const [accessCode, setAccessCode] = useState("");
+  useEffect(() => {
+    try { setAccessCode(localStorage.getItem("mayaAccessCode") || ""); } catch {}
+  }, []);
   const sessionRef = useRef<any>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const nextPlayRef = useRef(0);
@@ -39,7 +43,8 @@ export default function MayaPage() {
     try {
       setBusy(true);
       setStatus("Connecting to Maya…");
-      const res = await fetch("/api/maya-token", { method: "POST" });
+      try { localStorage.setItem("mayaAccessCode", accessCode); } catch {}
+      const res = await fetch("/api/maya-token", { method: "POST", headers: { "x-maya-access-code": accessCode } });
       const payload = await res.json();
       if (!res.ok || !payload.token) throw new Error(payload.error || "Token setup failed");
       const ai = new GoogleGenAI({ apiKey: payload.token, httpOptions: { apiVersion: "v1alpha" } });
@@ -132,6 +137,7 @@ export default function MayaPage() {
         <div aria-live="polite" style={{ background: "#0003", borderRadius: 14, padding: 14, margin: "22px 0" }}>
           <small style={{ color: "#d8b4fe" }}>STATUS</small><div style={{ marginTop: 5 }}>{status}</div>
         </div>
+        <input aria-label="Access code" type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Access code" autoComplete="current-password" style={{ width: "100%", boxSizing: "border-box", padding: 12, marginBottom: 10, borderRadius: 12, border: "1px solid #ffffff25", background: "#ffffff0d", color: "white" }} />
         <div style={{ display: "grid", gap: 10 }}>
           <button disabled={busy || !!sessionRef.current} onClick={connectMaya} style={primary}>{busy ? "Connecting…" : "Connect Maya"}</button>
           <button disabled={!sessionRef.current} onClick={startMic} style={{ ...primary, background: "linear-gradient(90deg,#db2777,#9333ea)" }}>🎙️ Talk to Maya</button>
