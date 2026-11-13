@@ -1,9 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextRequest, NextResponse } from "next/server";
+import { allow, clientIp } from "../../../../lib/guard";
 
 export const runtime = "nodejs";
-
-const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 
 const SYSTEM_INSTRUCTION = `
 You are Haris AI, Haris Siddique's personal Android voice assistant.
@@ -41,13 +40,9 @@ export async function POST(request: NextRequest) {
     if (!authResponse.ok) {
       return NextResponse.json({ error: "Your session is invalid or expired. Please sign in again." }, { status: 401 });
     }
-    const clientIp = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const now = Date.now();
-    const bucket = requestBuckets.get(clientIp);
-    if (bucket && bucket.resetAt > now && bucket.count >= 10) {
+    if (!(await allow("assistant-chat", clientIp(request.headers.get("x-forwarded-for")), 10))) {
       return NextResponse.json({ error: "Too many requests. Please wait a minute." }, { status: 429 });
     }
-    requestBuckets.set(clientIp, !bucket || bucket.resetAt <= now ? { count: 1, resetAt: now + 60_000 } : { ...bucket, count: bucket.count + 1 });
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: "Gemini is not configured on the server." }, { status: 503 });

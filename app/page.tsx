@@ -12,6 +12,11 @@ Do not claim to remember facts unless they are present in this conversation.
 Ask for confirmation before sensitive actions.
 `;
 
+// Public Supabase settings (the publishable key is meant for browsers). When they are set the page
+// signs in with Supabase; otherwise it asks for the MAYA_ACCESS_CODE.
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
+
 function decodePcm(base64: string): Int16Array {
   const binary = atob(base64);
   const output = new Int16Array(Math.floor(binary.length / 2));
@@ -30,9 +35,42 @@ export default function MayaPage() {
   const [reply, setReply] = useState("");
   const [manualText, setManualText] = useState("");
   const [accessCode, setAccessCode] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authToken, setAuthToken] = useState("");
   useEffect(() => {
-    try { setAccessCode(localStorage.getItem("mayaAccessCode") || ""); } catch {}
+    try {
+      setAccessCode(localStorage.getItem("mayaAccessCode") || "");
+      setAuthToken(sessionStorage.getItem("mayaSession") || "");
+    } catch {}
   }, []);
+
+  async function signIn() {
+    if (!SUPABASE_URL || !SUPABASE_KEY) return;
+    try {
+      setBusy(true);
+      setStatus("Signing in…");
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+        method: "POST",
+        headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.access_token) throw new Error(data.error_description || data.msg || "Sign-in failed");
+      setAuthToken(data.access_token);
+      try { sessionStorage.setItem("mayaSession", data.access_token); } catch {}
+      setPassword("");
+      setStatus("Signed in. Tap Connect Maya.");
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Sign-in failed");
+    } finally { setBusy(false); }
+  }
+
+  function signOut() {
+    setAuthToken("");
+    try { sessionStorage.removeItem("mayaSession"); } catch {}
+    void disconnectMaya();
+  }
   const sessionRef = useRef<any>(null);
   const audioRef = useRef<AudioContext | null>(null);
   const nextPlayRef = useRef(0);
@@ -43,9 +81,15 @@ export default function MayaPage() {
     try {
       setBusy(true);
       setStatus("Connecting to Maya…");
-      try { localStorage.setItem("mayaAccessCode", accessCode); } catch {}
-      const res = await fetch("/api/maya-token", { method: "POST", headers: { "x-maya-access-code": accessCode } });
+      const headers: Record<string, string> = {};
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
+      if (accessCode) {
+        headers["x-maya-access-code"] = accessCode;
+        try { localStorage.setItem("mayaAccessCode", accessCode); } catch {}
+      }
+      const res = await fetch("/api/maya-token", { method: "POST", headers });
       const payload = await res.json();
+      if (res.status === 401 && authToken) { setAuthToken(""); try { sessionStorage.removeItem("mayaSession"); } catch {} }
       if (!res.ok || !payload.token) throw new Error(payload.error || "Token setup failed");
       const ai = new GoogleGenAI({ apiKey: payload.token, httpOptions: { apiVersion: "v1alpha" } });
       const ctx = new AudioContext({ sampleRate: 24000 });
@@ -137,7 +181,19 @@ export default function MayaPage() {
         <div aria-live="polite" style={{ background: "#0003", borderRadius: 14, padding: 14, margin: "22px 0" }}>
           <small style={{ color: "#d8b4fe" }}>STATUS</small><div style={{ marginTop: 5 }}>{status}</div>
         </div>
-        <input aria-label="Access code" type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Access code" autoComplete="current-password" style={{ width: "100%", boxSizing: "border-box", padding: 12, marginBottom: 10, borderRadius: 12, border: "1px solid #ffffff25", background: "#ffffff0d", color: "white" }} />
+        {SUPABASE_URL && SUPABASE_KEY ? (
+          authToken ? (
+            <p style={{ textAlign: "center", color: "#d8b4fe", margin: "0 0 10px" }}>Signed in · <button onClick={signOut} style={{ background: "transparent", color: "#ddd", border: 0, textDecoration: "underline" }}>Sign out</button></p>
+          ) : (
+            <form onSubmit={(e) => { e.preventDefault(); void signIn(); }} style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+              <input aria-label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" autoComplete="email" style={field} />
+              <input aria-label="Password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" autoComplete="current-password" style={field} />
+              <button disabled={busy || !email.trim() || !password} style={primary}>Sign in</button>
+            </form>
+          )
+        ) : (
+          <input aria-label="Access code" type="password" value={accessCode} onChange={(e) => setAccessCode(e.target.value)} placeholder="Access code" autoComplete="current-password" style={{ ...field, marginBottom: 10 }} />
+        )}
         <div style={{ display: "grid", gap: 10 }}>
           <button disabled={busy || !!sessionRef.current} onClick={connectMaya} style={primary}>{busy ? "Connecting…" : "Connect Maya"}</button>
           <button disabled={!sessionRef.current} onClick={startMic} style={{ ...primary, background: "linear-gradient(90deg,#db2777,#9333ea)" }}>🎙️ Talk to Maya</button>
@@ -157,4 +213,5 @@ export default function MayaPage() {
   );
 }
 
+const field: React.CSSProperties = { width: "100%", boxSizing: "border-box", padding: 12, borderRadius: 12, border: "1px solid #ffffff25", background: "#ffffff0d", color: "white" };
 const primary: React.CSSProperties = { width: "100%", border: 0, borderRadius: 13, padding: 15, color: "white", fontWeight: 650, background: "linear-gradient(90deg,#9333ea,#7c3aed)" };
