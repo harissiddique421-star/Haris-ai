@@ -5,6 +5,7 @@ This repository's Vercel web app is being switched to a Maya AI voice companion 
 ## Required Vercel environment variables
 
 - `GEMINI_API_KEY`: your Google AI Studio API key. Add it in Vercel Project Settings → Environment Variables; never commit it to GitHub.
+- `MAYA_ACCESS_CODE`: a long random code you choose. The Maya page asks for it before connecting, and `/api/maya-token` and `/api/chat` refuse requests without it, so strangers can't spend your Gemini key.
 - `GEMINI_LIVE_MODEL` (optional): a Live API model currently enabled for your API key. The current default in the API route may need updating based on your account's available models.
 
 After adding variables, redeploy the project. Use Chrome on Android and allow microphone access. Voice and speech-recognition support varies by browser/device.

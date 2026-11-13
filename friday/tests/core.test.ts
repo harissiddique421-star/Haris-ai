@@ -145,7 +145,14 @@ test("confirmation broker resolves once, expires and cancels with the task", asy
   assert.equal((await answer).approved, true);
 
   const expiring = broker.request({ taskId: "t2", capability: "DELETE_FILE", title: "", description: "", details: {}, allowRemember: false }, { timeoutMs: 20 });
-  assert.deepEqual(await expiring.answer, { approved: false, via: "timeout" });
+  // The broker's timer is unref'd so a pending confirmation never keeps the app
+  // alive on shutdown. Hold the event loop open here so the 20 ms timeout fires.
+  const keepAlive = setTimeout(() => {}, 1_000);
+  try {
+    assert.deepEqual(await expiring.answer, { approved: false, via: "timeout" });
+  } finally {
+    clearTimeout(keepAlive);
+  }
 
   const controller = new AbortController();
   const cancelled = broker.request({ taskId: "t3", capability: "RUN_COMMAND", title: "", description: "", details: {}, allowRemember: false }, { signal: controller.signal });

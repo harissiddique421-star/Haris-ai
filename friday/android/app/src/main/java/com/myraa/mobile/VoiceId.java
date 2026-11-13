@@ -41,27 +41,29 @@ final class VoiceId {
   /**
    * Enrollment: twelve sentences of different lengths, said in the ways the owner really talks to
    * the phone (close, at arm's length, from across the table, quietly, with a little noise), so the
-   * voiceprint is about the voice, not one phrase or one distance. {how, sentence}.
+   * voiceprint is about the voice, not one phrase or one distance. Some are in Roman Urdu, the
+   * language most commands are given in, so the voiceprint also covers how the owner sounds in it.
+   * {how, sentence}.
    */
   static final String[][] SENTENCES={
     {"Hold the phone normally and say","Hello Haris AI, this is my voice."},
     {"Normal voice","Hey Haris, open my assistant."},
-    {"A short one","Turn on the flashlight."},
+    {"A short one","Torch on karo."},
     {"A longer one, at your normal pace","FRIDAY, tell me today's schedule and remind me about my meetings this afternoon."},
-    {"Hold the phone at arm's length and say","Send a WhatsApp message to my brother."},
+    {"Hold the phone at arm's length and say","Bhai ko WhatsApp par message bhejo."},
     {"Still at arm's length, a bit faster","FRIDAY, search YouTube for the latest AI news."},
     {"Put the phone on a table about one or two metres away and say","FRIDAY, stop talking and listen to me."},
-    {"Still from the table","What's the weather going to be like tomorrow?"},
+    {"Still from the table","Kal mausam kaisa hoga?"},
     {"Quietly, as if someone is sleeping nearby","Set an alarm for six thirty in the morning."},
     {"Quietly","Read my latest notifications."},
-    {"With a fan or the TV on low, normal voice","Call my mother on WhatsApp."},
+    {"With a fan or the TV on low, normal voice","Ammi ko WhatsApp par call karo."},
     {"Your normal voice, a little higher or lower than usual","FRIDAY, how much battery do I have left?"},
   };
   /** "Add more samples": the situations where FRIDAY most often misses the owner. */
   static final String[][] EXTRA={
     {"From across the room (two or three metres)","FRIDAY, open Google Maps."},
-    {"From across the room","Turn the volume down a little."},
-    {"Quietly, phone on the table","What time is it?"},
+    {"From across the room","Awaz thodi kam karo."},
+    {"Quietly, phone on the table","Kitne baje hain?"},
     {"With some noise around you","FRIDAY, play some music."},
   };
   private static final int MIN_SENTENCES=8,MIN_EXTRA=2,MIN_SENTENCE_MS=900,SENTENCE_MAX_MS=9000,TEST_MAX_MS=9000;
@@ -235,13 +237,15 @@ final class VoiceId {
         // As in a call: the first 1.2 s decides, with a second look when it is close.
         boolean accepted=first>=t||(first>=t-VoiceGate.NEAR&&whole>=t);
         recordTest(app,other,accepted);
-        if(other){
+        // A score as high as the owner's own recordings is most likely the owner; storing it would lock the owner out.
+        boolean ownerLike=other&&prof.tooCloseToOwner(first);
+        if(other&&!ownerLike){
           try{save(app,prof.withImpostor(first));}catch(Exception ignored){}
         }
         ControlLog.i(String.format(Locale.ROOT,"voice id: test %s %s (voice %.2f, whole %.2f, needs %.2f)",other?"other voice":"my voice",accepted?"accepted":"refused",first,whole,t));
         String msg=String.format(Locale.ROOT,"%s (voice match %.2f, needs %.2f).",
-          other?(accepted?"This voice was ACCEPTED as you. FRIDAY has raised the bar for it; consider Strict sensitivity":"Correct: this voice was refused")
-               :(accepted?"Recognised: this is your voice":"Not recognised. Try again at your normal distance, or choose Relaxed sensitivity"),first,other?prof.withImpostor(first).threshold(sensitivity(app)):t);
+          other?(ownerLike?"This sounds just like your own voice, so FRIDAY did not raise the bar (that would lock you out). If this really was someone else, choose Strict sensitivity":accepted?"This voice was ACCEPTED as you. FRIDAY has raised the bar for it; consider Strict sensitivity":"Correct: this voice was refused")
+               :(accepted?"Recognised: this is your voice":"Not recognised. Try again at your normal distance, or choose Relaxed sensitivity"),first,other&&!ownerLike?prof.withImpostor(first).threshold(sensitivity(app)):t);
         p.update(accepted^other?"pass":"fail",1,1,msg);
       }catch(RuntimeException e){p.update("error",0,0,"The microphone is busy. End any call or recording and try again.");}
       finally{if(mic!=null)mic.close();recording=false;done.run();}

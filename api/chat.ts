@@ -1,4 +1,12 @@
-type VercelRequest = { method?: string; body?: unknown };
+import { timingSafeEqual } from "node:crypto";
+
+type VercelRequest = { method?: string; body?: unknown; headers?: Record<string, string | string[] | undefined> };
+
+function codeMatches(given: string, expected: string): boolean {
+  const a = Buffer.from(given);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 type VercelResponse = {
   setHeader(name: string, value: string): void;
   status(code: number): VercelResponse;
@@ -14,10 +22,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
+  // Same lock as the Maya token route: without the access code anyone could spend the Gemini key.
+  const accessCode = process.env.MAYA_ACCESS_CODE;
+  if (!accessCode) return res.status(503).json({ error: "AI service is locked: add MAYA_ACCESS_CODE in Vercel." });
+  const given = req.headers?.["x-maya-access-code"];
+  if (typeof given !== "string" || !codeMatches(given, accessCode)) return res.status(401).json({ error: "Wrong or missing access code." });
+
   const key = process.env.GEMINI_API_KEY;
   if (!key) return res.status(503).json({ error: "AI service is not configured yet." });
 
-  const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+  let body: any;
+  try {
+    body = typeof req.body === "string" ? JSON.parse(req.body) : req.body;
+  } catch {
+    return res.status(400).json({ error: "Request body must be valid JSON." });
+  }
   const message = typeof body?.message === "string" ? body.message.trim() : "";
   const history = Array.isArray(body?.history) ? body.history.slice(-12) : [];
   if (!message) return res.status(400).json({ error: "Message is required." });
