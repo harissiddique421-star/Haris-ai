@@ -42,7 +42,12 @@ final class Documents {
     if(uri==null)throw new IOException("Downloads is not available.");
     try(OutputStream out=resolver.openOutputStream(uri,"w")){
       if(out==null)throw new IOException("no stream");
-      if(pdf)writePdf(out,title,text);else out.write((title+"\n\n"+text).getBytes(StandardCharsets.UTF_8));
+      if(pdf){
+        // The report layout should never fail, but if it does on some phone, still save a plain PDF.
+        java.io.ByteArrayOutputStream buf=new java.io.ByteArrayOutputStream();
+        try{writePdf(buf,title,text);}catch(RuntimeException e){ControlLog.i("documents: report layout failed ("+e.getClass().getSimpleName()+"), saving plain PDF");buf.reset();writePlainPdf(buf,title,text);}
+        buf.writeTo(out);
+      }else out.write((title+"\n\n"+text).getBytes(StandardCharsets.UTF_8));
     }catch(IOException|RuntimeException e){resolver.delete(uri,null,null);throw e;}
     values.clear();values.put(MediaStore.MediaColumns.IS_PENDING,0);resolver.update(uri,values,null,null);
     return new Saved(uri,name,mime);
@@ -108,6 +113,26 @@ final class Documents {
         footer(canvas,pageNo,small);doc.finishPage(page);page=null;
       }
       if(page!=null){footer(canvas,pageNo,small);doc.finishPage(page);}
+      doc.writeTo(out);
+    }finally{doc.close();}
+  }
+  /** Plain fallback: the title, then the text as paragraphs, no Markdown layout. */
+  private static void writePlainPdf(OutputStream out,String title,String text) throws IOException {
+    TextPaint body=paint(11f,INK,false);
+    String plain=text.replace("\r\n","\n").replaceAll("(?m)^#+\\s*","").replace("**","");
+    PdfDocument doc=new PdfDocument();
+    try{
+      StaticLayout all=StaticLayout.Builder.obtain(title+"\n\n"+plain,0,title.length()+2+plain.length(),body,USABLE).setLineSpacing(3f,1f).build();
+      int line=0,pageNo=0;
+      while(line<all.getLineCount()&&pageNo<300){
+        pageNo++;PdfDocument.Page page=doc.startPage(new PdfDocument.PageInfo.Builder(W,H,pageNo).create());Canvas c=page.getCanvas();
+        int first=line,top=all.getLineTop(first);
+        while(line<all.getLineCount()&&all.getLineBottom(line)-top<=H-2*M)line++;
+        if(line==first)line++;
+        c.save();c.translate(M,M-top);c.clipRect(0,top,USABLE,all.getLineBottom(line-1));all.draw(c);c.restore();
+        doc.finishPage(page);
+      }
+      if(pageNo==0){doc.finishPage(doc.startPage(new PdfDocument.PageInfo.Builder(W,H,1).create()));}
       doc.writeTo(out);
     }finally{doc.close();}
   }

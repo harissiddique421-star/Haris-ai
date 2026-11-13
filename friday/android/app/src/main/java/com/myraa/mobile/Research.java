@@ -61,11 +61,7 @@ final class Research {
       .put("contents",new JSONArray().put(new JSONObject().put("role","user").put("parts",new JSONArray().put(new JSONObject().put("text","Research topic: "+topic)))))
       .put("tools",new JSONArray().put(new JSONObject().put("google_search",new JSONObject())))
       .put("generationConfig",new JSONObject().put("temperature",0.3).put("maxOutputTokens",8192));
-    JSONObject result=null;IOException last=null;
-    for(int attempt=0;attempt<2&&result==null;attempt++){
-      try{result=post(key,model,request);}catch(java.net.SocketTimeoutException e){last=e;}
-    }
-    if(result==null)throw last!=null?last:new IOException("no answer");
+    JSONObject result=call(key,model,request);
     JSONObject cand=result.getJSONArray("candidates").getJSONObject(0);
     JSONArray parts=cand.optJSONObject("content")==null?new JSONArray():cand.getJSONObject("content").optJSONArray("parts");
     StringBuilder b=new StringBuilder();
@@ -96,6 +92,51 @@ final class Research {
     full.append("\nResearched with Google Search on ").append(new SimpleDateFormat("d MMMM yyyy, HH:mm",Locale.ENGLISH).format(new Date()))
       .append(searches>0?" ("+searches+" searches)":"").append(". Prepared by FRIDAY; check important facts before acting on them.\n");
     return new Report(title,full.toString(),summaryOf(body),sources,searches,System.currentTimeMillis()-started);
+  }
+
+  /** Models to try, in order: the user's model, then FRIDAY's other text models and Google's current Flash. */
+  static List<String> models(String model){
+    List<String> out=new ArrayList<>();
+    if(model!=null&&model.matches("[A-Za-z0-9._-]{1,100}"))out.add(model);
+    for(String m:SelfImprovement.TEXT_MODELS)if(!out.contains(m))out.add(m);
+    if(!out.contains("gemini-flash-latest"))out.add("gemini-flash-latest");
+    return out;
+  }
+
+  /** True when another try (later, or with another model) may work: Google busy, quota, timeout, model missing. */
+  static boolean retryable(Exception e){
+    if(e instanceof java.net.UnknownHostException)return false; // no internet: another model will not help
+    if(e instanceof GeminiAccess.Failure){String c=((GeminiAccess.Failure)e).code;return "PROVIDER_UNAVAILABLE".equals(c)||"QUOTA_EXCEEDED".equals(c)||"MODEL_UNAVAILABLE".equals(c)||"GOOGLE_HTTP_ERROR".equals(c)||"EMPTY".equals(c);}
+    return e instanceof IOException;
+  }
+
+  /**
+   * Google is often busy ("overloaded", 503) or a model's quota runs out (429). Try the user's model twice with a
+   * short wait, then FRIDAY's other models, so a busy moment does not end the research. Key problems stop at once.
+   */
+  private static JSONObject call(String key,String model,JSONObject request) throws Exception {
+    Exception last=null;long started=System.currentTimeMillis();
+    for(String m:models(model)){
+      for(int attempt=0;attempt<2;attempt++){
+        if(System.currentTimeMillis()-started>240000)break;
+        try{
+          JSONObject r=post(key,m,request);
+          JSONArray c=r.optJSONArray("candidates");
+          if(c==null||c.length()==0)throw new GeminiAccess.Failure("EMPTY",200,"Google returned no answer for this research. Try again in a minute.");
+          if(!m.equals(model))ControlLog.i("research: answered by "+m);
+          return r;
+        }catch(Exception e){
+          last=e;
+          String code=e instanceof GeminiAccess.Failure?((GeminiAccess.Failure)e).code:e.getClass().getSimpleName();
+          ControlLog.i("research: "+m+" try "+(attempt+1)+" failed ("+code+")");
+          if(!retryable(e))throw e;
+          // Quota or a missing model will not change in seconds: go to the next model.
+          if(e instanceof GeminiAccess.Failure&&("QUOTA_EXCEEDED".equals(code)||"MODEL_UNAVAILABLE".equals(code)))break;
+          if(attempt==0)Thread.sleep(3000);
+        }
+      }
+    }
+    throw last!=null?last:new IOException("no answer");
   }
 
   static String titleOf(String md,String topic){
