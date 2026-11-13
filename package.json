@@ -11,7 +11,9 @@
     "@google/genai": "latest",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "@upstash/ratelimit": "2.2.1",
+    "@upstash/redis": "1.41.0"
   },
   "devDependencies": {
     "@types/node": "latest",
