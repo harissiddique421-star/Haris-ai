@@ -31,6 +31,16 @@ final class VoiceModels {
     catch(IOException|RuntimeException e){encoderFailed=true;ControlLog.i("voice: speaker model unavailable ("+e.getClass().getSimpleName()+")");}
     return encoder;
   }
+  /**
+   * The best speaker model on this phone for a new voice profile: TitaNet when sherpa-onnx runs
+   * here, otherwise GE2E. Null when neither loads.
+   */
+  static Voiceprinter bestVoiceprinter(Context c){TitaNet t=SherpaVoice.titanet(c);return t!=null?t:encoder(c);}
+  /** The speaker model that made a saved voice (its model name), or null when it cannot run here. */
+  static Voiceprinter voiceprinter(Context c,String model){
+    if(Voiceprinter.TITANET.equals(model))return SherpaVoice.titanet(c);
+    return VoiceEncoder.MODEL.equals(model)?encoder(c):null;
+  }
   /** True only when loading the speaker model was tried and failed (never loads it: cheap enough for app start). */
   static synchronized boolean encoderFailed(){return encoderFailed;}
   private static byte[] read(Context c,String name) throws IOException {

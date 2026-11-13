@@ -94,7 +94,8 @@ final class VoiceId {
       o.put("registered",p!=null).put("on",wanted(c)).put("sensitivity",sensitivity(c)).put("recording",recording)
         .put("unreadable",registered(c)&&p==null).put("models",!VoiceModels.encoderFailed()).put("endMs",endMs(c));
       if(p!=null)o.put("threshold",Math.round(p.threshold(sensitivity(c))*100)/100.0).put("summary",p.summary(sensitivity(c)))
-        .put("samples",Math.max(p.genuine.length,p.samples.size())).put("canAdd",p.canAdd());
+        .put("samples",Math.max(p.genuine.length,p.samples.size())).put("canAdd",p.canAdd()).put("engine",p.model)
+        .put("betterEngine",!Voiceprinter.TITANET.equals(p.model)&&SherpaVoice.present(c));
       o.put("tests",new JSONObject(prefs(c).getString(PREF_TESTS,"{}")));
       String last=prefs(c).getString(PREF_LAST_CALL,"");if(!last.isEmpty())o.put("lastCall",new JSONObject(last));
     }catch(JSONException ignored){}
@@ -152,7 +153,7 @@ final class VoiceId {
    * checks first) and a room-echo copy (SpeakerProfile.roomEcho) so the owner is also recognised
    * from across a room.
    */
-  private static float[][] prints(VoiceEncoder enc,short[] pcm){
+  private static float[][] prints(Voiceprinter enc,short[] pcm){
     float[] wav=VoiceEncoder.toFloat(pcm);
     int cut=Math.min(wav.length,SpeakerProfile.CHECK_MS*VoiceEncoder.RATE/1000+10*SileroVad.CHUNK);
     return new float[][]{enc.embed(wav),enc.embed(Arrays.copyOf(wav,cut)),enc.embed(SpeakerProfile.roomEcho(wav))};
@@ -174,8 +175,10 @@ final class VoiceId {
       try{
         SpeakerProfile old=adding?load(app):null;
         if(adding&&(old==null||!old.canAdd())){p.update("error",0,total,old==null?"Register your voice first.":"This voice profile was made by an older FRIDAY. Tap Re-register once; after that you can add samples.");return;}
-        VoiceEncoder enc=VoiceModels.encoder(app);
+        // New recordings use the best engine on this phone; added samples must use the profile's own.
+        Voiceprinter enc=adding?VoiceModels.voiceprinter(app,old.model):VoiceModels.bestVoiceprinter(app);
         if(enc==null){p.update("error",0,total,"The voice model could not be loaded on this phone.");return;}
+        ControlLog.i("voice id: using the "+enc.model()+" speaker model");
         mic=pcm;final CallMicPcm m=mic;
         ControlLog.i("voice id: recording through the Live call microphone");
         SpeechSegmenter seg=VoiceGuardian.segmenter(app,SENTENCE_MAX_MS);
@@ -198,7 +201,7 @@ final class VoiceId {
         }
         if(full.size()<(adding?MIN_EXTRA:MIN_SENTENCES)){p.update("error",0,total,"Not enough clear sentences ("+full.size()+" of "+total+"). Try again somewhere a little quieter.");return;}
         SpeakerProfile prof;
-        try{prof=adding?old.withSamples(full,shortPrints,echo,System.currentTimeMillis()):SpeakerProfile.build(full,shortPrints,echo,System.currentTimeMillis());}
+        try{prof=adding?old.withSamples(full,shortPrints,echo,System.currentTimeMillis()):SpeakerProfile.build(enc.model(),full,shortPrints,echo,System.currentTimeMillis());}
         catch(IllegalArgumentException e){p.update("error",0,total,e.getMessage());return;}
         try{save(app,prof);}catch(Exception e){p.update("error",0,total,"Your voice profile could not be saved securely on this phone.");return;}
         if(!adding)prefs(app).edit().remove(PREF_TESTS).remove(PREF_LAST_CALL).putBoolean(PREF_ON,true).apply();
@@ -224,7 +227,7 @@ final class VoiceId {
     new Thread(()->{
       CallMicPcm mic=pcm;
       try{
-        SpeakerProfile prof=load(app);VoiceEncoder enc=VoiceModels.encoder(app);
+        SpeakerProfile prof=load(app);Voiceprinter enc=prof==null?null:VoiceModels.voiceprinter(app,prof.model);
         if(prof==null){p.update("error",0,0,"Register your voice first.");return;}
         if(enc==null){p.update("error",0,0,"The voice model could not be loaded on this phone.");return;}
         final CallMicPcm m=mic;
@@ -266,11 +269,11 @@ final class VoiceId {
     if(!wanted(c)){why[0]="off";return null;}
     if(!registered(c)){why[0]="not registered";return null;}
     SpeakerProfile prof=load(c);if(prof==null){why[0]="profile unreadable: register again";return null;}
-    SileroVad vad=VoiceModels.vad(c);VoiceEncoder enc=VoiceModels.encoder(c);
+    SileroVad vad=VoiceModels.vad(c);Voiceprinter enc=VoiceModels.voiceprinter(c,prof.model);
     if(vad==null||enc==null){why[0]="voice models unavailable";return null;}
     double t=prof.threshold(sensitivity(c));
     VoiceGate gate=new VoiceGate(vad,wav->prof.score(enc.embed(wav)),t,endMs(c));
-    ControlLog.i(String.format(Locale.ROOT,"voice id: Live call gated (needs %.2f, %s, turn ends after %d ms of quiet)",t,sensitivity(c),gate.endMs()));
+    ControlLog.i(String.format(Locale.ROOT,"voice id: Live call gated (%s, needs %.2f, %s, turn ends after %d ms of quiet)",prof.model,t,sensitivity(c),gate.endMs()));
     why[0]="on";return new VoiceGateSession(gate);
   }
 }

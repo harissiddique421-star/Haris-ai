@@ -69,6 +69,10 @@ jobs:
           npm run test:activation
       - name: Voice, self-development and update checks
         run: ./scripts/test-voice-models.sh
+      - name: Voice engine checks (sherpa-onnx TitaNet and wake phrase spotting)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq espeak-ng
+          ./scripts/test-sherpa.sh
       - name: Build APK
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.FRIDAY_KEYSTORE_BASE64 }}

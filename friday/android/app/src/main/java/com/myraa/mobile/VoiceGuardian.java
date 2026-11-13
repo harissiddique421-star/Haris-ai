@@ -148,7 +148,7 @@ final class VoiceGuardian {
 
   // ---- the saved voice
   /** templates/limit: the phrase; print/printSelf: the voiceprint (null in voices saved before voiceprints); colour: older voice check. */
-  private static final class Voice { float[][][] templates;float[] colour,print;double limit,colourLimit,printSelf; }
+  private static final class Voice { float[][][] templates;float[] colour,print,tPrint;double limit,colourLimit,printSelf,tSelf; }
   private static Voice cached;
   /** Recent voice rejections of the right phrase: someone else, or a recording, trying to wake FRIDAY. */
   private static final ArrayDeque<Long> nearMisses=new ArrayDeque<>();
@@ -174,10 +174,22 @@ final class VoiceGuardian {
       if(self<MIN_ENROLL_CONSISTENCY)return "The three recordings didn't sound like the same voice. Record again alone, in a quiet place.";
       v.printSelf=self;
     }else ControlLog.i("guardian: speaker model unavailable, saving the basic voice check only");
+    // TitaNet voiceprint too, when sherpa-onnx runs on this phone: it tells the owner from others far better.
+    TitaNet tn=SherpaVoice.titanet(c);
+    if(tn!=null){
+      float[][] tp=new float[takes.size()][];float[] tsum=null;boolean ok=true;
+      for(int i=0;i<tp.length&&ok;i++){tp[i]=tn.embed(VoiceEncoder.toFloat(takes.get(i)));if(tp[i]==null){ok=false;break;}if(tsum==null)tsum=new float[tp[i].length];for(int k=0;k<tsum.length;k++)tsum[k]+=tp[i][k];}
+      if(ok){
+        float[] tmean=VoiceEncoder.normalize(tsum);double self=1;for(float[] e:tp)self=Math.min(self,VoiceEncoder.cosine(e,tmean));
+        if(self>=TitaNet.GUARDIAN_MIN_ENROLL){v.tPrint=tmean;v.tSelf=self;}
+        else ControlLog.i(String.format(Locale.ROOT,"guardian: TitaNet recordings disagree (%.2f), using the basic voiceprint",self));
+      }
+    }
     try{save(c,v);}catch(IOException|JSONException e){return "Your voice could not be saved on this phone.";}
     synchronized(VoiceGuardian.class){cached=v;nearMisses.clear();}
     setWanted(c,true);
-    ControlLog.i("guardian: voice saved (phrase limit "+String.format(Locale.ROOT,"%.2f",v.limit)+(v.print!=null?String.format(Locale.ROOT,", voiceprint consistency %.2f, threshold %.2f",v.printSelf,voiceThreshold(v.printSelf,"balanced",0)):"")+")");
+    ControlLog.i("guardian: voice saved (phrase limit "+String.format(Locale.ROOT,"%.2f",v.limit)+(v.print!=null?String.format(Locale.ROOT,", voiceprint consistency %.2f, threshold %.2f",v.printSelf,voiceThreshold(v.printSelf,"balanced",0)):"")
+      +(v.tPrint!=null?String.format(Locale.ROOT,", TitaNet consistency %.2f, threshold %.2f",v.tSelf,TitaNet.guardianThreshold(v.tSelf,"balanced",0)):"")+")");
     return null;
   }
   /** The three enrollment voiceprints must all be at least this close to their average. */
@@ -221,7 +233,16 @@ final class VoiceGuardian {
     double phrase=phraseDistance(f,v);
     if(cleanPcm!=null)phrase=Math.min(phrase,phraseDistance(features(cleanPcm),v));
     double k=factor(c),phraseRatio=phrase/(v.limit*k);
-    VoiceEncoder enc=v.print!=null?VoiceModels.encoder(c):null;
+    // The keyword spotter hears the words in any speed or tone; it can only make the phrase pass, never fail it.
+    String spotted=null;
+    if(phraseRatio>1){
+      WakeSpotter spot=SherpaVoice.spotter(c,WakeWordService.sensitivity(c));
+      if(spot!=null){spotted=spot.heard(VoiceEncoder.toFloat(pcm));if(spotted==null&&cleanPcm!=null)spotted=spot.heard(VoiceEncoder.toFloat(cleanPcm));}
+      if(spotted!=null)phraseRatio=1;
+    }
+    TitaNet tn=v.tPrint!=null?SherpaVoice.titanet(c):null;
+    Voiceprinter enc=tn!=null?tn:v.print!=null?VoiceModels.encoder(c):null;
+    float[] print=tn!=null?v.tPrint:v.print;
     if(enc==null){
       // Voices saved before voiceprints (or no speaker model): the earlier average-colour check.
       double voice=distance(f.colour,v.colour);boolean ok=phraseRatio<=1&&voice<=v.colourLimit*k;
@@ -230,18 +251,19 @@ final class VoiceGuardian {
       return new double[]{phraseRatio,voice/(v.colourLimit*k)};
     }
     // The voiceprint costs more, so it is computed only when the phrase is close.
-    if(phrase>v.limit*1.6)return new double[]{phraseRatio,Double.POSITIVE_INFINITY};
+    if(spotted==null&&phrase>v.limit*1.6)return new double[]{phraseRatio,Double.POSITIVE_INFINITY};
     float[] e=enc.embed(VoiceEncoder.toFloat(pcm));
-    double sim=e==null?0:VoiceEncoder.cosine(e,v.print);
+    double sim=e==null?0:VoiceEncoder.cosine(e,print);
     boolean cleaned=false;
     int misses=recentNearMisses();
-    double threshold=voiceThreshold(v.printSelf,WakeWordService.sensitivity(c),misses);
-    if(cleanPcm!=null&&sim<threshold&&sim>=threshold-NoiseReducer.REACH){float[] ce=enc.embed(VoiceEncoder.toFloat(cleanPcm));double cs=ce==null?0:VoiceEncoder.cosine(ce,v.print)-NoiseReducer.PENALTY;if(cs>sim){sim=cs;cleaned=true;}}
+    String sens=WakeWordService.sensitivity(c);
+    double threshold=tn!=null?TitaNet.guardianThreshold(v.tSelf,sens,misses):voiceThreshold(v.printSelf,sens,misses);
+    if(cleanPcm!=null&&sim<threshold&&sim>=threshold-NoiseReducer.REACH){float[] ce=enc.embed(VoiceEncoder.toFloat(cleanPcm));double cs=ce==null?0:VoiceEncoder.cosine(ce,print)-NoiseReducer.PENALTY;if(cs>sim){sim=cs;cleaned=true;}}
     boolean ok=phraseRatio<=1&&sim>=threshold;
     // Only a clearly different voice counts toward the stricter check; the owner's own narrow misses
     // (a second or third try right after one that was not heard) must not make the next try harder.
     if(phraseRatio<=1&&!ok&&sim<threshold-OWNER_MISS)nearMiss();
-    ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f, voice %.2f, needs %.2f%s%s)",phrase,v.limit*k,sim,threshold,cleaned?", with background noise removed":"",misses>=3?", stricter after repeated misses":""));
+    ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f%s, %s voice %.2f, needs %.2f%s%s)",phrase,v.limit*k,spotted!=null?", heard by the keyword spotter":"",tn!=null?"TitaNet":"basic",sim,threshold,cleaned?", with background noise removed":"",misses>=3?", stricter after repeated misses":""));
     // Voice ratio: at or under 1 exactly when the similarity reaches the threshold.
     return new double[]{phraseRatio,(1-sim)/Math.max(1e-6,1-threshold)};
   }
@@ -255,9 +277,12 @@ final class VoiceGuardian {
   private static synchronized void nearMiss(){nearMisses.addLast(System.currentTimeMillis());while(nearMisses.size()>10)nearMisses.pollFirst();}
   /** True when the saved voice has a voiceprint (recorded with this version or later). */
   static boolean hasVoiceprint(Context c){Voice v=load(c);return v!=null&&v.print!=null;}
+  /** True when the saved voice also has a TitaNet voiceprint. */
+  static boolean hasTitaNet(Context c){Voice v=load(c);return v!=null&&v.tPrint!=null;}
   private static void save(Context c,Voice v) throws IOException,JSONException {
     JSONObject o=new JSONObject().put("version",v.print!=null?2:1).put("limit",v.limit).put("colourLimit",v.colourLimit).put("colour",pack(new float[][]{v.colour}));
     if(v.print!=null)o.put("print",packVector(v.print)).put("printSelf",v.printSelf);
+    if(v.tPrint!=null)o.put("tprint",packVector(v.tPrint)).put("tself",v.tSelf);
     JSONArray t=new JSONArray();for(float[][] f:v.templates)t.put(pack(f));o.put("templates",t);
     File tmp=new File(c.getFilesDir(),FILE+".tmp");
     try(FileOutputStream out=new FileOutputStream(tmp)){out.write(o.toString().getBytes(StandardCharsets.UTF_8));}
@@ -270,7 +295,8 @@ final class VoiceGuardian {
       byte[] raw=new byte[(int)Math.min(file.length(),4_000_000)];int got=0,n;while(got<raw.length&&(n=in.read(raw,got,raw.length-got))>0)got+=n;
       JSONObject o=new JSONObject(new String(raw,0,got,StandardCharsets.UTF_8));
       Voice v=new Voice();v.limit=o.getDouble("limit");v.colourLimit=o.getDouble("colourLimit");v.colour=unpack(o.getString("colour"))[0];
-      if(o.has("print")){v.print=unpackVector(o.getString("print"));v.printSelf=o.getDouble("printSelf");}
+      if(o.has("print")){v.print=unpackVector(o.getString("print"),VoiceEncoder.DIM);v.printSelf=o.getDouble("printSelf");}
+      if(o.has("tprint")){v.tPrint=unpackVector(o.getString("tprint"),SpeakerProfile.dim(Voiceprinter.TITANET));v.tSelf=o.getDouble("tself");}
       JSONArray t=o.getJSONArray("templates");v.templates=new float[t.length()][][];for(int i=0;i<t.length();i++)v.templates[i]=unpack(t.getString(i));
       return cached=v;
     }catch(IOException|JSONException|RuntimeException e){ControlLog.i("guardian: saved voice unreadable");return null;}
@@ -279,8 +305,8 @@ final class VoiceGuardian {
     ByteBuffer b=ByteBuffer.allocate(4+f.length*4);b.putInt(f.length);for(float x:f)b.putFloat(x);
     return Base64.encodeToString(b.array(),Base64.NO_WRAP);
   }
-  private static float[] unpackVector(String s){
-    ByteBuffer b=ByteBuffer.wrap(Base64.decode(s,Base64.NO_WRAP));int n=b.getInt();if(n!=VoiceEncoder.DIM)throw new IllegalArgumentException("bad voiceprint");
+  private static float[] unpackVector(String s,int dim){
+    ByteBuffer b=ByteBuffer.wrap(Base64.decode(s,Base64.NO_WRAP));int n=b.getInt();if(n!=dim)throw new IllegalArgumentException("bad voiceprint");
     float[] f=new float[n];for(int i=0;i<n;i++)f[i]=b.getFloat();return f;
   }
   private static String pack(float[][] f){

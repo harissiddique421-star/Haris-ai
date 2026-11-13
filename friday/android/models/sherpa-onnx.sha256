@@ -1,0 +1,5 @@
+# SHA-256 of the sherpa-onnx files scripts/fetch-sherpa.sh downloads (sha256sum format).
+39003753ec293425ed56723ea9b972b98841a490af3311670c3060548d654330  sherpa-onnx-v2.0.1-android.tar.bz2
+7d5634b2031c7c47745bfb101878da91a188b43fc80c37c58b93ac2780f453d7  sherpa-onnx-v2.0.1-linux-x64-jni.tar.bz2
+ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e  titanet_small.onnx
+f170013b4716e41b62b9bfd809687c207cef798ef9bc6534d524e17af9b6561a  sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2

@@ -622,7 +622,8 @@ function renderWake() {
   el<HTMLButtonElement>('guardian-record').disabled = !!w.recording;
   el('guardian-record').textContent = w.enrolled ? 'Record again' : 'Record my voice';
   el('guardian-delete').hidden = !w.enrolled;
-  if (!guardianBusy) el('guardian-note').textContent = w.enrolled ? (w.guardian ? 'On: FRIDAY wakes only for your voice.' : 'Your voice is saved. Turn it on above.') : 'No voice recorded yet.';
+  if (!guardianBusy) el('guardian-note').textContent = (w.enrolled ? (w.guardian ? 'On: FRIDAY wakes only for your voice.' : 'Your voice is saved. Turn it on above.') : 'No voice recorded yet.')
+    + (w.enrolled && w.betterEngine ? ' A better voice engine (TitaNet) is now on this phone: tap Record again once to use it.' : '');
   const statusNames: Record<string, string> = { active: 'Active', paused: 'Paused', permission_required: 'Permission required', battery_restricted: 'Battery restricted', unavailable: 'Unavailable', stopped: 'Stopped', off: 'Off' };
   el('wake-status').textContent = statusNames[String(w.status || (w.on ? (w.running ? 'active' : 'stopped') : 'off'))] || 'Off';
   el<HTMLSelectElement>('wake-sensitivity').value = String(w.sensitivity || 'balanced');
@@ -648,7 +649,7 @@ function renderVoiceId() {
   const tests = [t.ownerTests ? `your voice accepted ${t.ownerAccepted || 0} of ${t.ownerTests}` : '', t.otherTests ? `other voices refused ${(t.otherTests || 0) - (t.otherAccepted || 0)} of ${t.otherTests}` : ''].filter(Boolean).join(', ');
   el('voiceid-note').textContent = v.models === false ? 'The voice model could not be loaded on this phone, so Voice ID cannot run.'
     : !v.registered ? 'No voice registered. Live calls answer any voice, as before.'
-    : `${v.on ? 'On' : 'Off'}: ${v.summary || ''}.${tests ? ` Tests on this phone: ${tests}.` : ' Use the Test buttons to check it with your voice and someone else\'s.'}${voiceIdLastCall(v)}`;
+    : `${v.on ? 'On' : 'Off'}: ${v.summary || ''}.${v.betterEngine ? ' A better voice engine (TitaNet) is now on this phone: tap Re-register once to use it.' : ''}${tests ? ` Tests on this phone: ${tests}.` : ' Use the Test buttons to check it with your voice and someone else\'s.'}${voiceIdLastCall(v)}`;
 }
 /** Voice intelligence summary of the last Live call (counts, match, mic level; no audio or words) and what to do about it. */
 function voiceIdLastCall(v: any) {
