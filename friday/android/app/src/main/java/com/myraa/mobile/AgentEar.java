@@ -16,7 +16,7 @@ import java.util.ArrayList;
  * reports partial words, the final sentence, and problems. Runs on the main thread, as Android requires.
  * en-IN writes Roman Urdu / Hinglish in Latin letters; hi-IN, ur-PK and en-US are the other choices.
  */
-final class AgentEar {
+final class AgentEar implements Ear {
   interface Listener { void heard(String kind, String text, int code); }
 
   private final Context context;private final Listener listener;private final Handler main=new Handler(Looper.getMainLooper());
@@ -26,11 +26,11 @@ final class AgentEar {
 
   static String language(String l){return "hi-IN".equals(l)||"ur-PK".equals(l)||"en-US".equals(l)?l:"en-IN";}
 
-  void start(String lang){main.post(()->{language=language(lang);on=true;paused=false;quickErrors=0;listen();});}
-  void stop(){main.post(()->{on=false;listening=false;destroy();});}
+  @Override public void start(String lang){main.post(()->{language=language(lang);on=true;paused=false;quickErrors=0;listen();});}
+  @Override public void stop(){main.post(()->{on=false;listening=false;destroy();});}
   /** Pause while FRIDAY speaks; resume when she is done. */
-  void pause(boolean p){main.post(()->{paused=p;if(p){listening=false;if(recognizer!=null)try{recognizer.cancel();}catch(RuntimeException ignored){}}else if(on)listen();});}
-  boolean active(){return on;}
+  @Override public void pause(boolean p){main.post(()->{paused=p;if(p){listening=false;if(recognizer!=null)try{recognizer.cancel();}catch(RuntimeException ignored){}}else if(on)listen();});}
+  @Override public boolean active(){return on;}
 
   private void destroy(){if(recognizer!=null){try{recognizer.destroy();}catch(RuntimeException ignored){}recognizer=null;}}
 
