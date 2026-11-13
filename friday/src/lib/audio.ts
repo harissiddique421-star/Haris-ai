@@ -306,6 +306,9 @@ export class MyraaAudioSession {
   /** The last half second while FRIDAY talks, so a barge-in keeps the first words of the user's sentence. */
   private bargeInPreRoll: string[] = [];
   private readonly bargeInPreRollChunks = 8;
+  /** Without Voice ID: about 0.4 s before the user starts speaking, sent with their first words. */
+  private quietPreRoll: string[] = [];
+  private readonly quietPreRollChunks = 6;
   /** Voice ID: when set, only audio the phone verified as the owner's voice reaches Gemini, and only the owner can interrupt FRIDAY. */
   private gate: VoiceGateLink | null = null;
   /** Last Voice ID state ("AUTHORIZED_USER", "UNKNOWN_SPEAKER", ...), for diagnostics. */
@@ -761,6 +764,19 @@ export class MyraaAudioSession {
     if (this.gate) { this.onGatedFrame(this.gate, channelData); return; }
 
     const shouldForwardMicrophone = this.updateVoiceActivity(channelData);
+    const myraaTalking = this.currentState === "speaking" || this.activeSources.length > 0;
+    if (shouldForwardMicrophone && !myraaTalking && !this.userSpeaking) {
+      // No Voice ID: between the user's sentences only silence reaches Gemini, so a TV, music or people in
+      // the background are not heard as the user. The last moment is kept so the first word is not cut.
+      this.quietPreRoll.push(base64ArrayBuffer(floatTo16BitPCM(channelData)));
+      if (this.quietPreRoll.length > this.quietPreRollChunks) this.quietPreRoll.shift();
+      this.forwardAudio(this.silence(channelData.length));
+      return;
+    }
+    if (this.quietPreRoll.length) {
+      const preRoll = this.quietPreRoll.splice(0);
+      if (this.userSpeaking) for (const chunk of preRoll) this.forwardAudio(chunk);
+    }
     if (!shouldForwardMicrophone) {
       // While FRIDAY talks, keep the last moment of audio so a barge-in does not lose its first words.
       this.bargeInPreRoll.push(base64ArrayBuffer(floatTo16BitPCM(channelData)));
@@ -945,7 +961,7 @@ export class MyraaAudioSession {
           Math.min(0.12, this.noiseFloor * 3.5),
           Math.min(0.1, outputRms * 0.32 + 0.012),
         )
-      : Math.max(this.voiceThreshold, Math.min(0.06, this.noiseFloor * 2.2));
+      : Math.max(this.voiceThreshold, Math.min(0.07, this.noiseFloor * 2.8));
     const requiredFrames = myraaOutputActive ? this.bargeInStartFrames : this.voiceStartFrames;
 
     if (rms >= threshold) {
@@ -1065,6 +1081,7 @@ export class MyraaAudioSession {
     if (this.turnWatchdog) { clearTimeout(this.turnWatchdog); this.turnWatchdog = null; }
     this.preReadyAudio = [];
     this.bargeInPreRoll = [];
+    this.quietPreRoll = [];
     if (this.gate) { try { this.gate.stop(); } catch { /* already stopped */ } this.gate = null; }
     this.setState("disconnected");
 
