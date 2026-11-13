@@ -38,11 +38,15 @@ final class SpeechSegmenter {
   /** Steady background noise heard between bursts (no speech), so a voice check can also score the burst without it. */
   final NoiseReducer noise=new NoiseReducer();
 
-  SpeechSegmenter(SileroVad vad,int silenceMs,int maxSpeechMs){
+  SpeechSegmenter(SileroVad vad,int silenceMs,int maxSpeechMs){this(vad,silenceMs,maxSpeechMs,false);}
+  private SpeechSegmenter(SileroVad vad,int silenceMs,int maxSpeechMs,boolean exact){
     this.vad=vad;
-    silenceChunks=Math.max(1,clampSilence(silenceMs)/CHUNK_MS);
+    silenceChunks=Math.max(1,(exact?silenceMs:clampSilence(silenceMs))/CHUNK_MS);
     maxChunks=Math.max(MIN_SPEECH_CHUNKS+1,maxSpeechMs/CHUNK_MS);
   }
+  /** For reading one long sentence aloud: the natural pauses between its phrases (up to LONG_PAUSE_MS) do not end it. */
+  static final int LONG_PAUSE_MS=1500;
+  static SpeechSegmenter longTake(SileroVad vad,int maxSpeechMs){return new SpeechSegmenter(vad,LONG_PAUSE_MS,maxSpeechMs,true);}
   static int clampSilence(int ms){return Math.max(MIN_SILENCE_MS,Math.min(MAX_SILENCE_MS,ms));}
   boolean usesModel(){return vad!=null;}
 

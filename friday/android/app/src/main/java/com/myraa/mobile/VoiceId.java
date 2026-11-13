@@ -39,34 +39,40 @@ final class VoiceId {
   private static final String FILE="voice_id.bin",KEY_ALIAS="friday_voice_id";
   private static final String PREF_ON="voiceIdOn",PREF_SENS="voiceIdSensitivity",PREF_TESTS="voiceIdTests",PREF_LAST_CALL="voiceIdLastCall";
   /**
-   * Enrollment: twelve sentences of different lengths, said in the ways the owner really talks to
+   * Enrollment: thirteen sentences of different lengths (one long, read with natural pauses), said in the ways the owner really talks to
    * the phone (close, at arm's length, from across the table, quietly, with a little noise), so the
    * voiceprint is about the voice, not one phrase or one distance. Some are in Roman Urdu, the
    * language most commands are given in, so the voiceprint also covers how the owner sounds in it.
    * {how, sentence}.
    */
   static final String[][] SENTENCES={
-    {"Hold the phone normally and say","Hello Haris AI, this is my voice."},
-    {"Normal voice","Hey Haris, open my assistant."},
+    {"Hold the phone normally and say","Hello FRIDAY, yeh meri awaaz hai, isay yaad rakhna."},
+    {"Normal voice","FRIDAY, mera assistant kholo."},
     {"A short one","Torch on karo."},
-    {"A longer one, at your normal pace","FRIDAY, tell me today's schedule and remind me about my meetings this afternoon."},
+    {"A longer one, at your normal pace","FRIDAY, aaj ka schedule batao aur dopahar ki meetings yaad dilana."},
     {"Hold the phone at arm's length and say","Bhai ko WhatsApp par message bhejo."},
-    {"Still at arm's length, a bit faster","FRIDAY, search YouTube for the latest AI news."},
-    {"Put the phone on a table about one or two metres away and say","FRIDAY, stop talking and listen to me."},
+    {"Still at arm's length, a bit faster","FRIDAY, YouTube par aaj ki taaza khabrein lagao."},
+    {"Put the phone on a table about one or two metres away and say","FRIDAY, bolna band karo aur meri baat suno."},
     {"Still from the table","Kal mausam kaisa hoga?"},
-    {"Quietly, as if someone is sleeping nearby","Set an alarm for six thirty in the morning."},
-    {"Quietly","Read my latest notifications."},
+    {"Quietly, as if someone is sleeping nearby","Subah saade chhe baje ka alarm laga do."},
+    {"Quietly","Meri nayi notifications parh kar sunao."},
     {"With a fan or the TV on low, normal voice","Ammi ko WhatsApp par call karo."},
-    {"Your normal voice, a little higher or lower than usual","FRIDAY, how much battery do I have left?"},
+    {"Your normal voice, a little higher or lower than usual","FRIDAY, battery kitni reh gayi hai?"},
+    {"A long one, the way you normally talk to FRIDAY (short pauses are fine)","FRIDAY, Ali ko WhatsApp par message bhejo ke main aaj shaam paanch baje office se nikal kar seedha unke ghar aaunga, aur raste mein mithai bhi le lunga."},
   };
-  /** "Add more samples": the situations where FRIDAY most often misses the owner. */
+  /** "Add more samples": the situations where FRIDAY most often misses the owner, and long sentences said with natural pauses. */
   static final String[][] EXTRA={
-    {"From across the room (two or three metres)","FRIDAY, open Google Maps."},
-    {"From across the room","Awaz thodi kam karo."},
+    {"From across the room (two or three metres)","FRIDAY, Google Maps kholo."},
+    {"From across the room","Awaaz thodi kam karo."},
     {"Quietly, phone on the table","Kitne baje hain?"},
-    {"With some noise around you","FRIDAY, play some music."},
+    {"With some noise around you","FRIDAY, koi achha sa gaana lagao."},
+    {"A long one, at your normal pace (short pauses are fine)","FRIDAY, kal subah aath baje ka alarm lagao, phir mujhe yaad dilana ke dopahar ko bank jana hai aur shaam ko ammi ki dawai leni hai."},
+    {"Another long one, phone where you usually keep it","Mujhe aaj ki taaza khabrein sunao, aur agar koi zaroori WhatsApp message aaya ho to woh bhi parh kar batao, lekin bilkul aaram se."},
+    {"One more long one, normal voice","FRIDAY, bhai ko message likho ke main ghar khairiyat se pahunch gaya hoon aur raat ko khaane ke baad unhein call karunga."},
   };
-  private static final int MIN_SENTENCES=8,MIN_EXTRA=2,MIN_SENTENCE_MS=900,SENTENCE_MAX_MS=9000,TEST_MAX_MS=9000;
+  private static final int MIN_SENTENCES=8,MIN_EXTRA=2,MIN_SENTENCE_MS=900,SENTENCE_MAX_MS=9000,LONG_MAX_MS=20000,TEST_MAX_MS=9000;
+  /** Sentences this long are recorded with room for pauses between phrases (see SpeechSegmenter.longTake). */
+  static boolean longSentence(String s){return s.length()>=90;}
   private static SpeakerProfile cached;
   static volatile boolean recording;
 
@@ -181,14 +187,14 @@ final class VoiceId {
         ControlLog.i("voice id: using the "+enc.model()+" speaker model");
         mic=pcm;final CallMicPcm m=mic;
         ControlLog.i("voice id: recording through the Live call microphone");
-        SpeechSegmenter seg=VoiceGuardian.segmenter(app,SENTENCE_MAX_MS);
+        SpeechSegmenter seg=VoiceGuardian.segmenter(app,SENTENCE_MAX_MS),segLong=VoiceGuardian.longSegmenter(app,LONG_MAX_MS);
         List<float[]> full=new ArrayList<>(),shortPrints=new ArrayList<>(),echo=new ArrayList<>();
         int skipped=0;
         for(int i=0;i<total;i++){
           float[][] got=null;
           for(int attempt=0;attempt<2&&got==null;attempt++){
             p.update("listen",i+1,total,(attempt==0?list[i][0]+": ":"Once more, a little louder: ")+"\""+list[i][1]+"\"");
-            short[] u=seg.next(m::read,()->false,8000);
+            short[] u=(longSentence(list[i][1])?segLong:seg).next(m::read,()->false,8000);
             if(u==null&&m.failed!=null){p.update("error",i+1,total,"FRIDAY couldn't use the microphone ("+m.failed+"). Allow the microphone for FRIDAY and try again.");return;}
             if(u==null||u.length<MIN_SENTENCE_MS*VoiceEncoder.RATE/1000)continue;
             p.update("heard",i+1,total,"Checking…");
