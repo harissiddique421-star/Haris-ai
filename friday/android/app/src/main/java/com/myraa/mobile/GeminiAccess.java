@@ -18,11 +18,17 @@ public final class GeminiAccess {
   public static final class Failure extends Exception {
     public final String code;
     public final int status;
+    /** For quota errors: how long Google asked us to wait before trying again, in ms (0 = not given). */
+    public long retryMs;
     public Failure(String code, int status, String message) { super(message); this.code = code; this.status = status; }
   }
 
   public static Failure failure(int status, String payload) {
-    if (status == 429) return new Failure("QUOTA_EXCEEDED", status, "Google's quota for this model is exhausted. Your key may still be valid. Wait for quota to reset or choose another model you can use.");
+    if (status == 429) {
+      Failure f = new Failure("QUOTA_EXCEEDED", status, "Google's quota for this model is exhausted. Your key may still be valid. Wait for quota to reset or choose another model you can use.");
+      f.retryMs = retryDelayMs(payload);
+      return f;
+    }
     if (status >= 500) return new Failure("PROVIDER_UNAVAILABLE", status, "Google is temporarily unavailable. Your key and conversation were kept. Try again later.");
     String reason = "", message = "";
     try {
@@ -55,6 +61,20 @@ public final class GeminiAccess {
     if (status == 404) return new Failure("MODEL_UNAVAILABLE", status, "Google could not find this model for your key. Check the model identifier in Settings or choose a model available to your project.");
     if (status == 401 || status == 403) return new Failure("GOOGLE_ACCESS_DENIED", status, "Google denied this key or project access. Check its project, linked service account and API restrictions in Google AI Studio or Google Cloud.");
     return new Failure("GOOGLE_HTTP_ERROR", status, "Google returned HTTP " + status + ". Your key and conversation were kept.");
+  }
+
+  /** Google's RetryInfo.retryDelay ("12s", "0.5s") from a 429 body, in ms; 0 when absent. */
+  static long retryDelayMs(String payload) {
+    try {
+      JSONObject error = new JSONObject(payload).optJSONObject("error");
+      JSONArray details = error == null ? null : error.optJSONArray("details");
+      if (details != null) for (int i = 0; i < details.length(); i++) {
+        JSONObject d = details.optJSONObject(i);
+        String delay = d == null ? "" : d.optString("retryDelay", "");
+        if (delay.matches("\\d+(\\.\\d+)?s")) return Math.round(Double.parseDouble(delay.substring(0, delay.length() - 1)) * 1000);
+      }
+    } catch (JSONException | NumberFormatException | NullPointerException ignored) {}
+    return 0;
   }
 
   public void verify(String key, String model, ConnectionObserver observer) throws Exception {
