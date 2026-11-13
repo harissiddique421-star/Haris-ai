@@ -37,7 +37,7 @@
     "build:android": "pwsh -NoProfile -File scripts/build-android.ps1",
     "audit:models": "node --import tsx scripts/inventory-models.ts",
     "import:character": "tsx tools/import-character.ts",
-    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts tests/emotion.test.ts tests/agents.test.ts tests/recovery.test.ts tests/initiative.test.ts tests/tasks.test.ts",
+    "test:mobile-actions": "node --import tsx --test tests/mobile-actions.test.ts tests/emotion.test.ts tests/agents.test.ts tests/recovery.test.ts tests/initiative.test.ts tests/tasks.test.ts tests/agentic.test.ts",
     "test:activation": "node --import tsx --test tests/activation.test.ts",
     "activation": "node scripts/friday-activation.mjs"
   },
