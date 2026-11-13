@@ -28,6 +28,26 @@ export interface AgentDeps {
   onNotice(text: string): void;
   onIgnored(text: string): void;
   onAction?(name: string, args: any, result: any): void;
+  /** A heard sentence or a reply was left out by the noise rules (counted in diagnostics, never spoken). */
+  onDropped?(why: 'noise' | 'dup' | 'repeat'): void;
+}
+
+/** Sounds the recognizer writes down that are never a command: hmm, uh, um, ah, oh, a single letter. "haan", "ji", "ok" are real answers and stay. */
+const FILLER = /^(?:h+m+|m{2,}|u+h+|u+m+|a+h+|o+h+|e+h+|huh|h+a+h+a+[ha]*)$/;
+export function isNoise(text: string): boolean {
+  const words = text.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  if (words.length === 1 && words[0].length < 2) return true;
+  return words.every(w => FILLER.test(w));
+}
+/** "I didn't understand, please repeat" in any form: said at most once in REPEAT_COOLDOWN_MS so noise never makes FRIDAY nag. */
+const NOT_UNDERSTOOD = /samajh? nahi|samjh nahi|samajh nahin|nahi samjh|didn'?t (?:catch|understand|get)|could ?n[o']t (?:understand|hear)|dobara (?:bol|kah|batay)|phir se (?:bol|kah)|repeat (?:that|please|kar)|please repeat/i;
+export const REPEAT_COOLDOWN_MS = 20_000, DUPLICATE_MS = 4_000;
+export function isNotUnderstood(text: string) { return NOT_UNDERSTOOD.test(text); }
+/** Same sentence heard twice within DUPLICATE_MS (a recognizer echo): the second is dropped. */
+export function sameSentence(a: string, b: string) {
+  const n = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+  return !!a && n(a) === n(b);
 }
 
 /** The mobile_action tool in the JSON Schema form OpenAI-compatible providers use (lower-case types). */
@@ -134,6 +154,7 @@ export class AgenticSession {
   private run = 0;
   private stopped = true;
   private lastSpokeAt = 0;
+  private lastHeard = ''; private lastHeardAt = 0; private lastNotUnderstoodAt = 0;
   readonly maxSteps = 30;
   private readonly tools = agentTools();
 
@@ -165,6 +186,7 @@ export class AgenticSession {
     if (this.stopped) return;
     if (kind === 'partial') { if (this.waitTimer) { clearTimeout(this.waitTimer); this.waitTimer = null; } return; }
     if (kind !== 'final' || !text.trim()) return;
+    if (isNoise(text)) { this.deps.onDropped?.('noise'); return; }
     this.pending = this.pending ? `${this.pending} ${text.trim()}` : text.trim();
     if (this.waitTimer) { clearTimeout(this.waitTimer); this.waitTimer = null; }
     if (turnState(this.pending) === 'wait') { this.waitTimer = setTimeout(() => { this.waitTimer = null; this.commit(); }, 3000); return; }
@@ -179,6 +201,9 @@ export class AgenticSession {
     if (!text) return;
     const who = addressee(text, { sinceFridayMs: Date.now() - this.lastSpokeAt, mode: this.deps.addresseeMode(), working: this.busy });
     if (who === 'other') { this.deps.onIgnored(text); return; }
+    const now = Date.now();
+    if (sameSentence(this.lastHeard, text) && now - this.lastHeardAt < DUPLICATE_MS) { this.deps.onDropped?.('dup'); return; }
+    this.lastHeard = text; this.lastHeardAt = now;
     this.accept(text, false);
   }
 
@@ -243,6 +268,10 @@ export class AgenticSession {
   private async say(text: string) {
     const spoken = text.replace(/[*_#`>|]/g, '').replace(/\s+/g, ' ').trim();
     if (!spoken || this.stopped) return;
+    if (isNotUnderstood(spoken)) {
+      if (Date.now() - this.lastNotUnderstoodAt < REPEAT_COOLDOWN_MS) { this.deps.onDropped?.('repeat'); if (!this.busy) this.deps.onState('listening'); return; }
+      this.lastNotUnderstoodAt = Date.now();
+    }
     this.deps.onState('speaking');
     this.deps.ear('pause');
     try { await this.deps.speak(spoken); }

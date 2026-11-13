@@ -390,6 +390,13 @@ public final class MobileActions {
       if("action_history".equals(action)){finish(id,Diagnostics.history(args.optInt("limit",10)));return;}
       if("suggestions".equals(action)){finish(id,Habits.suggestions(activity));return;}
       if("upcoming_events".equals(action)){finish(id,Briefing.upcoming(activity,args.optInt("days",7)));return;}
+      if("standing_order".equals(action)){
+        String cmd=args.optString("order_command","add");
+        JSONObject o=new JSONObject().put("trigger",args.optString("order_trigger")).put("do",args.optString("order_do")).put("kind",args.optString("order_kind","do"))
+          .put("time",args.optString("order_time")).put("from",args.optString("order_from")).put("app",args.optString("order_app")).put("contains",args.optString("order_contains"))
+          .put("below",args.optInt("order_below",-1)).put("plugged",args.optBoolean("order_plugged",true)).put("number",args.optInt("order_number",-1));
+        if(args.optJSONArray("order_days")!=null)o.put("days",args.optJSONArray("order_days"));
+        finish(id,"list".equals(cmd)?Orders.list(activity):"delete".equals(cmd)?Orders.delete(activity,o):Orders.add(activity,o));return;}
       if("set_proactive".equals(action)){finish(id,Proactive.set(activity,args.optBoolean("on",true)));return;}
       if("set_style".equals(action)){finish(id,setStyle(args.optString("style")));return;}
       if("rename_routine".equals(action)){finish(id,memory().renameRoutine(args.optString("name"),args.optString("new_name")));return;}

@@ -125,7 +125,9 @@ public final class NotificationReader extends NotificationListenerService {
       if(!LinkSafety.NONE.equals(f.level))item.put("warning",f.level+": "+String.join("; ",f.reasons));
     }catch(JSONException ignored){}
     synchronized(NotificationReader.class){recent.addLast(item);while(recent.size()>30)recent.removeFirst();}
-    if(Announcer.isMessaging(this,sbn.getPackageName(),n))keepReply(sbn.getPackageName(),app,title,n);
+    if(Announcer.isMessaging(this,sbn.getPackageName(),n)){keepReply(sbn.getPackageName(),app,title,n);
+      // Standing orders watching for someone's message (see Orders). The sender is the notification title.
+      try{Orders.onMessage(this,app,title==null?"":title.toString().replaceAll("\\s*\\(\\d+ (new )?messages?\\)$",""),text==null?"":text.toString());}catch(RuntimeException ignored){}}
     // A WhatsApp voice note: only who and how long are known from the notification (see VoiceNotes).
     if(VoiceNotes.whatsapp(sbn.getPackageName())){int sec=VoiceNotes.voiceNoteSeconds(text==null?null:text.toString());
       if(sec>=0&&title!=null)VoiceNotes.noticed(clip(title,80).replaceAll("\\s*\\(\\d+ (new )?messages?\\)$","").trim(),sec,sbn.getPostTime());}

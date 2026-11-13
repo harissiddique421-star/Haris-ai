@@ -14,6 +14,8 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.Settings;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
@@ -86,6 +88,7 @@ public class MainActivity extends Activity {
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
+    new Handler(Looper.getMainLooper()).postDelayed(() -> healthCheck("app start"), 20000);
     Updater.afterStart(this);
     if (!Activation.isActivated(this)) { activationLocked = true; Activation.showGate(this, this::recreate); return; }
     prefs = getSharedPreferences("myraa.mobile.v1", MODE_PRIVATE);
@@ -127,6 +130,7 @@ public class MainActivity extends Activity {
     if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,liveFilter(),Context.RECEIVER_NOT_EXPORTED);
     else registerReceiver(stopLiveReceiver,liveFilter());
     pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());wakeWindow(getIntent());
+    takeOrder(getIntent());
     createWebView();
     sharedVoiceNote(getIntent());
   }
@@ -135,7 +139,16 @@ public class MainActivity extends Activity {
     if(activationLocked)return;
     if(WakeWordService.WAKE.equals(intent.getAction())){pendingWake=true;wakeWindow(intent);}
     if(CompanionMode.OPEN.equals(intent.getAction())){pendingCheckin=true;emit(json("type","companion-checkin"));}
+    if(takeOrder(intent))emit(json("type","order"));
     sharedVoiceNote(intent);
+  }
+  /** A standing order that fired with kind "do" (see Orders): the page runs it once it is ready. */
+  private volatile String pendingOrder;
+  private boolean takeOrder(Intent intent){
+    if(intent==null||!Orders.OPEN.equals(intent.getAction()))return false;
+    pendingOrder=Orders.prompt(intent.getStringExtra("order"),intent.getStringExtra("event"),intent.getStringExtra("task"));
+    intent.setAction(null);
+    return true;
   }
 
   // ---- WhatsApp voice notes shared to FRIDAY (see VoiceNotes)
@@ -749,6 +762,9 @@ public class MainActivity extends Activity {
     }
     /** True once after the user tapped the companion check-in: the page then starts the conversation. */
     @JavascriptInterface public boolean consumeCheckin() { boolean v = pendingCheckin; pendingCheckin = false; return v; }
+    @JavascriptInterface public String consumeOrder() { if (keyguardLocked()) return ""; String o = pendingOrder; pendingOrder = null; return o == null ? "" : o; }
+    @JavascriptInterface public String ordersList() { return Orders.list(MainActivity.this).toString(); }
+    @JavascriptInterface public String ordersDelete(String id) { try { return Orders.delete(MainActivity.this, new JSONObject().put("id", Long.parseLong(id))).toString(); } catch (Exception e) { return "{}"; } }
     @JavascriptInterface public boolean consumeWake() { if (keyguardLocked()) return false; boolean w = pendingWake; pendingWake = false; return w; }
     @JavascriptInterface public void guardianRecord() { runOnUiThread(() -> {
       if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST); guardianEvent("error", 0, "Allow the microphone, then tap Record my voice again."); return; }
@@ -818,6 +834,15 @@ public class MainActivity extends Activity {
     /** A finished Live call's captions; summarised into memory when the user allows it. */
     @JavascriptInterface public void saveConversation(String raw) { rememberConversation(raw); }
     // ---- Self-development (Settings > Self-development). Measurements and ideas stay on the phone.
+    @JavascriptInterface public String evolutionState() { return SelfHealing.state(MainActivity.this).toString(); }
+    @JavascriptInterface public String evolutionAction(String raw) {
+      JSONObject input; try { input = new JSONObject(raw); } catch (JSONException e) { input = new JSONObject(); }
+      if ("check".equals(input.optString("action"))) { healthCheck("owner"); return SelfHealing.state(MainActivity.this).toString(); }
+      return SelfHealing.act(MainActivity.this, input).toString();
+    }
+    @JavascriptInterface public void healthEvent(String module, String type, String action, String result, String detail) {
+      SelfHealing.report(MainActivity.this, module, type, action, "ok".equals(result) ? Boolean.TRUE : "failed".equals(result) ? Boolean.FALSE : null, detail == null ? "" : detail.replaceAll("[^A-Za-z0-9 _.:()-]", "").trim());
+    }
     @JavascriptInterface public String selfDevState() { return SelfDevelopment.state(MainActivity.this, VERSION).toString(); }
     @JavascriptInterface public String selfDevAction(String raw) {
       JSONObject input; try { input = new JSONObject(raw == null ? "{}" : raw); } catch (JSONException e) { return "{\"message\":\"Invalid request.\"}"; }
@@ -1106,6 +1131,14 @@ public class MainActivity extends Activity {
   }
   private void writeKey(SharedPreferences.Editor edit, String key) throws Exception { writeSecret(edit, "key", key); }
   private String readKey() throws Exception { return readSecret("key"); }
+  /** Self-diagnostics and safe self-healing on a background thread; the page hears an "evolution" event when it is done. */
+  private void healthCheck(String why) {
+    if (!SelfHealing.on(this) && !"owner".equals(why)) return;
+    new Thread(() -> {
+      try { SelfHealing.check(MainActivity.this, true, this::readKey, why); emit(json("type", "evolution")); }
+      catch (RuntimeException e) { ControlLog.i("self-healing: check stopped (" + e.getClass().getSimpleName() + ")"); }
+    }, "friday-health").start();
+  }
   /** API keys are encrypted with a key kept in the Android Keystore: "key" is Gemini's, "altKey" the second provider's. */
   private void writeSecret(SharedPreferences.Editor edit, String name, String value) throws Exception {
     Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, secretKey());
