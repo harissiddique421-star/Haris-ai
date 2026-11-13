@@ -31,6 +31,8 @@ import org.json.JSONObject;
 final class Orders {
   static final String FIRE="com.myraa.mobile.ORDER_FIRE",OPEN="com.myraa.mobile.ORDER_OPEN";
   static final int MAX=20;
+  /** Words that usually mean a message is urgent, in English and Roman Urdu; any one of them matches. */
+  static final String IMPORTANT_WORDS="urgent, zaroori, zaruri, emergency, important, jaldi, foran, fauran, asap, call karo, call me, phone karo, hospital, accident";
   private static final String PREFS="friday_orders",CHANNEL="friday_orders";
   /** A message order fires at most once per 10 minutes for the same sender, so a busy chat does not repeat it. */
   static final long MESSAGE_QUIET_MS=10*60_000L;
@@ -48,7 +50,8 @@ final class Orders {
     String task=args.optString("do").trim();
     if(task.isEmpty())throw new IllegalArgumentException("Say what FRIDAY should do when it happens.");
     if(task.length()>300)task=task.substring(0,300);
-    String kind="tell".equals(args.optString("kind"))?"tell":"do";
+    String k=args.optString("kind");
+    String kind="tell".equals(k)?"tell":"ring".equals(k)||"call".equals(k)?"ring":"do";
     JSONObject o=new JSONObject().put("id",id).put("trigger",trigger).put("do",task).put("kind",kind).put("on",true);
     switch(trigger){
       case "time":{
@@ -59,7 +62,9 @@ final class Orders {
         o.put("days",days);break;
       }
       case "message":{
-        String from=clip(args.optString("from"),60),app=clip(args.optString("app"),40),words=clip(args.optString("contains"),60);
+        String from=clip(args.optString("from"),60),app=clip(args.optString("app"),40),words=clip(args.optString("contains"),160);
+        // "Important messages" with no sender: watch for the usual urgent words instead.
+        if(norm(words).matches("important|imp|zaroori|zaruri|urgent|important messages?"))words=IMPORTANT_WORDS;
         if(from.isEmpty()&&app.isEmpty()&&words.isEmpty())throw new IllegalArgumentException("Say whose message (or which app, or which words) FRIDAY should watch for.");
         o.put("from",from).put("app",app).put("contains",words);break;
       }
@@ -81,7 +86,7 @@ final class Orders {
       a.put(o);save(c,a);
       if("time".equals(o.optString("trigger")))schedule(c,o);
       ControlLog.i("orders: added "+o.optString("trigger")+" order ("+o.optString("kind")+")");
-      return PhoneControls.result("done","Standing order saved: "+describe(o)+". "+("do".equals(o.optString("kind"))?"I'll do it by myself; messages, calls and payments still wait for your yes.":"I'll tell you when it happens.")+(needs(c,o).isEmpty()?"":" Note: "+needs(c,o)));
+      return PhoneControls.result("done","Standing order saved: "+describe(o)+". "+("do".equals(o.optString("kind"))?"I'll do it by myself; messages, calls and payments still wait for your yes.":"ring".equals(o.optString("kind"))?"I'll ring you like a call (FRIDAY call screen, even on silent) when it happens.":"I'll tell you when it happens.")+(needs(c,o).isEmpty()?"":" Note: "+needs(c,o)));
     }catch(IllegalArgumentException e){return PhoneControls.result("needs_input",e.getMessage());}
     catch(JSONException e){return PhoneControls.result("error","The order could not be saved.");}
   }
@@ -122,12 +127,14 @@ final class Orders {
       case "charging":when=o.optBoolean("plugged",true)?"when the charger is connected":"when the charger is removed";break;
       default:when="(unknown trigger)";
     }
-    return when+": "+("tell".equals(o.optString("kind"))?"tell me, ":"")+o.optString("do");
+    String k=o.optString("kind");
+    return when+": "+("tell".equals(k)?"tell me, ":"ring".equals(k)?"call me (FRIDAY call), ":"")+o.optString("do");
   }
 
   /** A permission the order needs that is missing, in one line, or empty. */
   static String needs(Context c,JSONObject o){
     if("message".equals(o.optString("trigger"))&&!NotificationReader.enabled(c))return "message orders need Notification access for FRIDAY (Settings > Permissions).";
+    if("ring".equals(o.optString("kind"))&&android.os.Build.VERSION.SDK_INT>=34&&!c.getSystemService(android.app.NotificationManager.class).canUseFullScreenIntent())return "for the call screen to show on a locked phone, allow \"Full screen notifications\" for FRIDAY (Settings > Permissions).";
     if("do".equals(o.optString("kind"))&&!Settings.canDrawOverlays(c))return "to start tasks while you use other apps, allow \"Display over other apps\" for FRIDAY; otherwise you get a tap-to-start alert.";
     return "";
   }
@@ -140,7 +147,12 @@ final class Orders {
     String from=norm(o.optString("from")),inApp=norm(o.optString("app")),words=norm(o.optString("contains"));
     if(!from.isEmpty()&&!norm(sender).contains(from))return false;
     if(!inApp.isEmpty()&&!norm(app).contains(inApp))return false;
-    if(!words.isEmpty()&&!norm(text).contains(words))return false;
+    if(!words.isEmpty()){
+      // Several words separated by commas: any one of them is enough.
+      boolean any=false;String t=" "+norm(text)+" ";
+      for(String w:o.optString("contains").split(",")){String n=norm(w);if(!n.isEmpty()&&t.contains(" "+n+" ")){any=true;break;}}
+      if(!any)return false;
+    }
     return true;
   }
   /** True when the battery crossed the order's level going down since the last reading (and is not charging). */
@@ -214,6 +226,10 @@ final class Orders {
     ControlLog.i("orders: fired "+o.optString("trigger")+" order ("+(tell?"tell":"do")+")");
     Intent open=new Intent(c,MainActivity.class).setAction(OPEN).putExtra("event",event).putExtra("task",task).putExtra("order",describe(o))
       .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT|Intent.FLAG_ACTIVITY_SINGLE_TOP);
+    if("ring".equals(o.optString("kind"))){
+      FridayCall.ring(c,clip(task,80),event);
+      return;
+    }
     if(tell){
       new Announcer(c).sayOnce(event+" "+task);
       notify(c,o,"FRIDAY: "+clip(task,60),event,null);

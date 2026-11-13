@@ -32,7 +32,7 @@ export type MobileAction =
   | { action: 'action_history'; limit?: number }
   | { action: 'upcoming_events'; days?: number }
   | { action: 'set_proactive'; on: boolean }
-  | { action: 'standing_order'; order_command?: 'add' | 'list' | 'delete'; order_trigger?: 'time' | 'message' | 'battery' | 'charging'; order_do?: string; order_kind?: 'tell' | 'do'; order_time?: string; order_days?: string[]; order_from?: string; order_app?: string; order_contains?: string; order_below?: number; order_plugged?: boolean; order_number?: number }
+  | { action: 'standing_order'; order_command?: 'add' | 'list' | 'delete'; order_trigger?: 'time' | 'message' | 'battery' | 'charging'; order_do?: string; order_kind?: 'tell' | 'do' | 'ring'; order_time?: string; order_days?: string[]; order_from?: string; order_app?: string; order_contains?: string; order_below?: number; order_plugged?: boolean; order_number?: number }
   | { action: 'set_style'; style: 'normal' | 'calm' | 'funny' | 'serious' | 'technical' | 'friendly' | 'playful' }
   | { action: 'rename_routine'; name: string; new_name: string }
   | { action: 'clock'; command: 'stop_timer' | 'show_timers' | 'show_alarms' | 'dismiss_alarm' }
@@ -133,12 +133,12 @@ export const MOBILE_TOOL = {
     order_command: { type: 'STRING', enum: ['add', 'list', 'delete'], description: 'For standing_order: add (default), list or delete.' },
     order_trigger: { type: 'STRING', enum: ['time', 'message', 'battery', 'charging'], description: 'For standing_order add: what starts it.' },
     order_do: { type: 'STRING', description: 'For standing_order add: what FRIDAY should do or say, in the user\'s own words.' },
-    order_kind: { type: 'STRING', enum: ['tell', 'do'], description: 'For standing_order add: tell = only tell the user; do = carry out the task.' },
+    order_kind: { type: 'STRING', enum: ['tell', 'do', 'ring'], description: 'For standing_order add: tell = only tell the user; do = carry out the task; ring = FRIDAY calls the user (a full-screen ringing call screen on this phone, even on silent or locked) and says it when they answer. Use ring when the user says "mujhe call karna", "call kar ke batana" or wants to be woken. FRIDAY cannot place a real WhatsApp or SIM call to the user, because she runs on their own phone.' },
     order_time: { type: 'STRING', description: 'For standing_order with trigger time: HH:MM in 24-hour time, for example 08:00 or 21:30.' },
     order_days: { type: 'ARRAY', items: { type: 'STRING' }, description: 'For standing_order with trigger time: weekdays (mon, tue, ...); empty for every day.' },
     order_from: { type: 'STRING', description: 'For standing_order with trigger message: the sender\'s name as the user said it.' },
     order_app: { type: 'STRING', description: 'For standing_order with trigger message: only messages from this app (WhatsApp, Messages, Gmail).' },
-    order_contains: { type: 'STRING', description: 'For standing_order with trigger message: only messages containing these words.' },
+    order_contains: { type: 'STRING', description: 'For standing_order with trigger message: only messages containing these words; several alternatives separated by commas (any one matches). For "important / zaroori messages" with no sender, pass important and the phone watches for urgent words (urgent, zaroori, emergency, jaldi, call karo...).' },
     order_below: { type: 'INTEGER', description: 'For standing_order with trigger battery: fire when the battery falls to this percent.' },
     order_plugged: { type: 'BOOLEAN', description: 'For standing_order with trigger charging: true when the charger is connected, false when removed.' },
     order_number: { type: 'INTEGER', description: 'For standing_order delete: the number from the list.' },

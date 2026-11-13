@@ -87,6 +87,8 @@ final class Announcer {
     if(audio!=null&&audio.getRingerMode()!=AudioManager.RINGER_MODE_NORMAL&&!driving(context))return;
     speak(clean(text,200),false);main.postDelayed(this::shutdown,25_000);
   }
+  /** Speaks now even on silent or vibrate: the owner just picked up a FRIDAY call to hear this. */
+  void sayAnswered(String text){speak(clean(text,400),true);main.postDelayed(this::shutdown,40_000);}
   void stop(){main.post(()->{ringingKey=null;main.removeCallbacksAndMessages(null);if(tts!=null&&ready)tts.stop();});}
   void shutdown(){main.post(()->{main.removeCallbacksAndMessages(null);if(tts!=null)tts.shutdown();tts=null;ready=false;});}
 
