@@ -269,7 +269,7 @@ final class AssistantMemory {
     try{
       for(String p:PERSONAS)voices.put(p,voice(p));
       v.put("app","FRIDAY").put("backupVersion",1).put("created",System.currentTimeMillis())
-        .put("name",name()).put("email",email()).put("persona",persona()).put("voices",voices).put("memories",memories()).put("memoryItems",memoryItems()).put("rememberConversations",rememberConversations())
+        .put("name",name()).put("email",email()).put("words",MyWords.text(context)).put("persona",persona()).put("voices",voices).put("memories",memories()).put("memoryItems",memoryItems()).put("rememberConversations",rememberConversations())
         .put("language",prefs.getString("language","hi-IN"))
         .put("announceCalls",Announcer.announceCalls(c)).put("drivingMode",Announcer.driving(c)).put("drivingReadText",Announcer.readText(c))
         .put("wakeWord",WakeWordService.wanted(c)).put("wakeLocked",WakeWordService.whenLocked(c)).put("routines",routines()).put("notes",noteItems());

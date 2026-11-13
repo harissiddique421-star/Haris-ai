@@ -349,6 +349,7 @@ public final class MobileActions {
       if("battery".equals(action)){finish(id,Diagnostics.battery(activity));return;}
       if("navigate".equals(action)){finish(id,phone().navigate(args.optString("place"),args.optString("mode")));return;}
       if("read_notifications".equals(action)){finish(id,phone().notifications(args.optInt("limit",10)));return;}
+      if("my_words".equals(action)){finish(id,myWords(args.optString("command","add"),args.optString("text","")));return;}
       if("check_link".equals(action)){finish(id,checkLink(args.optString("text","")));return;}
       if("set_autonomy".equals(action)){finish(id,Autonomy.apply(activity,args.optString("level")));return;}
       if("voice_note".equals(action)){finish(id,voiceNote(args.optString("command","latest"),args.optString("recipient","")));return;}
@@ -973,6 +974,14 @@ public final class MobileActions {
       :new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+pkg));
     boolean opened=launcher.open(intent);
     finish(id,opened?"opened":"unavailable",opened?"Opened "+(name.isEmpty()?"FRIDAY":name)+(notifications?" notification settings.":" app info."):"That settings page isn't available on this phone.");
+  }
+  /** Words the user says that speech recognition gets wrong; they go into the next call's instructions. */
+  private JSONObject myWords(String command,String text){
+    if("list".equals(command)){java.util.List<String> w=MyWords.list(activity);return status("done",w.isEmpty()?"No saved words yet.":"Saved words: "+String.join("; ",w)+".");}
+    if("remove".equals(command))return MyWords.remove(activity,text)?status("done","Removed \""+text.trim()+"\" from your words."):status("not_found","\""+text.trim()+"\" is not in your saved words.");
+    boolean added=MyWords.add(activity,text);
+    ControlLog.i("my words: "+(added?"added":"updated"));
+    return status("done",(added?"Learned \"":"Updated \"")+text.trim()+"\". I will listen for it from the next call; in this call I already know it.");
   }
   /** Speaking style on top of the persona: calm, funny, serious, technical, friendly, playful or normal. */
   private JSONObject setStyle(String raw){

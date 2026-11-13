@@ -53,6 +53,14 @@ final class Research {
       +" Do not add a Sources section: the app adds the real search sources itself. Do not add any text before the title.";
   }
 
+  /** Same report, for when Google Search cannot be used: the model writes from what it knows and says so. */
+  static String offlineInstruction(String language,String depth){
+    return instruction(language,depth)
+      .replaceFirst("RESEARCH: use Google Search thoroughly before writing\\.[^\n]*\n",
+        "RESEARCH: live web search is NOT available for this report. Write from your own knowledge only. Begin the Executive summary with one bullet saying the report was written without a live web search, and say your knowledge may not include the latest events. Never invent facts, numbers, quotes or sources; if you are not sure of something, say so.\n")
+      .replace(" with the source named in parentheses, for example (Reuters, March 2026)"," and, where you know it, the usual source in parentheses");
+  }
+
   /** Runs the research; throws GeminiAccess.Failure for API errors and IOException for network problems. */
   static Report run(String key,String model,String topic,String language,String depth) throws Exception {
     long started=System.currentTimeMillis();
@@ -61,7 +69,17 @@ final class Research {
       .put("contents",new JSONArray().put(new JSONObject().put("role","user").put("parts",new JSONArray().put(new JSONObject().put("text","Research topic: "+topic)))))
       .put("tools",new JSONArray().put(new JSONObject().put("google_search",new JSONObject())))
       .put("generationConfig",new JSONObject().put("temperature",0.3).put("maxOutputTokens",8192));
-    JSONObject result=call(key,model,request);
+    JSONObject result;boolean live=true;
+    try{result=call(key,model,request);}
+    catch(GeminiAccess.Failure f){
+      // Google Search grounding has its own, smaller free quota. When it is used up, a report written from the
+      // model's own knowledge is still useful, as long as it says clearly that nothing was searched live.
+      if(!"QUOTA_EXCEEDED".equals(f.code))throw f;
+      ControlLog.i("research: search quota used up, writing without live search");
+      request.remove("tools");
+      request.put("systemInstruction",new JSONObject().put("parts",new JSONArray().put(new JSONObject().put("text",offlineInstruction(language,depth)))));
+      result=call(key,model,request);live=false;
+    }
     JSONObject cand=result.getJSONArray("candidates").getJSONObject(0);
     JSONArray parts=cand.optJSONObject("content")==null?new JSONArray():cand.getJSONObject("content").optJSONArray("parts");
     StringBuilder b=new StringBuilder();
@@ -87,11 +105,13 @@ final class Research {
     StringBuilder full=new StringBuilder(body);
     List<String[]> sources=new ArrayList<>(seen.values());
     full.append("\n\n## Sources\n");
-    if(sources.isEmpty())full.append("Google Search did not report the pages it used for this answer. Check important facts before relying on them.\n");
+    if(!live)full.append("Google Search quota was used up, so this report was written from the AI model's own knowledge without a live web search. Recent events and numbers may be out of date; check them before relying on them.\n");
+    else if(sources.isEmpty())full.append("Google Search did not report the pages it used for this answer. Check important facts before relying on them.\n");
     else{int n=1;for(String[] s:sources)full.append(n++).append(". ").append(s[0]).append(" - ").append(s[1]).append('\n');}
-    full.append("\nResearched with Google Search on ").append(new SimpleDateFormat("d MMMM yyyy, HH:mm",Locale.ENGLISH).format(new Date()))
+    if(live)full.append("\nResearched with Google Search on ").append(new SimpleDateFormat("d MMMM yyyy, HH:mm",Locale.ENGLISH).format(new Date()))
       .append(searches>0?" ("+searches+" searches)":"").append(". Prepared by FRIDAY; check important facts before acting on them.\n");
-    return new Report(title,full.toString(),summaryOf(body),sources,searches,System.currentTimeMillis()-started);
+    else full.append("\nWritten without live search on ").append(new SimpleDateFormat("d MMMM yyyy, HH:mm",Locale.ENGLISH).format(new Date())).append(". Prepared by FRIDAY; check important facts before acting on them.\n");
+    return new Report(title,full.toString(),live?summaryOf(body):"Note: Google Search quota was used up, so this report was written without a live web search. "+summaryOf(body),sources,searches,System.currentTimeMillis()-started);
   }
 
   /** Models to try, in order: the user's model, then FRIDAY's other text models and Google's current Flash. */
@@ -130,7 +150,12 @@ final class Research {
           String code=e instanceof GeminiAccess.Failure?((GeminiAccess.Failure)e).code:e.getClass().getSimpleName();
           ControlLog.i("research: "+m+" try "+(attempt+1)+" failed ("+code+")");
           if(!retryable(e))throw e;
-          // Quota or a missing model will not change in seconds: go to the next model.
+          // A per-minute quota frees up quickly: when Google says so, wait that long and try this model once more.
+          long wait=e instanceof GeminiAccess.Failure?((GeminiAccess.Failure)e).retryMs:0;
+          if("QUOTA_EXCEEDED".equals(code)&&attempt==0&&wait>0&&wait<=35000&&System.currentTimeMillis()-started+wait<200000){
+            ControlLog.i("research: waiting "+(wait/1000)+"s for quota");Thread.sleep(wait+500);continue;
+          }
+          // A daily quota or a missing model will not change in seconds: go to the next model.
           if(e instanceof GeminiAccess.Failure&&("QUOTA_EXCEEDED".equals(code)||"MODEL_UNAVAILABLE".equals(code)))break;
           if(attempt==0)Thread.sleep(3000);
         }
