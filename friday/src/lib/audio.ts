@@ -257,14 +257,21 @@ export class MyraaAudioSession {
   private voiceFrames = 0;
   private lastVoiceAt = 0;
   private outputSpeechStartedAt = 0;
+  /** When FRIDAY's last sound finished; the speaker and room still echo it for a moment after. */
+  private outputEndedAt = 0;
+  private readonly echoTailMs = 450;
   private readonly voiceThreshold = 0.02;
   /** Slowly follows the room's background level (TV, fan, music) so steady noise is not taken as the user starting to speak. */
   private noiseFloor = 0.005;
   private readonly voiceStartFrames = 2;
   private readonly voiceStopDelayMs = 500;
-  private readonly bargeInGuardMs = 700;
-  private readonly bargeInStartFrames = 6;
-  private readonly bargeInVoiceThreshold = 0.06;
+  // FRIDAY's own voice from the loudspeaker leaks back into the microphone on many phones. These keep that echo
+  // from cutting her off: a longer guard at the start of a reply and a louder, longer voice needed to interrupt.
+  private readonly bargeInGuardMs = 1100;
+  private readonly bargeInStartFrames = 8;
+  private readonly bargeInVoiceThreshold = 0.08;
+  /** Audio kept from just before a real barge-in (each chunk 64 ms); short so little of FRIDAY's echo reaches Gemini. */
+  private readonly bargeInSendChunks = 4;
   
   // State Callbacks
   private onStateChange: (state: LiveState) => void;
@@ -440,7 +447,8 @@ export class MyraaAudioSession {
           }
 
           this.inputAudioCtx = new AudioContextClass({ sampleRate: 16000 });
-          this.outputAudioCtx = new AudioContextClass({ sampleRate: 24000 });
+          // "playback" asks Android for larger output buffers: FRIDAY's voice does not crackle or break up.
+          this.outputAudioCtx = new AudioContextClass({ sampleRate: 24000, latencyHint: "playback" });
 
           // Ensure Audio Contexts are active and resumed to bypass browser security blocks
           if (this.inputAudioCtx.state === "suspended") {
@@ -793,7 +801,7 @@ export class MyraaAudioSession {
       return;
     }
     if (this.bargeInPreRoll.length) {
-      const preRoll = this.bargeInPreRoll.splice(0);
+      const preRoll = this.bargeInPreRoll.splice(0).slice(-this.bargeInSendChunks);
       // Only a real barge-in sends it; otherwise it is FRIDAY's own voice and is dropped.
       if (this.userSpeaking) for (const chunk of preRoll) this.sendAudio(chunk);
     }
@@ -806,7 +814,8 @@ export class MyraaAudioSession {
    * stop her reply.
    */
   private onGatedFrame(gate: VoiceGateLink, channelData: Float32Array) {
-    const myraaOutputActive = this.currentState === "speaking" || this.activeSources.length > 0;
+    const myraaOutputActive = this.currentState === "speaking" || this.activeSources.length > 0
+      || (this.outputEndedAt > 0 && performance.now() - this.outputEndedAt < this.echoTailMs);
     let result: { a?: [string, string | number][]; e?: [string, number, number?, number?][]; s?: string; fail?: string };
     try { result = JSON.parse(gate.feed(base64ArrayBuffer(floatTo16BitPCM(channelData)), myraaOutputActive ? 2 : 0)); }
     catch { result = { fail: "Voice ID did not answer" }; }
@@ -938,7 +947,10 @@ export class MyraaAudioSession {
     for (let i = 0; i < samples.length; i++) energy += samples[i] * samples[i];
     const rms = Math.sqrt(energy / Math.max(1, samples.length));
     const timestamp = performance.now();
-    const myraaOutputActive = this.currentState === "speaking" || this.activeSources.length > 0;
+    // Just after FRIDAY stops, her voice still echoes in the room: treat that moment like her speaking,
+    // so the echo is not sent to Gemini as the user (she then answered words nobody said).
+    const myraaOutputActive = this.currentState === "speaking" || this.activeSources.length > 0
+      || (this.outputEndedAt > 0 && timestamp - this.outputEndedAt < this.echoTailMs);
 
     // Full-duplex speaker playback can leak back into the microphone even with
     // browser echo cancellation enabled. Do not feed that echo to Gemini. A
@@ -959,7 +971,7 @@ export class MyraaAudioSession {
           this.bargeInVoiceThreshold,
           // A short knock, cough or steady room noise must not cut FRIDAY off: stay well above the room's level.
           Math.min(0.12, this.noiseFloor * 3.5),
-          Math.min(0.1, outputRms * 0.32 + 0.012),
+          Math.min(0.16, outputRms * 0.5 + 0.02),
         )
       : Math.max(this.voiceThreshold, Math.min(0.07, this.noiseFloor * 2.8));
     const requiredFrames = myraaOutputActive ? this.bargeInStartFrames : this.voiceStartFrames;
@@ -1041,8 +1053,9 @@ export class MyraaAudioSession {
       
       // Gapless scheduler sync
       if (this.nextStartTime < currentTime) {
-        // Start fresh: 30ms ahead to bridge schedule timing
-        this.nextStartTime = currentTime + 0.03;
+        // Start fresh (a new reply, or the network was late): a small buffer ahead so the next chunks
+        // arrive in time and her voice plays smoothly instead of breaking into pieces.
+        this.nextStartTime = currentTime + 0.15;
       }
 
       source.start(this.nextStartTime);
@@ -1059,6 +1072,7 @@ export class MyraaAudioSession {
         // If there are no more active play nodes, revert state back to listening
         if (this.activeSources.length === 0 && this.currentState === "speaking") {
           this.outputSpeechStartedAt = 0;
+          this.outputEndedAt = performance.now();
           this.setState("listening");
         }
       };
