@@ -36,7 +36,8 @@ public final class MobileActions {
   public interface Gemini { String key() throws Exception; String model(); }
   Notify notify;Gemini gemini;
   private final java.util.concurrent.ExecutorService research=java.util.concurrent.Executors.newSingleThreadExecutor();
-  private volatile boolean researching;
+  private final java.util.concurrent.ExecutorService sites=java.util.concurrent.Executors.newSingleThreadExecutor();
+  private volatile boolean researching,buildingSite;
   public interface Launcher { boolean installed(String pkg); Intent app(String label); boolean open(Intent intent); }
   public interface Contacts {
     boolean needsPermission(); List<Recipient> find(String name);
@@ -410,6 +411,7 @@ public final class MobileActions {
         finish(id,"saved","Saved "+doc.name+" in Downloads/FRIDAY"+(opened?" and opened it.":". No app here opens this file type, but it is in your Downloads."));return;
       }
       if("research_report".equals(action)){researchReport(id,args);return;}
+      if("build_website".equals(action)){buildWebsite(id,args);return;}
       if("list_documents".equals(action)){finish(id,listDocuments());return;}
       if("open_document".equals(action)||"share_document".equals(action)){
         Documents.Found f=Documents.find(activity,args.optString("title",""));
@@ -627,6 +629,50 @@ public final class MobileActions {
       Notify n=notify;if(n!=null)main.post(()->n.event(event));
     });
   }
+  /**
+   * "Website banao": writes a one-page website, makes its logo and hero image with Gemini, and saves it as one
+   * .html file in Downloads/FRIDAY (about one minute, so it runs in the background like research). A
+   * "website-done" event tells the page, which tells the user, and the page opens in the browser.
+   */
+  private void buildWebsite(String id,JSONObject args){
+    String details=args.optString("query","").trim(),name=args.optString("title","").trim();
+    if(details.isEmpty()&&name.isEmpty()){finish(id,"invalid","Ask the user the business name and what it does before building the website.");return;}
+    if(details.isEmpty())details=name;
+    if(details.length()>WebsiteBuilder.MAX_BRIEF)details=details.substring(0,WebsiteBuilder.MAX_BRIEF);
+    if(name.length()>80)name=name.substring(0,80);
+    if(gemini==null){finish(id,"unavailable","Building websites needs the updated FRIDAY app.");return;}
+    if(buildingSite){finish(id,"busy","A website is already being built. Wait for it to finish first.");return;}
+    String key;try{key=gemini.key();}catch(Exception e){key="";}
+    if(key.isEmpty()){finish(id,"unavailable","Building websites needs the Gemini API key in Settings.");return;}
+    String model=gemini.model(),language=args.optString("language","").trim(),detailsF=details,nameF=name,keyF=key;
+    buildingSite=true;
+    finish(id,status("started","Building the website now: page, logo and hero image; it takes about one to two minutes. Tell the user in one short line that you are making it and will say when it is ready. Keep talking normally meanwhile. Do not call build_website again for this site."));
+    ControlLog.i("website: started");
+    sites.execute(()->{
+      JSONObject event=new JSONObject();
+      try{
+        WebsiteBuilder.Site site=WebsiteBuilder.run(keyF,model,nameF,detailsF,language);
+        Documents.Saved doc=WebsiteBuilder.save(activity,site);
+        ControlLog.i("website: done in "+(site.ms/1000)+" s, logo "+(site.logoMade?"made":"initials")+", hero "+(site.heroMade?"made":"colour"));
+        event.put("type","website-done").put("ok",true).put("title",site.name).put("name",doc.name).put("summary",site.summary)
+          .put("logo",site.logoMade).put("hero",site.heroMade).put("seconds",site.ms/1000);
+        Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(doc.uri,doc.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        boolean[] opened={false};
+        java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
+        main.post(()->{try{opened[0]=launcher.open(view);}finally{done.countDown();}});
+        done.await(5,java.util.concurrent.TimeUnit.SECONDS);
+        event.put("opened",opened[0]);
+      }catch(GeminiAccess.Failure f){
+        ControlLog.i("website: Gemini refused ("+f.code+")");siteFailed(event,"The website could not be made: "+f.getMessage());
+      }catch(java.net.SocketTimeoutException e){
+        ControlLog.i("website: timed out");siteFailed(event,"Making the website took too long (network or Google busy). Try again in a minute.");
+      }catch(Exception e){
+        ControlLog.i("website: failed ("+e.getClass().getSimpleName()+")");siteFailed(event,e instanceof IllegalArgumentException?e.getMessage():"The website could not be made ("+e.getClass().getSimpleName()+"). Check the internet and try again.");
+      }finally{buildingSite=false;}
+      Notify n=notify;if(n!=null)main.post(()->n.event(event));
+    });
+  }
+  private static void siteFailed(JSONObject e,String message){try{e.put("type","website-done").put("ok",false).put("message",message);}catch(JSONException ignored){}}
   private static void put(JSONObject e,String message){try{e.put("type","research-done").put("ok",false).put("message",message);}catch(JSONException ignored){}}
 
   private JSONObject listDocuments(){
