@@ -84,6 +84,8 @@ final class VoiceGuardian {
   static void setSilenceMs(Context c,int ms){c.getSharedPreferences(Announcer.PREFS,Context.MODE_PRIVATE).edit().putInt("voiceSilenceMs",SpeechSegmenter.clampSilence(ms)).apply();}
   /** A speech detector for one listening session: Silero VAD, or the energy detector if the model is missing. */
   static SpeechSegmenter segmenter(Context c,int maxMs){return new SpeechSegmenter(VoiceModels.vad(c),silenceMs(c),maxMs);}
+  /** A long sentence read aloud: short pauses between its phrases stay inside the one recording. */
+  static SpeechSegmenter longSegmenter(Context c,int maxMs){return SpeechSegmenter.longTake(VoiceModels.vad(c),maxMs);}
 
   // ---- features
   static final class Features { final float[][] frames;final float[] colour; Features(float[][] f,float[] c){frames=f;colour=c;} }
