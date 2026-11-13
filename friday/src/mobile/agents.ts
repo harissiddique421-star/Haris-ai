@@ -16,8 +16,8 @@ const OWNERS: Record<AgentName, string[]> = {
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
   memory: ['remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'set_language', 'save_routine', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
-  document: ['make_document'],
-  research: ['search_web'],
+  document: ['make_document', 'list_documents', 'open_document', 'share_document', 'send_document'],
+  research: ['search_web', 'research_report'],
   health: ['health_check', 'network_status', 'set_proactive', 'self_report', 'set_autonomy'],
   core: ['suggestions', 'briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
 };
@@ -26,7 +26,7 @@ for (const [agent, actions] of Object.entries(OWNERS) as [AgentName, string[]][]
 export function agentFor(action: string): AgentName { return OWNER.get(action) ?? 'core'; }
 
 /** Actions that reach other people, change calls or remove data: only on the user's own words. */
-const HIGH_RISK = new Set(['set_autonomy', 'whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine', 'emergency', 'emergency_contact', 'reply_message']);
+const HIGH_RISK = new Set(['set_autonomy', 'whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'answer_call', 'reject_call', 'forget', 'delete_reminder', 'delete_routine', 'emergency', 'emergency_contact', 'reply_message', 'send_document']);
 /** Actions that change no screen: a routine can run the next step right away. */
 export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'note', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
 

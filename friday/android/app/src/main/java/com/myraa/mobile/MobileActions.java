@@ -30,6 +30,13 @@ public final class MobileActions {
   public static final int CONTACTS_REQUEST=88;
   static final long CONFIRM_WINDOW_MS=120_000;
   public interface Result { void complete(String id,JSONObject result); }
+  /** Events that arrive after an action already answered (a research report finished in the background). */
+  public interface Notify { void event(JSONObject event); }
+  /** The Gemini key and text model, read when needed (they stay in MainActivity's encrypted storage). */
+  public interface Gemini { String key() throws Exception; String model(); }
+  Notify notify;Gemini gemini;
+  private final java.util.concurrent.ExecutorService research=java.util.concurrent.Executors.newSingleThreadExecutor();
+  private volatile boolean researching;
   public interface Launcher { boolean installed(String pkg); Intent app(String label); boolean open(Intent intent); }
   public interface Contacts {
     boolean needsPermission(); List<Recipient> find(String name);
@@ -395,6 +402,22 @@ public final class MobileActions {
         boolean opened=launcher.open(view);ControlLog.i("document: saved "+(doc.mime.endsWith("pdf")?"pdf":"txt"));
         finish(id,"saved","Saved "+doc.name+" in Downloads/FRIDAY"+(opened?" and opened it.":". No app here opens this file type, but it is in your Downloads."));return;
       }
+      if("research_report".equals(action)){researchReport(id,args);return;}
+      if("list_documents".equals(action)){finish(id,listDocuments());return;}
+      if("open_document".equals(action)||"share_document".equals(action)){
+        Documents.Found f=Documents.find(activity,args.optString("title",""));
+        if(f==null){finish(id,notFound(args.optString("title","")));return;}
+        boolean share="share_document".equals(action);
+        Intent intent=share?Intent.createChooser(new Intent(Intent.ACTION_SEND).setType(f.mime).putExtra(Intent.EXTRA_STREAM,f.uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION),"Share "+f.name)
+          :new Intent(Intent.ACTION_VIEW).setDataAndType(f.uri,f.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        boolean opened=launcher.open(intent);
+        finish(id,opened?"opened":"unavailable",opened?(share?"The share menu is open for "+f.name+". The user picks the app (Gmail, Drive, Telegram...) and sends it there; nothing was sent yet.":"Opened "+f.name+"."):"No app on this phone can "+(share?"share":"open")+" this file.");return;
+      }
+      if("send_document".equals(action)){
+        String token=args.optString("confirm_token");
+        if(!token.isEmpty()&&pending("wafile",token)){fileConfirmed(id,token);return;}
+        sendDocument(id,args.optString("recipient"),args.optString("title",""),args.optString("message",""),args.optBoolean("confirm_on_screen"));return;
+      }
       if("set_timer".equals(action)){timer(id,args);return;}
       if("briefing".equals(action)){finish(id,Briefing.morning(activity));return;}
       if("missed_calls".equals(action)){int n=args.optInt("limit",5);withPermission(id,Manifest.permission.READ_CALL_LOG,()->finish(id,Briefing.missedCalls(activity,n)),()->finish(id,"permission_required","Call history permission was denied, so I can't see missed calls. You can allow it in Settings > Permissions."));return;}
@@ -552,6 +575,112 @@ public final class MobileActions {
     }));
     if(!launcher.open(draft(person.phone,text,pkg))){WhatsAppSender.disarm();finish(id,"unavailable","WhatsApp could not open this recipient. Nothing was sent.");}
   }
+  // ---- Documents: research reports, finding, sending
+
+  /**
+   * Starts a web research report in the background and answers at once (research takes 20 s to 2 minutes,
+   * longer than a voice action may wait). When it is done the PDF is saved in Downloads/FRIDAY and a
+   * "research-done" event tells the page, which tells the user.
+   */
+  private void researchReport(String id,JSONObject args){
+    String topic=args.optString("query","").trim();if(topic.isEmpty())topic=args.optString("title","").trim();
+    if(topic.isEmpty()){finish(id,"invalid","Ask the user what the report should be about.");return;}
+    if(topic.length()>Research.MAX_TOPIC)topic=topic.substring(0,Research.MAX_TOPIC);
+    if(gemini==null){finish(id,"unavailable","Research reports need the updated FRIDAY app.");return;}
+    if(researching){finish(id,"busy","A research report is already being prepared. Wait for it to finish first.");return;}
+    String key;try{key=gemini.key();}catch(Exception e){key="";}
+    if(key.isEmpty()){finish(id,"unavailable","Research reports need the Gemini API key in Settings.");return;}
+    String model=gemini.model(),language=args.optString("language","").trim(),depth=args.optString("depth","deep"),topicF=topic,keyF=key;
+    String requested=args.optString("title","").trim();
+    researching=true;
+    JSONObject started=status("started","Researching \""+topic+"\" on the web now; the report takes about one to two minutes. Tell the user in one short line that you are researching and will say when the PDF is ready. Keep talking normally meanwhile. Do not call research_report again for this topic.");
+    finish(id,started);
+    ControlLog.i("research: started ("+depth+")");
+    research.execute(()->{
+      JSONObject event=new JSONObject();
+      try{
+        Research.Report r=Research.run(keyF,model,topicF,language,depth);
+        Documents.Saved doc=Documents.save(activity,requested.isEmpty()?r.title:requested,r.markdown,"pdf");
+        ControlLog.i("research: done in "+(r.ms/1000)+" s, "+r.searches+" searches, "+r.sources.size()+" sources");
+        event.put("type","research-done").put("ok",true).put("title",r.title).put("name",doc.name).put("summary",r.summary)
+          .put("sources",r.sources.size()).put("searches",r.searches).put("seconds",r.ms/1000);
+      }catch(GeminiAccess.Failure f){
+        ControlLog.i("research: Gemini refused ("+f.code+")");
+        put(event,"The research could not be done: "+f.getMessage());
+      }catch(java.net.SocketTimeoutException e){
+        ControlLog.i("research: timed out");put(event,"The research took too long (network or Google busy). Try again, or ask for a quick report.");
+      }catch(Exception e){
+        ControlLog.i("research: failed ("+e.getClass().getSimpleName()+")");put(event,e instanceof IllegalArgumentException?e.getMessage():"The research report could not be made ("+e.getClass().getSimpleName()+"). Check the internet and try again.");
+      }finally{researching=false;}
+      Notify n=notify;if(n!=null)main.post(()->n.event(event));
+    });
+  }
+  private static void put(JSONObject e,String message){try{e.put("type","research-done").put("ok",false).put("message",message);}catch(JSONException ignored){}}
+
+  private JSONObject listDocuments(){
+    List<Documents.Found> all=Documents.list(activity,12);
+    if(all.isEmpty())return status("empty","FRIDAY has no saved documents on this phone yet (it can only see the files it made itself in Downloads/FRIDAY).");
+    JSONArray names=new JSONArray();for(Documents.Found f:all)names.put(f.name);
+    JSONObject v=status("found","FRIDAY's saved documents, newest first. Read out a few names briefly; the user can say one to open, share or send it on WhatsApp.");
+    try{v.put("documents",names);}catch(JSONException ignored){}
+    return v;
+  }
+  private JSONObject notFound(String words){
+    List<Documents.Found> all=Documents.list(activity,8);
+    JSONArray names=new JSONArray();for(Documents.Found f:all)names.put(f.name);
+    JSONObject v=status("not_found",all.isEmpty()?"FRIDAY has no saved documents on this phone yet. Offer to write one (make_document) or research one (research_report).":"No saved document matches \""+words+"\". These are the newest ones; ask which one the user means, then call again with words from its name.");
+    try{v.put("documents",names);}catch(JSONException ignored){}
+    return v;
+  }
+  /** Finds the document by name, then the WhatsApp contact, then asks once before sending (same rule as messages). */
+  private void sendDocument(String id,String recipient,String words,String caption,boolean onScreen){
+    if(whatsapp()==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
+    Documents.Found f=Documents.find(activity,words);
+    if(f==null){finish(id,notFound(words));return;}
+    if(caption.length()>1000)caption=caption.substring(0,1000);
+    String cap=caption.trim();
+    resolveWhatsApp(id,recipient,WA_CHAT,true,wa->{
+      Recipient person=new Recipient(wa.name,wa.phone);
+      if(onScreen){confirmOnScreen(id,"Send document on WhatsApp?","To: "+person.name+" (+"+person.phone+")\n\n"+f.name+(cap.isEmpty()?"":"\n\n"+cap),()->sendFile(id,person,f.uri.toString(),cap));return;}
+      String ref=f.uri+"\n"+cap,open=pendingToken("wafile",person.phone,ref);
+      JSONObject value=status("needs_confirmation",open!=null
+        ?"This was already read back. If the user's latest answer was a clear yes, call mobile_action again now with action send_document and only this confirm_token; otherwise ask once: Send "+f.name+" to "+person.name+" on WhatsApp?"
+        :"Send the document \""+f.name+"\" to "+person.name+" (+"+person.phone+") on WhatsApp"+(cap.isEmpty()?"":" with the note \""+cap+"\"")+"? This is the only confirmation: ask it once in one short line and wait for a clear yes. After the yes, call mobile_action again right away with action send_document and only this confirm_token.");
+      try{value.put("confirm_token",open!=null?open:token("wafile",person,ref)).put("recipient_name",person.name).put("recipient_phone","+"+person.phone).put("document",f.name);}catch(JSONException ignored){}
+      finish(id,value);
+    });
+  }
+  private void fileConfirmed(String id,String token){
+    Confirmation c=take("wafile",token);
+    if(c==null){finish(id,"invalid","That confirmation expired or was already used. Ask again which document and to whom.");return;}
+    int nl=c.text.indexOf('\n');
+    sendFile(id,new Recipient(c.name,c.phone),nl<0?c.text:c.text.substring(0,nl),nl<0?"":c.text.substring(nl+1));
+  }
+  /** Shares the file straight into the contact's WhatsApp chat; presses Send when FRIDAY's control service is on. */
+  private void sendFile(String id,Recipient person,String uriText,String caption){
+    String pkg=whatsapp();if(pkg==null){finish(id,"not_installed","WhatsApp is not installed on this Android device.");return;}
+    Uri uri=Uri.parse(uriText);String name=uri.getLastPathSegment(),mime="application/pdf";
+    for(Documents.Found f:Documents.list(activity,200))if(f.uri.equals(uri)){name=f.name;mime=f.mime;break;}
+    Intent share=new Intent(Intent.ACTION_SEND).setType(mime).setPackage(pkg).putExtra(Intent.EXTRA_STREAM,uri)
+      .putExtra("jid",person.phone+"@s.whatsapp.net").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_ACTIVITY_NEW_TASK);
+    share.setClipData(ClipData.newRawUri(name,uri));
+    if(!caption.isEmpty())share.putExtra(Intent.EXTRA_TEXT,caption);
+    final String docName=name;
+    withControl(ctl->{
+      if(ctl==null){
+        boolean opened=launcher.open(share);
+        finish(id,opened?"draft_opened":"unavailable",opened?"WhatsApp is open with "+docName+" for "+person.name+". Automatic sending is off, so the user taps Send in WhatsApp. It has not been sent yet.":"WhatsApp could not open this file. Nothing was sent.");return;
+      }
+      PhoneController.armFile(pkg,(sent,why)->main.post(()->{
+        ControlLog.i("whatsapp file to "+person.name+": "+(sent?"sent":"not confirmed, "+why));
+        if(sent){sent("wafile",person.phone,docName);finish(id,"sent","Sent "+docName+" to "+person.name+" on WhatsApp. Checked: WhatsApp closed the send screen after Send (delivered and read ticks are not checked).");}
+        else if(why.startsWith("the send screen is still open"))finish(id,"unverified","FRIDAY pressed Send for "+docName+" but could not confirm it left. Ask the user to check the chat with "+person.name+".");
+        else finish(id,"draft_opened","FRIDAY could not press Send ("+why+"). WhatsApp is open with "+docName+" for "+person.name+"; the user taps Send. It has not been sent.");
+      }));
+      if(!launcher.open(share)){PhoneController.disarm();finish(id,"unavailable","WhatsApp could not open this file. Nothing was sent.");}
+    });
+  }
+
   private void openDraft(String id,Recipient person,String text,String note){boolean opened=launcher.open(draft(person.phone,text,whatsapp()));finish(id,opened?"draft_opened":"unavailable",opened?"WhatsApp draft opened for "+person.name+". "+note+" FRIDAY has not sent it.":"WhatsApp could not open this recipient. Nothing was sent.");}
 
   private void call(String id,String recipient,boolean onScreen){
