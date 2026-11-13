@@ -274,6 +274,7 @@ export class MyraaAudioSession {
   private onMemorySync?: (memories: any[]) => void;
   /** Local voice activity: the user started (true) or stopped (false) speaking. */
   private onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
+  private onUserVoiceFrame?: (samples: Float32Array) => void;
   /**
    * Voice ID did not accept a voice: "unclear" (the owner with other voices on top) or "low" (close under the
    * threshold) ask the owner to repeat; "unknown" is someone else or too far from the owner's voice. score: the
@@ -330,11 +331,14 @@ export class MyraaAudioSession {
     onScreenVisionState?: (state: "idle" | "capturing" | "ready" | "error", info: { activeWindow?: string | null; error?: string | null }) => void;
     /** verified: Voice ID confirmed the owner's turn just ended (it will be answered, so FRIDAY is processing). */
     onUserSpeech?: (speaking: boolean, verified?: boolean) => void;
+    /** Each microphone frame while the user (the owner, with Voice ID) is speaking, for the voice tone. */
+    onUserVoiceFrame?: (samples: Float32Array) => void;
     onVoiceUnclear?: (kind: "unclear" | "low" | "unknown", score: number) => void;
     onReplyLatency?: (ms: number) => void;
     connection?: AudioConnection;
   }) {
     this.onUserSpeech = handlers.onUserSpeech;
+    this.onUserVoiceFrame = handlers.onUserVoiceFrame;
     this.onReplyLatency = handlers.onReplyLatency;
     this.onVoiceUnclear = handlers.onVoiceUnclear;
     this.connection = handlers.connection;
@@ -753,6 +757,7 @@ export class MyraaAudioSession {
   private onMicrophoneFrame(channelData: Float32Array) {
     this.lastMicFrameAt = performance.now();
     if (this.currentState === "disconnected") return;
+    if (this.userSpeaking && this.onUserVoiceFrame) { try { this.onUserVoiceFrame(channelData); } catch { /* tone is optional */ } }
     if (this.gate) { this.onGatedFrame(this.gate, channelData); return; }
 
     const shouldForwardMicrophone = this.updateVoiceActivity(channelData);

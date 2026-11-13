@@ -2,8 +2,9 @@
  * Emotion Engine: picks FRIDAY's conversational tone from what just happened.
  *
  * It is a behaviour layer, not feelings. It reads the user's words (live
- * captions), the result of each phone action and the conversation so far, and
- * returns one of twelve tones. The tone is:
+ * captions), how they were said (voice tone: louder and higher, or quieter and
+ * flatter than this user's usual voice, see voiceTone.ts), the result of each
+ * phone action and the conversation so far, and returns one of thirteen tones. The tone is:
  *  - sent to Gemini with each action result, so the spoken reply's wording,
  *    delivery and length fit the moment;
  *  - shown on FRIDAY's face (the avatar's expression) during Live calls.
@@ -11,13 +12,14 @@
  */
 export type Emotion =
   | 'happy' | 'excited' | 'calm' | 'curious' | 'concerned' | 'serious'
-  | 'surprised' | 'playful' | 'confident' | 'thoughtful' | 'focused' | 'apologetic';
+  | 'surprised' | 'playful' | 'confident' | 'thoughtful' | 'focused' | 'apologetic' | 'gentle';
+import type { ToneCue } from './voiceTone';
 
 /** The avatar's closest expression for each tone (the 3D character has fewer faces than tones). */
 export const AVATAR_EMOTION: Record<Emotion, string> = {
   happy: 'happy', excited: 'excited', calm: 'idle', curious: 'curious', concerned: 'thinking',
   serious: 'idle', surprised: 'surprised', playful: 'playful', confident: 'proud',
-  thoughtful: 'thinking', focused: 'thinking', apologetic: 'embarrassed',
+  thoughtful: 'thinking', focused: 'thinking', apologetic: 'embarrassed', gentle: 'idle',
 };
 
 /** How the spoken reply should sound for each tone; sent to Gemini as a short hint. */
@@ -34,6 +36,7 @@ export const TONE_HINT: Record<Emotion, string> = {
   thoughtful: 'considered; take a moment, then answer',
   focused: 'focused; give the exact detail to confirm',
   apologetic: 'briefly apologetic, then say what you will do',
+  gentle: 'soft, gentle and a little slower; keep it short and kind (the user sounds tired or low)',
 };
 
 // Roman Urdu, Hindi, Hinglish and English cues. Word boundaries keep "great" out of "greater" and so on.
@@ -56,16 +59,24 @@ export class EmotionEngine {
 
   reset() { this.current = 'calm'; this.frustration = 0; this.lastChange = 0; }
 
-  /** The user's own words (a finished caption). */
-  fromUser(text: string): Emotion {
+  /**
+   * The user's own words (a finished caption) and, when known, how they sounded. The words decide
+   * first; the voice only settles sentences whose words carry no feeling, and makes frustrated words
+   * said in a raised voice count double.
+   */
+  fromUser(text: string, voice: ToneCue = null): Emotion {
     const t = text.trim(); if (!t) return this.current;
-    if (FRUSTRATED.test(t)) { this.frustration = Math.min(3, this.frustration + 1); return this.set(this.frustration >= 2 ? 'apologetic' : 'concerned'); }
+    if (FRUSTRATED.test(t)) { this.frustration = Math.min(3, this.frustration + (voice === 'raised' ? 2 : 1)); return this.set(this.frustration >= 2 ? 'apologetic' : 'concerned'); }
+    const wasFrustrated = this.frustration > 0;
     this.frustration = Math.max(0, this.frustration - 1);
-    if (SAD.test(t)) return this.set('concerned');
+    if (SAD.test(t)) return this.set(voice === 'low' ? 'gentle' : 'concerned');
     if (URGENT.test(t)) return this.set('focused');
     if (THANKS.test(t)) return this.set('happy');
     if (EXCITED.test(t)) return this.set('excited');
     if (PLAYFUL.test(t)) return this.set('playful');
+    // Neutral words in a raised voice right after a failure: still upset. Otherwise: be direct and quick.
+    if (voice === 'raised') { if (wasFrustrated) { this.frustration = Math.min(3, this.frustration + 2); return this.set('apologetic'); } return this.set('focused'); }
+    if (voice === 'low') return this.set('gentle');
     if (QUESTION.test(t)) return this.set(t.split(/\s+/).length > 12 ? 'thoughtful' : 'curious');
     return this.set('calm');
   }

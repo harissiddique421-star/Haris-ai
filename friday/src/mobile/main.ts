@@ -7,6 +7,7 @@ import { TaskTracker } from './tasks';
 import { liveRecovery } from './recovery';
 import { parseMobileAction, type MobileAction } from './actions';
 import { EmotionEngine, AVATAR_EMOTION, TONE_HINT } from './emotion';
+import { VoiceTone, type ToneCue } from './voiceTone';
 import { Orchestrator, QUICK } from './agents';
 import { MODULES, moduleHealth, healthSummary, normalizeOff } from './commandCenter';
 import { ConversationContextManager, ConversationCooldownManager, ConversationInitiativeManager, FollowUpQuestionGenerator, TopicSuggestionEngine, inQuietHours, normalizeFrequency, normalizeMode } from './initiative';
@@ -149,6 +150,8 @@ function voiceIdDiagnostics() {
 }
 /** Tone of the conversation (see emotion.ts) and what FRIDAY is doing on the phone, for follow-up commands. */
 const emotions = new EmotionEngine();
+/** How the user's last sentence sounded (louder/higher or quieter/flatter than usual); used once with its caption. */
+const voiceTone = new VoiceTone(); let lastToneCue: ToneCue = null;
 const orchestrator = new Orchestrator(runMobileAction);
 /** Self-development measurements: counts and timings only, stored on the phone. */
 function metric(kind: string, value = 1) { try { bridge?.selfDevMetric?.(kind, value); } catch { /* never breaks a call */ } }
@@ -236,6 +239,7 @@ function showThinking(on: boolean) {
 function userSpeech(speaking: boolean, verified = false) {
   markActivity(); userTalkingNow = speaking;
   if (speaking) { if (thinkingTimer) showThinking(false); return; }
+  lastToneCue = voiceTone.end();
   // Voice ID ended the owner's verified turn: it goes to Gemini now, so show Thinking at once
   // (Gemini's transcript of it usually arrives only after this, so waiting for it kept "Listening").
   if (verified || heardUserSinceReply) showThinking(true);
@@ -314,7 +318,7 @@ function liveTranscription(role: 'user' | 'model', text: string) {
   markActivity(); logCaption(role, text);
   if (role === 'user') { orchestrator.userSpoke(); userSpokeThisCall = true; spokeSinceCheckin = true; heardUserSinceReply = true; checkinPending = false; }
   // A finished user sentence (FRIDAY starts answering) sets the tone for the reply.
-  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption); topics.heard(lastUserCaption); }
+  if (role === 'model' && liveCaption?.role === 'user') { lastUserCaption = liveCaption.body.textContent || ''; emotions.fromUser(lastUserCaption, lastToneCue); lastToneCue = null; topics.heard(lastUserCaption); }
   if (!liveCaption || liveCaption.role !== role) {
     append(role, ''); liveCaption = { role, body: el('messages').lastElementChild!.querySelector('p')! };
   }
@@ -1086,11 +1090,12 @@ el('voice').onclick = () => {
   if (navigator.onLine === false) { notice('No internet connection. Connect to the internet and try again.'); return; }
   bridge.stopSpeech(); liveCaption = null;
   callStartedBy = startedBy; greetedAt = 0; greetFollowUpDone = false; userTalkingNow = false;
-  if (startedBy) { emotions.reset(); topics.reset(); checkinsThisCall = 0; }
+  if (startedBy) { emotions.reset(); voiceTone.reset(); lastToneCue = null; topics.reset(); checkinsThisCall = 0; }
   userSpokeThisCall = false; spokeSinceCheckin = true; checkinPending = false; heardUserSinceReply = false; lastActivityAt = Date.now();
   const resuming = liveResume.resuming; liveUpSince = 0;
   liveSession = new MyraaAudioSession({
     onUserSpeech: userSpeech,
+    onUserVoiceFrame: frame => voiceTone.feed(frame),
     onVoiceUnclear: voiceUnclear,
     onReplyLatency: ms => { if (ms >= 0 && ms < 60_000) { metric('live_reply'); metric('live_reply_ms', ms); } },
     connection: { createSocket: () => new MobileLiveTransport(bridge), voiceGate: voiceGateLink },
