@@ -1448,7 +1448,7 @@ const resize = new ResizeObserver(() => { const box = el('avatar').getBoundingCl
 el('avatar').onpointermove = event => { const box = el('avatar').getBoundingClientRect(); system?.setPointer((event.clientX - box.left) / box.width * 2 - 1, 1 - (event.clientY - box.top) / box.height * 2); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) { if (!backgroundLive && !permissionPrompt) stopVoice(); system?.stop(); bridge?.stopSpeech(); } else system?.start(); });
 window.addEventListener('myraa:lifecycle', event => { foreground = !!(event as CustomEvent).detail?.active; permissionPrompt = !!(event as CustomEvent).detail?.permissionPrompt; backgroundLive = !!(event as CustomEvent).detail?.backgroundLive; if (!foreground && !backgroundLive && !(event as CustomEvent).detail?.permissionPrompt) stopVoice(); if (foreground) system?.start(); else { system?.stop(); bridge?.stopSpeech(); } });
-window.addEventListener('myraa:stop-live', () => { stopVoice(); notice('Live call stopped.'); });
+window.addEventListener('myraa:stop-live', () => { const agentic = !!agentSession; stopVoice(); notice(agentic ? 'Agentic mode stopped.' : 'Live call stopped.'); });
 // Say so right away when the network drops instead of staying silent.
 window.addEventListener('offline', () => { if (liveActive()) { stopVoice(); notice('Internet connection lost, so the Live call ended. Tap Talk when you are back online.'); } });
 window.addEventListener('pagehide', () => { stopVoice(); generation++; system?.dispose(); bridge?.cancel(); });
