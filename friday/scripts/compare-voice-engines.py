@@ -121,6 +121,8 @@ def wake_word(sherpa_onnx, models, fx):
     def say(text, speed=1.0):
         a = tts.generate(text, sid=0, speed=speed)
         wav = np.array(a.samples, dtype=np.float32)
+        if len(wav) == 0 or a.sample_rate <= 0:
+            raise RuntimeError(f"TTS produced no audio for {text!r} (sample rate {a.sample_rate}); model {vits}")
         if a.sample_rate != 16000:
             idx = np.arange(0, len(wav), a.sample_rate / 16000)
             wav = np.interp(idx, np.arange(len(wav)), wav).astype(np.float32)
@@ -185,7 +187,9 @@ def main():
     try:
         wake = wake_word(sherpa_onnx, a.models, a.fixtures)
     except Exception as e:
-        wake = {"error": str(e)}
+        import traceback
+        traceback.print_exc()
+        wake = {"error": f"{type(e).__name__}: {e}"}
 
     md = ["## Speaker ID on the Voice ID test recordings", "",
           "| Model | Owner lowest | Others highest | Gap (higher is better) | EER on 1.2 s windows (lower is better) |",
