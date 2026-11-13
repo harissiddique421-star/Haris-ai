@@ -29,13 +29,16 @@ function obfuscate(): Plugin {
           stringArrayThreshold: 0.75,
           stringArrayEncoding: ['base64'],
           stringArrayWrappersType: 'variable',
-          splitStrings: true,
-          splitStringsChunkLength: 10,
+          // Off for speed: split strings are glued back together at run time on every use (also inside the
+          // audio loop), and they make the bundle the WebView has to parse at every start much larger.
+          splitStrings: false,
           // Off on purpose: these slow hot paths (the audio loop) and can break minified code.
           controlFlowFlattening: false,
           deadCodeInjection: false,
           selfDefending: false,
-          numbersToExpressions: true,
+          // Off for speed: every number (also the audio sample math run 16,000 times a second) became a sum of
+          // several numbers evaluated at run time.
+          numbersToExpressions: false,
           simplify: true,
           unicodeEscapeSequence: false,
           target: 'browser',

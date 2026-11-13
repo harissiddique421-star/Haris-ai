@@ -124,15 +124,13 @@ function pcm16ToFloats(uint8Array: Uint8Array): Float32Array {
   return floats;
 }
 
-// Convert ArrayBuffer to Base64 String
-function base64ArrayBuffer(arrayBuffer: ArrayBuffer): string {
-  let binary = '';
-  const bytes = new Uint8Array(arrayBuffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
+// Convert ArrayBuffer to Base64 String. Builds the binary string in 8 KB slices instead of one
+// character at a time: this runs for every microphone frame, so it must not churn the garbage collector.
+export function base64ArrayBuffer(arrayBuffer: ArrayBuffer | Uint8Array): string {
+  const bytes = arrayBuffer instanceof Uint8Array ? arrayBuffer : new Uint8Array(arrayBuffer);
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += 0x2000) parts.push(String.fromCharCode.apply(null, bytes.subarray(i, i + 0x2000) as unknown as number[]));
+  return window.btoa(parts.join(''));
 }
 
 // Convert Base64 string to Uint8Array

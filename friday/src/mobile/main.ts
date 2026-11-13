@@ -1,6 +1,6 @@
 import { noteMatches, noteGroups, type Note } from './notes';
 import './mobile.css';
-import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, type LiveState } from '../lib/audio';
+import { MyraaAudioSession, LIVE_MIC_CONSTRAINTS, LIVE_MIC_HIGHPASS_HZ, base64ArrayBuffer, type LiveState } from '../lib/audio';
 import { MobileLiveTransport, liveResume, liveMic } from './LiveTransport';
 import { voiceGroups, voiceLabel } from './voices';
 import { TaskTracker } from './tasks';
@@ -134,8 +134,7 @@ async function startVoiceIdCapture() {
       if (stopped) return;
       const f = e.inputBuffer.getChannelData(0); const bytes = new Uint8Array(f.length * 2);
       for (let i = 0; i < f.length; i++) { const v = Math.max(-1, Math.min(1, f[i])); const x = v < 0 ? v * 0x8000 : v * 0x7fff; const n = Math.round(x) & 0xffff; bytes[2 * i] = n & 0xff; bytes[2 * i + 1] = n >> 8; }
-      let bin = ''; for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      bridge?.voiceIdPcm?.(btoa(bin));
+      bridge?.voiceIdPcm?.(base64ArrayBuffer(bytes));
     };
   } catch (error) {
     bridge?.voiceIdPcmFailed?.(String((error as Error)?.name || 'microphone unavailable'));

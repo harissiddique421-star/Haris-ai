@@ -90,6 +90,8 @@ public class MainActivity extends Activity {
     if (!Activation.isActivated(this)) { activationLocked = true; Activation.showGate(this, this::recreate); return; }
     prefs = getSharedPreferences("myraa.mobile.v1", MODE_PRIVATE);
     Proactive.schedule(this);
+    // Voice models load in the background now, so the first Live call and Voice ID check start at once.
+    VoiceModels.preload(this);
     // Update check: at most about once a day and only when allowed in Self-development. It only looks; nothing downloads or installs.
     if (Updater.dueForAutoCheck(this)) memoryNetwork.execute(() -> { JSONObject u = Updater.check(MainActivity.this); if (u.has("latest")) emit(json("type", "update", "state", u, "notify", true)); });
     CompanionMode.schedule(this);
@@ -299,6 +301,9 @@ public class MainActivity extends Activity {
     settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
     settings.setMediaPlaybackRequiresUserGesture(false);
     settings.setSupportMultipleWindows(false);
+    // The page is FRIDAY's whole screen: draw it ahead while scrolling and keep its renderer at high priority.
+    settings.setOffscreenPreRaster(true);
+    if (Build.VERSION.SDK_INT >= 26) web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, true);
     CookieManager.getInstance().setAcceptCookie(false);
     web.addJavascriptInterface(new NativeBridge(), "MyraaNative");
     web.setWebViewClient(new WebViewClient() {

@@ -14,7 +14,39 @@ import java.io.InputStream;
 final class VoiceModels {
   private static byte[] vadWeights;private static boolean vadFailed;
   private static VoiceEncoder encoder;private static boolean encoderFailed;
+  private static boolean preloadStarted;
   private VoiceModels(){}
+
+  /**
+   * Loads, on a low-priority background thread, the voice models this phone will need, so the first
+   * Live call, Voice ID check or wake phrase does not wait for them: the speech detector, the speaker
+   * model of the saved Voice ID profile, and Voice Guardian's model and wake phrase spotter when it is on.
+   * Each model also runs once on a little noise, so the first real check is as fast as the later ones.
+   * Safe to call often: it runs once per app process.
+   */
+  static void preload(Context c){
+    final Context app=c.getApplicationContext();
+    synchronized(VoiceModels.class){if(preloadStarted)return;preloadStarted=true;}
+    Thread t=new Thread(()->{
+      try{
+        android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+        long t0=android.os.SystemClock.elapsedRealtime();
+        vad(app);
+        java.util.Set<Voiceprinter> warm=new java.util.HashSet<>();
+        SpeakerProfile p=VoiceId.registered(app)?VoiceId.load(app):null;
+        if(p!=null){Voiceprinter v=voiceprinter(app,p.model);if(v!=null)warm.add(v);}
+        if(VoiceGuardian.active(app)){
+          Voiceprinter v=VoiceGuardian.hasTitaNet(app)?SherpaVoice.titanet(app):encoder(app);if(v!=null)warm.add(v);
+          SherpaVoice.spotter(app,WakeWordService.sensitivity(app));
+        }
+        float[] noise=new float[16000];java.util.Random r=new java.util.Random(7);for(int i=0;i<noise.length;i++)noise[i]=(float)(r.nextGaussian()*0.01);
+        for(Voiceprinter v:warm)try{v.embed(noise);}catch(RuntimeException ignored){}
+        ControlLog.i("voice: models ready in the background in "+(android.os.SystemClock.elapsedRealtime()-t0)+" ms");
+      }catch(Throwable e){ControlLog.i("voice: background model loading stopped ("+e.getClass().getSimpleName()+")");}
+    },"friday-voice-preload");
+    t.setDaemon(true);
+    t.start();
+  }
 
   /** A new Silero VAD for one audio stream (each stream has its own state), or null. */
   static synchronized SileroVad vad(Context c){
