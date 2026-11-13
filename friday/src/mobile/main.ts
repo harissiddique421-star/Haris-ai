@@ -424,6 +424,7 @@ app.innerHTML = `
       <div class="card"><b>Autonomy</b><small>How much FRIDAY does on her own. Messages, calls, deletes and payments always need your yes, in every mode. You can also say "assisted mode", "maximum mode", "FRIDAY pause ho jao" or "pause khatam karo".</small>
         <label>Autonomy level<select id="autonomy-level"><option value="assisted">Assisted · ask before every action</option><option value="balanced">Balanced · simple actions at once</option><option value="maximum">Maximum · low-risk steps without asking</option></select></label>
         <label class="check"><input id="autonomy-pause" type="checkbox"> Pause FRIDAY (no phone actions, no check-ins)</label>
+        <label class="check"><input id="autonomy-direct" type="checkbox"> Send WhatsApp messages I dictate without asking again (when my own sentence has the name and the words, e.g. "Ali ko WhatsApp karo ke main 5 baje aaunga")</label>
         <p id="autonomy-note" class="muted" role="status"></p></div>
       <div class="card"><b>Standing orders</b><small>Things FRIDAY does by herself when something happens. Say for example "har subah 8 baje briefing do", "jab Ali ka message aaye to mujhe batana" or "battery 20% ho to battery saver on karo". Messages, calls and payments still wait for your yes. Say "hukum list karo" or "hukum 2 hatao" to manage them.</small>
         <ul id="orders-list" class="muted"></ul>
@@ -946,6 +947,7 @@ function applyAutonomy(a: any) {
   state.autonomy = { level, paused: a.paused === true, modulesOff };
   el<HTMLSelectElement>('autonomy-level').value = level;
   el<HTMLInputElement>('autonomy-pause').checked = a.paused === true;
+  el<HTMLInputElement>('autonomy-direct').checked = a.directMessages !== false;
   el('autonomy-note').textContent = a.paused === true ? 'Paused: no phone actions, no check-ins. Say "pause khatam karo" or untick to continue.' : level === 'assisted' ? 'Assisted: FRIDAY asks before every action that changes something.' : level === 'maximum' ? 'Maximum: low-risk steps run without asking. Messages, calls, deletes and money still need your yes.' : 'Balanced: simple actions at once; messages, calls and deletes need your yes.';
 }
 const HEALTH_MARK: Record<string, string> = { ok: '●', warn: '▲', off: '○' };
@@ -1248,7 +1250,7 @@ function startAgentic(startedBy: string) {
       system?.setFrameInput({ activity: s === 'speaking' ? 'talking' : s === 'thinking' || s === 'acting' ? 'thinking' : s === 'listening' ? 'listening' : 'idle', emotion: s === 'thinking' || s === 'acting' ? 'thinking' : 'idle' } as any);
       bridge?.companion?.(s === 'stopped' ? 'idle' : s === 'speaking' ? 'speaking' : 'listening', '', 0);
     },
-    onUser: text => { orchestrator.userSpoke(); markActivity(); append('user', text); },
+    onUser: text => { orchestrator.userSpoke(); markActivity(); lastUserCaption = text; append('user', text); },
     onReply: text => { lastReply = text; append('model', text); },
     onNotice: text => notice(text),
     onIgnored: text => notice(`Not answered, it sounded meant for someone else: "${text.slice(0, 60)}". Say "FRIDAY" first if it was for me.`),
@@ -1394,6 +1396,7 @@ el('voiceid-add').onclick = () => voiceIdStart('Get ready to read four more sent
 el('voiceid-test').onclick = () => voiceIdStart('Get ready…', () => bridge?.voiceIdTest?.('owner'));
 el('voiceid-test-other').onclick = () => voiceIdStart('Hand the phone to someone else…', () => bridge?.voiceIdTest?.('other'));
 el<HTMLSelectElement>('autonomy-level').onchange = () => applyAutonomy(JSON.parse(bridge?.autonomyOptions?.(el<HTMLSelectElement>('autonomy-level').value) || 'null'));
+el<HTMLInputElement>('autonomy-direct').onchange = () => { const r = JSON.parse(bridge?.autonomyOptions?.(el<HTMLInputElement>('autonomy-direct').checked ? 'direct_on' : 'direct_off') || 'null'); applyAutonomy(r); };
 el<HTMLInputElement>('autonomy-pause').onchange = () => applyAutonomy(JSON.parse(bridge?.autonomyOptions?.(el<HTMLInputElement>('autonomy-pause').checked ? 'pause' : 'resume') || 'null'));
 el<HTMLSelectElement>('alt-kind').onchange = () => { el('alt-base-row').hidden = el<HTMLSelectElement>('alt-kind').value !== 'custom'; };
 function saveProvider(extra: Record<string, unknown> = {}) {

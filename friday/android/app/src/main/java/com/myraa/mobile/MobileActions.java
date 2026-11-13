@@ -556,6 +556,11 @@ public final class MobileActions {
       Recipient person=new Recipient(wa.name,wa.phone);
       if(!PhoneController.enabled(activity)&&PhoneController.get()==null){ControlLog.i("whatsapp message: accessibility off, opening draft");openDraft(id,person,text,"Automatic sending is off, so review it and tap Send in WhatsApp. To let FRIDAY send after you confirm, turn on FRIDAY in Android Accessibility settings.");return;}
       if(onScreen){confirmOnScreen(id,"Send WhatsApp message?","To: "+person.name+" (+"+person.phone+")\n\n"+text,()->sendNow(id,person,text));return;}
+      // The owner's own sentence named the contact and held the words: that sentence was the yes. Not when the same
+      // text was just sent (a repeat is still asked about), and never for a request the phone made by itself.
+      if(Autonomy.directMessages(activity)&&!Autonomy.level(activity).equals("assisted")&&sentAgoMs("whatsapp",person.phone,text)<0&&Autonomy.dictated(heard,person.name,recipient,text)){
+        ControlLog.i("whatsapp message: dictated by the user, sending without a second question");sendNow(id,person,text);return;
+      }
       askConfirmation(id,"whatsapp",person,text,"Send this WhatsApp message to "+person.name+" (+"+person.phone+"): \""+text+"\"?");
     });
   }
