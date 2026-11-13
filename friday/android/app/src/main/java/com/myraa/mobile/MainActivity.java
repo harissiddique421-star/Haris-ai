@@ -105,8 +105,9 @@ public class MainActivity extends Activity {
     tts = new TextToSpeech(this, status -> {
       ttsReady = status == TextToSpeech.SUCCESS;
       if (ttsReady) tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-        @Override public void onStart(String id) { SelfSpeech.started(); emit(json("type", "speech", "active", true)); }
-        @Override public void onDone(String id) { SelfSpeech.finished(); emit(json("type", "speech", "active", false)); }
+        // A reply is spoken as several sentences: the page hears "speaking" at the first and "done" only after the last.
+        @Override public void onStart(String id) { SelfSpeech.started(); if (id == null || !id.contains("#") || id.contains("#0")) emit(json("type", "speech", "active", true)); }
+        @Override public void onDone(String id) { SelfSpeech.finished(); if (id == null || !id.contains("#") || id.endsWith("#last")) emit(json("type", "speech", "active", false)); }
         @Override public void onStop(String id, boolean interrupted) { SelfSpeech.finished(); }
         @Override public void onError(String id) { SelfSpeech.finished(); emit(json("type", "speech", "active", false)); error("tts", "The installed speech engine could not speak. Text remains available.", null); }
       });
@@ -669,7 +670,9 @@ public class MainActivity extends Activity {
     @JavascriptInterface public String agentOptions(String raw) { return agentOptionsJson(raw); }
     /** The same instructions a Live call gets, for agentic mode's system message. */
     @JavascriptInterface public String agentInstruction() { try { return liveInstruction(); } catch (RuntimeException e) { return ""; } }
-    @JavascriptInterface public void stopSpeech() { if (tts != null) tts.stop(); emit(json("type", "speech", "active", false)); }
+    @JavascriptInterface public void stopSpeech() { if (tts != null) tts.stop(); if (geminiVoice != null) geminiVoice.stop(); emit(json("type", "speech", "active", false)); }
+    /** Agentic mode's spoken reply: the phone's voice (default), or Gemini's natural voice when chosen in Settings. */
+    @JavascriptInterface public void agentSpeak(String text) { agentSpeakText(text == null ? "" : text); }
     @JavascriptInterface public void clearKey() {
       cancel();
       synchronized (settingsLock) {
@@ -1079,10 +1082,19 @@ public class MainActivity extends Activity {
       int language = tts.setLanguage(Locale.forLanguageTag(prefs.getString("language", "hi-IN")));
       if ((language == TextToSpeech.LANG_MISSING_DATA || language == TextToSpeech.LANG_NOT_SUPPORTED) && prefs.getString("language", "").startsWith("ur")) language = tts.setLanguage(Locale.forLanguageTag("hi-IN"));
       if (language == TextToSpeech.LANG_MISSING_DATA || language == TextToSpeech.LANG_NOT_SUPPORTED) { error("tts", "This speech engine does not have the selected language installed.", null); return; }
-      String limited = text.substring(0, Math.min(text.length(), TextToSpeech.getMaxSpeechInputLength()));
-      if (tts.speak(limited, TextToSpeech.QUEUE_FLUSH, null, "myraa-reply") == TextToSpeech.ERROR) error("tts", "The installed speech engine could not start.", null);
+      // The same voice as before, a little clearer: an assistant audio stream, a natural pace, and the reply
+      // cleaned and spoken sentence by sentence (nothing cut off, small pauses between).
+      PhoneVoice.tune(tts);
+      List<String> parts = PhoneVoice.sentences(text, TextToSpeech.getMaxSpeechInputLength());
+      if (parts.isEmpty()) return;
+      long n = ++speechCount;
+      for (int i = 0; i < parts.size(); i++) {
+        String id = "myraa-reply-" + n + "#" + (i == parts.size() - 1 ? (i == 0 ? "0#last" : "last") : String.valueOf(i));
+        if (tts.speak(parts.get(i), i == 0 ? TextToSpeech.QUEUE_FLUSH : TextToSpeech.QUEUE_ADD, null, id) == TextToSpeech.ERROR) { error("tts", "The installed speech engine could not start.", null); return; }
+      }
     });
   }
+  private long speechCount;
 
   private SecretKey secretKey() throws Exception {
     KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
@@ -1135,6 +1147,21 @@ public class MainActivity extends Activity {
   private final ExecutorService agentExec = Executors.newSingleThreadExecutor();
   private volatile HttpsURLConnection agentConnection;
   private Ear agentEar;
+  private GeminiVoice geminiVoice;
+
+  private void agentSpeakText(String text) {
+    if (!"gemini".equals(prefs.getString("agentVoice", "phone")) || !prefs.contains("keyCipher")) { speakText(text); return; }
+    if (!foreground) return;
+    if (tts != null) tts.stop();
+    if (geminiVoice == null) geminiVoice = new GeminiVoice(this::readKey);
+    String voice = memory == null ? "Aoede" : memory.voice();
+    geminiVoice.speak(PhoneVoice.clean(text), voice, "Say this naturally, in a warm and friendly tone", new GeminiVoice.Events() {
+      @Override public void started() { SelfSpeech.started(); emit(json("type", "speech", "active", true)); }
+      @Override public void finished(boolean current) { SelfSpeech.finished(); if (current) emit(json("type", "speech", "active", false)); }
+      // Gemini could not speak (no internet, no TTS model, too slow): the phone's voice says the rest.
+      @Override public void failed(String rest, String why, boolean started) { if (started) SelfSpeech.finished(); speakText(rest); }
+    });
+  }
   /** How agentic mode hears: "voice id" (only the owner, GatedEar) or "recognizer" (AgentEar), with the reason. */
   private String agentEarKind = "", agentEarWhy = "";
 
@@ -1224,10 +1251,11 @@ public class MainActivity extends Activity {
       if (in.has("brain")) { String b = in.optString("brain"); e.putString("agentBrain", "gemini".equals(b) || "provider".equals(b) ? b : "auto"); }
       if (in.has("earLang")) e.putString("agentEarLang", AgentEar.language(in.optString("earLang")));
       if (in.has("addressee")) e.putString("agentAddressee", "all".equals(in.optString("addressee")) ? "all" : "smart");
+      if (in.has("voice")) e.putString("agentVoice", "gemini".equals(in.optString("voice")) ? "gemini" : "phone");
       e.apply();
       boolean gemini = prefs.contains("keyCipher");
       return json("engine", prefs.getString("voiceEngine", "live"), "brain", prefs.getString("agentBrain", "auto"), "earLang", prefs.getString("agentEarLang", "en-IN"),
-        "addressee", prefs.getString("agentAddressee", "smart"), "geminiReady", gemini, "providerReady", altReady(),
+        "addressee", prefs.getString("agentAddressee", "smart"), "voice", prefs.getString("agentVoice", "phone"), "geminiReady", gemini, "providerReady", altReady(),
         "provider", altReady() ? TextProviders.label(altKind()) + " (" + altModelLabel() + ")" : "", "brainLabel", agentPlan().isEmpty() ? "none" : agentPlan().get(0)[4],
         "recognizer", android.speech.SpeechRecognizer.isRecognitionAvailable(this),
         "voiceId", VoiceId.active(this) && gemini ? "on" : !VoiceId.wanted(this) ? "off" : !VoiceId.registered(this) ? "not registered" : "no Gemini key").toString();
@@ -1523,6 +1551,7 @@ public class MainActivity extends Activity {
     settingsNetwork.shutdownNow();
     generation.incrementAndGet(); if (activeConnection != null) activeConnection.disconnect(); network.shutdownNow();
     if (tts != null) { tts.stop(); tts.shutdown(); }
+    if (geminiVoice != null) geminiVoice.shutdown();
     if (web != null) { web.removeJavascriptInterface("MyraaNative"); web.destroy(); web = null; }
     super.onDestroy();
   }
