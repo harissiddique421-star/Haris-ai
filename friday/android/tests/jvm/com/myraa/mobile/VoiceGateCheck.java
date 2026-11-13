@@ -13,7 +13,7 @@ import static com.myraa.mobile.SpeechSegmenterCheck.*;
  * args: models dir, fixtures dir. Run with scripts/test-voice-models.sh.
  */
 public final class VoiceGateCheck {
-  static int failures;static VoiceEncoder enc;static File models,fx;
+  static int failures;static Voiceprinter enc;static File models,fx;
   public static void main(String[] a) throws Exception {
     models=new File(a[0]);fx=new File(a[1]);
     try(InputStream in=new FileInputStream(new File(models,VoiceEncoder.ASSET))){enc=new VoiceEncoder(in);}

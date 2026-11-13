@@ -18,6 +18,11 @@ if [ ! -s "$PUB" ]; then echo "Missing $PUB. The owner must run 'node scripts/fr
 cp "$PUB" "$ASSETS/activation_public_key.txt"
 # On-device voice models (Silero VAD, MIT; GE2E speaker encoder from Resemblyzer, Apache-2.0). See android/models/README.md.
 for m in silero_vad_16k.safetensors voice_encoder.safetensors; do [ -s "android/models/$m" ] || { echo "Missing android/models/$m" >&2; exit 1; }; cp "android/models/$m" "$ASSETS/$m"; done
+# sherpa-onnx engines (TitaNet voiceprint, wake phrase keyword spotting) with their native library, checked
+# against pinned hashes. FRIDAY falls back to the models above on phones where they cannot run. See SherpaVoice.java.
+SHERPA=android/app/build/sherpa; rm -rf "$SHERPA" "$ASSETS/sherpa"
+./scripts/fetch-sherpa.sh android "$SHERPA"
+cp -r "$SHERPA/assets/sherpa" "$ASSETS/sherpa"
 OUT=android/app/build/ci; rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/res/drawable"
 javac -encoding UTF-8 -source 8 -target 8 -classpath "$JAR" -d "$OUT/classes" $(find android/app/src/main/java -name '*.java')
 (cd "$OUT/classes" && jar --create --file ../classes.jar .)
@@ -27,6 +32,7 @@ cp "$ICON" "$OUT/res/drawable/myraa_icon.png"; cp -r android/app/src/main/res/* 
 "$BT/aapt2" compile --dir "$OUT/res" -o "$OUT/resources.zip"
 "$BT/aapt2" link --manifest android/app/src/main/AndroidManifest.xml -I "$JAR" -A "$ASSETS" --min-sdk-version 26 --target-sdk-version 35 -o "$OUT/unsigned.apk" "$OUT/resources.zip"
 (cd "$OUT/dex" && zip -q ../unsigned.apk classes*.dex)
+(cd "$SHERPA" && zip -q -r "$OLDPWD/$OUT/unsigned.apk" lib)
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 KS=android/local-debug.keystore
 if [ ! -f "$KS" ]; then

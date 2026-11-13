@@ -35,6 +35,26 @@ final class SpeakerProfile {
   static final double OUTLIER_GAP=0.10;
   static final int MAX_IMPOSTORS=12;
 
+  /**
+   * The numbers above are for GE2E. Each speaker model scores on its own scale, so each has its own
+   * bounds. TitaNet (see TitaNet) was measured on FRIDAY's Voice ID test recordings with this file's
+   * protocol in SherpaCheck: its owner scores sit lower than GE2E's but far above other voices.
+   */
+  static final class Calib {
+    final double minThreshold,maxThreshold,maxWithImpostors,minConsistency,outlierGap,impostorStep,strict,balanced,relaxed;
+    Calib(double minT,double maxT,double maxImp,double minCons,double gap,double step,double strict,double balanced,double relaxed){
+      minThreshold=minT;maxThreshold=maxT;maxWithImpostors=maxImp;minConsistency=minCons;outlierGap=gap;impostorStep=step;this.strict=strict;this.balanced=balanced;this.relaxed=relaxed;
+    }
+    double margin(String sensitivity){return "strict".equals(sensitivity)?strict:"relaxed".equals(sensitivity)?relaxed:balanced;}
+  }
+  static final Calib CALIB_GE2E=new Calib(MIN_THRESHOLD,MAX_THRESHOLD,MAX_WITH_IMPOSTORS,MIN_CONSISTENCY,OUTLIER_GAP,0.04,0.06,0.10,0.13);
+  static final Calib CALIB_TITANET=new Calib(0.45,0.60,0.70,0.45,0.15,0.08,0.10,0.15,0.20);
+  static Calib calib(String model){return Voiceprinter.TITANET.equals(model)?CALIB_TITANET:CALIB_GE2E;}
+
+  /** The speaker model that made this profile (VoiceEncoder.MODEL or Voiceprinter.TITANET). */
+  final String model;
+  final Calib calib;
+
   final float[] print;
   final double[] genuine;
   final List<Double> impostor;
@@ -49,15 +69,15 @@ final class SpeakerProfile {
   final int dropped;
 
   SpeakerProfile(float[] print,double[] genuine,List<Double> impostor,long created){
-    this(print,genuine,impostor,created,new ArrayList<float[]>(),new ArrayList<float[]>(),new ArrayList<float[]>(),0);
+    this(VoiceEncoder.MODEL,print,genuine,impostor,created,new ArrayList<float[]>(),new ArrayList<float[]>(),new ArrayList<float[]>(),0);
   }
-  SpeakerProfile(float[] print,double[] genuine,List<Double> impostor,long created,List<float[]> samples,List<float[]> shortSamples,List<float[]> echoSamples,int dropped){
-    this.print=print;this.genuine=genuine;this.impostor=new ArrayList<>(impostor);this.created=created;
+  SpeakerProfile(String model,float[] print,double[] genuine,List<Double> impostor,long created,List<float[]> samples,List<float[]> shortSamples,List<float[]> echoSamples,int dropped){
+    this.model=model;this.calib=calib(model);this.print=print;this.genuine=genuine;this.impostor=new ArrayList<>(impostor);this.created=created;
     this.samples=new ArrayList<>(samples);this.shortSamples=new ArrayList<>(shortSamples);this.echoSamples=new ArrayList<>(echoSamples);this.dropped=dropped;
   }
 
   /** Sensitivity: strict = fewer strangers accepted, relaxed = fewer of your own commands missed. */
-  static double margin(String sensitivity){return "strict".equals(sensitivity)?0.06:"relaxed".equals(sensitivity)?0.13:0.10;}
+  static double margin(String sensitivity){return CALIB_GE2E.margin(sensitivity);}
   static String sensitivity(String s){return "strict".equals(s)||"relaxed".equals(s)?s:"balanced";}
 
   double meanGenuine(){double s=0;for(double g:genuine)s+=g;return genuine.length==0?0:s/genuine.length;}
@@ -67,9 +87,10 @@ final class SpeakerProfile {
 
   /** Lowest similarity accepted as the owner. */
   double threshold(String sensitivity){
-    double t=Math.max(MIN_THRESHOLD,Math.min(MAX_THRESHOLD,meanGenuine()-margin(sensitivity)));
+    Calib k=calib;
+    double t=Math.max(k.minThreshold,Math.min(k.maxThreshold,meanGenuine()-k.margin(sensitivity)));
     // Someone else scored this high on this phone: stay above them (a little, but not without limit).
-    if(!impostor.isEmpty())t=Math.max(t,Math.min(MAX_WITH_IMPOSTORS,maxImpostor()+0.04));
+    if(!impostor.isEmpty())t=Math.max(t,Math.min(k.maxWithImpostors,maxImpostor()+k.impostorStep));
     return t;
   }
 
@@ -86,7 +107,7 @@ final class SpeakerProfile {
   SpeakerProfile withImpostor(double score){
     List<Double> list=new ArrayList<>(impostor);list.add(score);
     while(list.size()>MAX_IMPOSTORS)list.remove(0);
-    return new SpeakerProfile(print,genuine,list,created,samples,shortSamples,echoSamples,dropped);
+    return new SpeakerProfile(model,print,genuine,list,created,samples,shortSamples,echoSamples,dropped);
   }
 
   /** Most recordings a profile keeps (adding more drops the oldest). */
@@ -97,11 +118,12 @@ final class SpeakerProfile {
     List<float[]> f=new ArrayList<>(samples),sh=new ArrayList<>(shortSamples),e=new ArrayList<>(echoSamples);
     f.addAll(full);sh.addAll(shortPrints);e.addAll(echo);
     while(f.size()>MAX_SAMPLES){f.remove(0);sh.remove(0);e.remove(0);}
-    SpeakerProfile p=build(f,sh,e,now);
-    return new SpeakerProfile(p.print,p.genuine,impostor,p.created,p.samples,p.shortSamples,p.echoSamples,p.dropped);
+    SpeakerProfile p=build(model,f,sh,e,now);
+    return new SpeakerProfile(model,p.print,p.genuine,impostor,p.created,p.samples,p.shortSamples,p.echoSamples,p.dropped);
   }
 
   static SpeakerProfile build(List<float[]> full,List<float[]> shortPrints,long now){return build(full,shortPrints,new ArrayList<float[]>(),now);}
+  static SpeakerProfile build(List<float[]> full,List<float[]> shortPrints,List<float[]> echo,long now){return build(VoiceEncoder.MODEL,full,shortPrints,echo,now);}
 
   /**
    * Builds the profile from each recording's voiceprint over the whole sentence (full), over its
@@ -113,7 +135,8 @@ final class SpeakerProfile {
    * out, as long as at least three quarters of them (and four) remain. Throws IllegalArgumentException
    * with a message for the user when the recordings cannot make a reliable profile.
    */
-  static SpeakerProfile build(List<float[]> full,List<float[]> shortPrints,List<float[]> echo,long now){
+  static SpeakerProfile build(String model,List<float[]> full,List<float[]> shortPrints,List<float[]> echo,long now){
+    Calib cal=calib(model);
     int n=full.size();
     if(n<4||shortPrints.size()!=n)throw new IllegalArgumentException("I need at least four clear sentences.");
     boolean withEcho=!echo.isEmpty();
@@ -125,7 +148,7 @@ final class SpeakerProfile {
       for(int k=0;k<kept.size();k++){int i=kept.get(k);c[k]=VoiceEncoder.cosine(full.get(i),others(sum,full,echo,i));if(c[k]<worst){worst=c[k];worstAt=i;}}
       double[] sorted=c.clone();Arrays.sort(sorted);double median=sorted[sorted.length/2];
       // An outlier: far from the others in absolute terms, or clearly below how well the rest agree.
-      if(worst>=MIN_CONSISTENCY&&worst>=median-OUTLIER_GAP)break;
+      if(worst>=cal.minConsistency&&worst>=median-cal.outlierGap)break;
       if(kept.size()<=minKeep)throw new IllegalArgumentException("Your sentences didn't sound like the same voice. Record again alone, in a quiet place.");
       kept.remove(Integer.valueOf(worstAt));
     }
@@ -137,10 +160,10 @@ final class SpeakerProfile {
       genuine[k]=VoiceEncoder.cosine(shortPrints.get(i),others(sum,full,echo,i));
       f.add(full.get(i));sh.add(shortPrints.get(i));if(withEcho)e.add(echo.get(i));
     }
-    return new SpeakerProfile(VoiceEncoder.normalize(sum),genuine,new ArrayList<Double>(),now,withEcho?f:new ArrayList<float[]>(),withEcho?sh:new ArrayList<float[]>(),e,n-kept.size());
+    return new SpeakerProfile(model,VoiceEncoder.normalize(sum),genuine,new ArrayList<Double>(),now,withEcho?f:new ArrayList<float[]>(),withEcho?sh:new ArrayList<float[]>(),e,n-kept.size());
   }
   private static float[] sum(List<float[]> full,List<float[]> echo,List<Integer> kept){
-    float[] s=new float[VoiceEncoder.DIM];
+    float[] s=new float[full.get(kept.get(0)).length];
     for(int i:kept){add(s,full.get(i),1);if(!echo.isEmpty())add(s,echo.get(i),1);}
     return s;
   }
@@ -168,32 +191,39 @@ final class SpeakerProfile {
   }
 
   String summary(String sensitivity){
-    return String.format(Locale.ROOT,"%d sentences%s, your score %.2f, needs %.2f%s",genuine.length,dropped>0?" ("+dropped+" unclear left out)":"",meanGenuine(),threshold(sensitivity),
+    return String.format(Locale.ROOT,"%s: %d sentences%s, your score %.2f, needs %.2f%s",engine(),genuine.length,dropped>0?" ("+dropped+" unclear left out)":"",meanGenuine(),threshold(sensitivity),
       impostor.isEmpty()?"":String.format(Locale.ROOT,", %d other voice%s (highest %.2f)",impostor.size(),impostor.size()==1?"":"s",maxImpostor()));
   }
+
+  /** The voice engine's name for Settings. */
+  String engine(){return Voiceprinter.TITANET.equals(model)?"TitaNet voice engine":"Basic voice engine";}
+  /** Voiceprint length each model makes. */
+  static int dim(String model){return Voiceprinter.TITANET.equals(model)?192:VoiceEncoder.DIM;}
 
   JSONObject toJson() throws JSONException {
     JSONArray i=new JSONArray();for(double x:impostor)i.put(x);
     JSONArray g=new JSONArray();for(double x:genuine)g.put(x);
-    return new JSONObject().put("version",samples.isEmpty()?1:2).put("model","ge2e-resemblyzer").put("print",vec(print)).put("genuine",g).put("impostor",i).put("created",created)
+    return new JSONObject().put("version",samples.isEmpty()?1:2).put("model",model).put("print",vec(print)).put("genuine",g).put("impostor",i).put("created",created)
       .put("dropped",dropped).put("samples",vecs(samples)).put("short",vecs(shortSamples)).put("echo",vecs(echoSamples));
   }
   private static JSONArray vec(float[] v) throws JSONException {JSONArray a=new JSONArray();for(float x:v)a.put(Math.round(x*1e5)/1e5);return a;}
   private static JSONArray vecs(List<float[]> l) throws JSONException {JSONArray a=new JSONArray();for(float[] v:l)a.put(vec(v));return a;}
-  private static float[] readVec(JSONArray p) throws JSONException {
-    if(p.length()!=VoiceEncoder.DIM)throw new JSONException("bad voiceprint");
+  private static float[] readVec(JSONArray p,int dim) throws JSONException {
+    if(p.length()!=dim)throw new JSONException("bad voiceprint");
     float[] v=new float[p.length()];for(int k=0;k<v.length;k++)v[k]=(float)p.getDouble(k);return v;
   }
-  private static List<float[]> readVecs(JSONArray a) throws JSONException {List<float[]> l=new ArrayList<>();if(a!=null)for(int k=0;k<a.length();k++)l.add(readVec(a.getJSONArray(k)));return l;}
+  private static List<float[]> readVecs(JSONArray a,int dim) throws JSONException {List<float[]> l=new ArrayList<>();if(a!=null)for(int k=0;k<a.length();k++)l.add(readVec(a.getJSONArray(k),dim));return l;}
   static SpeakerProfile fromJson(JSONObject o) throws JSONException {
-    int version=o.optInt("version");
-    if((version!=1&&version!=2)||!"ge2e-resemblyzer".equals(o.optString("model")))throw new JSONException("unknown voice profile");
-    float[] print=readVec(o.getJSONArray("print"));
+    int version=o.optInt("version");String model=o.optString("model");
+    if((version!=1&&version!=2)||!(VoiceEncoder.MODEL.equals(model)||Voiceprinter.TITANET.equals(model)))throw new JSONException("unknown voice profile");
+    int dim=dim(model);
+    float[] print=readVec(o.getJSONArray("print"),dim);
     JSONArray g=o.getJSONArray("genuine");double[] genuine=new double[g.length()];for(int k=0;k<genuine.length;k++)genuine[k]=g.getDouble(k);
     JSONArray i=o.optJSONArray("impostor");List<Double> imp=new ArrayList<>();if(i!=null)for(int k=0;k<i.length();k++)imp.add(i.getDouble(k));
-    List<float[]> f=readVecs(o.optJSONArray("samples")),sh=readVecs(o.optJSONArray("short")),e=readVecs(o.optJSONArray("echo"));
+    List<float[]> f=readVecs(o.optJSONArray("samples"),dim),sh=readVecs(o.optJSONArray("short"),dim),e=readVecs(o.optJSONArray("echo"),dim);
     if(f.size()!=sh.size()||(!e.isEmpty()&&e.size()!=f.size()))throw new JSONException("bad samples");
-    return new SpeakerProfile(print,genuine,imp,o.optLong("created"),f,sh,e,o.optInt("dropped"));
+    return new SpeakerProfile(model,print,genuine,imp,o.optLong("created"),f,sh,e,o.optInt("dropped"));
   }
+
   @Override public String toString(){return "SpeakerProfile"+Arrays.toString(genuine);}
 }

@@ -19,8 +19,10 @@ import java.util.List;
  * 1.3 times per second, a 3-layer LSTM (256), a linear layer with ReLU, L2 normalisation, and
  * the normalised mean of the partial embeddings. Audio is first raised to -30 dBFS when quieter.
  */
-final class VoiceEncoder {
+final class VoiceEncoder implements Voiceprinter {
   static final int RATE=16000,DIM=256;
+  static final String MODEL=Voiceprinter.GE2E;
+  @Override public String model(){return MODEL;}
   static final String ASSET="voice_encoder.safetensors";
   private static final int NFFT=400,HOP=160,MELS=40,PARTIAL=160,HID=256,LAYERS=3;
   private static final double RATE_PER_SEC=1.3,MIN_COVERAGE=0.75,TARGET_DBFS=-30;
@@ -48,7 +50,7 @@ final class VoiceEncoder {
   }
 
   /** Voiceprint of 16 kHz mono speech (floats in -1..1), L2-normalised. Null when there is too little audio. */
-  float[] embed(float[] wav){
+  @Override public float[] embed(float[] wav){
     if(wav==null||wav.length<RATE/4)return null;
     wav=normalizeVolume(wav);
     // Partial windows, as in Resemblyzer's compute_partial_slices.

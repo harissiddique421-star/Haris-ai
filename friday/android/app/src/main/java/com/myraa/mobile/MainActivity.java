@@ -259,7 +259,7 @@ public class MainActivity extends Activity {
     return json("on",WakeWordService.wanted(this),"running",WakeWordService.running,"available",android.speech.SpeechRecognizer.isRecognitionAvailable(this)||VoiceGuardian.active(this),
       "locked",WakeWordService.whenLocked(this),"voiceUnlock",WakeWordService.voiceUnlock(this),"guardian",VoiceGuardian.wanted(this),"enrolled",VoiceGuardian.enrolled(this),"recording",VoiceGuardian.recording,"fullScreen",fullScreen||Settings.canDrawOverlays(this),
       "status",WakeWordService.status(this),"sensitivity",WakeWordService.sensitivity(this),"nameOnly",WakeWordService.nameOnly(this),"openFromBackground",Settings.canDrawOverlays(this),
-      "voiceprint",VoiceGuardian.hasVoiceprint(this),"silenceMs",VoiceGuardian.silenceMs(this));
+      "voiceprint",VoiceGuardian.hasVoiceprint(this),"betterEngine",VoiceGuardian.enrolled(this)&&!VoiceGuardian.hasTitaNet(this)&&SherpaVoice.present(this),"silenceMs",VoiceGuardian.silenceMs(this));
   }
   private final Object voiceGateLock = new Object();
   private VoiceGateSession voiceGate;
