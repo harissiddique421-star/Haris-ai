@@ -1134,16 +1134,32 @@ public class MainActivity extends Activity {
   private final java.util.concurrent.atomic.AtomicInteger agentGeneration = new java.util.concurrent.atomic.AtomicInteger();
   private final ExecutorService agentExec = Executors.newSingleThreadExecutor();
   private volatile HttpsURLConnection agentConnection;
-  private AgentEar agentEar;
+  private Ear agentEar;
+  /** How agentic mode hears: "voice id" (only the owner, GatedEar) or "recognizer" (AgentEar), with the reason. */
+  private String agentEarKind = "", agentEarWhy = "";
 
   private String agentEarCommand(String command, String lang) {
     if ("start".equals(command)) {
       if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { runOnUiThread(() -> requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST)); return "Allow the microphone, then start again."; }
-      if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) return "No speech recognizer is installed on this phone. Install or update the Google app.";
-      if (agentEar == null) agentEar = new AgentEar(this, (kind, text, code) -> emit(json("type", "agent-ear", "kind", kind, "text", text, "code", code)));
+      AgentEar.Listener listener = (kind, text, code) -> emit(json("type", "agent-ear", "kind", kind, "text", text, "code", code));
+      String language = lang == null || lang.isEmpty() ? prefs.getString("agentEarLang", "en-IN") : lang;
+      if (agentEar instanceof GatedEar) ((GatedEar) agentEar).shutdown(); else if (agentEar != null) agentEar.stop();
+      // Voice ID registered and on, and a Gemini key to turn the owner's audio into text: only the owner is heard.
+      String[] why = {""};
+      java.util.function.Supplier<VoiceGate> gates = prefs.contains("keyCipher") ? VoiceId.gates(this, why) : null;
+      if (!prefs.contains("keyCipher") && VoiceId.active(this)) why[0] = "no Gemini key";
       WakeWordService.livePaused(this, true);
-      agentEar.start(lang == null || lang.isEmpty() ? prefs.getString("agentEarLang", "en-IN") : lang);
-      ControlLog.i("agentic: listening (" + AgentEar.language(prefs.getString("agentEarLang", "en-IN")) + ")");
+      if (gates != null) {
+        if (agentEar instanceof GatedEar) ((GatedEar) agentEar).shutdown();
+        agentEar = new GatedEar(gates, this::transcribeSpeech, listener);
+        agentEarKind = "voice id"; agentEarWhy = "";
+      } else {
+        if (!android.speech.SpeechRecognizer.isRecognitionAvailable(this)) { WakeWordService.livePaused(this, false); return "No speech recognizer is installed on this phone. Install or update the Google app."; }
+        if (!(agentEar instanceof AgentEar)) agentEar = new AgentEar(this, listener);
+        agentEarKind = "recognizer"; agentEarWhy = why[0];
+      }
+      agentEar.start(language);
+      ControlLog.i("agentic: listening (" + AgentEar.language(language) + ", " + agentEarKind + (agentEarWhy.isEmpty() ? "" : ", Voice ID " + agentEarWhy) + ")");
       return "ok";
     }
     if (agentEar == null) return "ok";
@@ -1151,6 +1167,53 @@ public class MainActivity extends Activity {
     else if ("pause".equals(command)) agentEar.pause(true);
     else if ("resume".equals(command)) agentEar.pause(false);
     return "ok";
+  }
+
+  /**
+   * Agentic mode with Voice ID: the owner's verified speech (WAV, other voices already removed) to text with
+   * Gemini. Fast models first; a missing model moves on to the next one. Throws when none answered.
+   */
+  private String transcribeSpeech(byte[] wav, String language) throws Exception {
+    String key = readKey();
+    if (key.isEmpty()) throw new IllegalStateException("no key");
+    String script = "hi-IN".equals(language) ? "Write Hindi in Devanagari." : "ur-PK".equals(language) ? "Write Urdu in Urdu script." : "en-US".equals(language) ? "Write English." : "Write Urdu and Hindi in Roman letters (Latin script, as people type in Pakistan and India), and English words in English.";
+    String instruction = "You turn one person's speech into text for a voice assistant. Write exactly the words spoken, nothing else: no quotes, no labels, no translation, no answer to what was said. " + script + " If there are no clear words, reply NONE.";
+    String own = prefs.getString("model", "");
+    List<String> models = new ArrayList<>(java.util.Arrays.asList("gemini-flash-lite-latest", "gemini-flash-latest"));
+    if (own.matches("[A-Za-z0-9._-]{1,100}") && !models.contains(own) && !own.contains("live") && !own.contains("audio")) models.add(own);
+    Exception last = null;
+    for (String model : models) {
+      HttpsURLConnection connection = null;
+      try {
+        JSONObject request = json("systemInstruction", json("parts", new JSONArray().put(json("text", instruction))),
+          "contents", new JSONArray().put(json("role", "user", "parts", new JSONArray()
+            .put(json("inline_data", json("mime_type", "audio/wav", "data", Base64.encodeToString(wav, Base64.NO_WRAP))))
+            .put(json("text", "Transcribe.")))),
+          "generationConfig", json("temperature", 0, "maxOutputTokens", 600));
+        connection = (HttpsURLConnection) new URL("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent").openConnection();
+        connection.setInstanceFollowRedirects(false); connection.setRequestMethod("POST");
+        connection.setConnectTimeout(10000); connection.setReadTimeout(20000); connection.setDoOutput(true);
+        connection.setRequestProperty("Content-Type", "application/json"); connection.setRequestProperty("x-goog-api-key", key);
+        try (OutputStream out = connection.getOutputStream()) { out.write(request.toString().getBytes(StandardCharsets.UTF_8)); }
+        int status = connection.getResponseCode();
+        if (status / 100 != 2) { String body = connection.getErrorStream() == null ? "" : new String(readLimited(connection.getErrorStream(), 65536), StandardCharsets.UTF_8); throw GeminiAccess.failure(status, body); }
+        JSONObject result = new JSONObject(new String(readLimited(connection.getInputStream(), 256 * 1024), StandardCharsets.UTF_8));
+        JSONArray candidates = result.optJSONArray("candidates");
+        if (candidates == null || candidates.length() == 0) return "";
+        JSONArray parts = candidates.getJSONObject(0).optJSONObject("content") == null ? null : candidates.getJSONObject(0).getJSONObject("content").optJSONArray("parts");
+        StringBuilder b = new StringBuilder();
+        if (parts != null) for (int i = 0; i < parts.length(); i++) if (!parts.getJSONObject(i).optBoolean("thought", false)) b.append(parts.getJSONObject(i).optString("text", ""));
+        return b.toString();
+      } catch (GeminiAccess.Failure f) {
+        last = f;
+        // A wrong or blocked key will not work with any model.
+        if (f.code.startsWith("API_KEY") || f.code.startsWith("ACCOUNT") || f.code.startsWith("CONSUMER") || f.code.equals("SERVICE_DISABLED")) throw f;
+        ControlLog.i("agentic: speech to text with " + model + " failed (" + f.code + " " + f.status + "), trying the next model");
+      } catch (java.net.UnknownHostException e) { throw e; }
+      catch (Exception e) { last = e; ControlLog.i("agentic: speech to text with " + model + " failed (" + e.getClass().getSimpleName() + ")"); }
+      finally { if (connection != null) connection.disconnect(); }
+    }
+    throw last == null ? new IllegalStateException("no model") : last;
   }
 
   private String agentOptionsJson(String raw) {
@@ -1166,7 +1229,8 @@ public class MainActivity extends Activity {
       return json("engine", prefs.getString("voiceEngine", "live"), "brain", prefs.getString("agentBrain", "auto"), "earLang", prefs.getString("agentEarLang", "en-IN"),
         "addressee", prefs.getString("agentAddressee", "smart"), "geminiReady", gemini, "providerReady", altReady(),
         "provider", altReady() ? TextProviders.label(altKind()) + " (" + altModelLabel() + ")" : "", "brainLabel", agentPlan().isEmpty() ? "none" : agentPlan().get(0)[4],
-        "recognizer", android.speech.SpeechRecognizer.isRecognitionAvailable(this)).toString();
+        "recognizer", android.speech.SpeechRecognizer.isRecognitionAvailable(this),
+        "voiceId", VoiceId.active(this) && gemini ? "on" : !VoiceId.wanted(this) ? "off" : !VoiceId.registered(this) ? "not registered" : "no Gemini key").toString();
     } catch (Exception ex) { return json("error", "Settings could not be saved.").toString(); }
   }
 
@@ -1449,7 +1513,7 @@ public class MainActivity extends Activity {
   }
   @Override protected void onStop(){super.onStop();if(activationLocked)return;FridayPattern.lock();if(!allowBackgroundLive&&pendingLiveId==null){cancelLive();if(web!=null)web.evaluateJavascript("window.dispatchEvent(new CustomEvent('myraa:lifecycle',{detail:{active:false}}))",null);}}
   @Override protected void onDestroy() {
-    if (agentEar != null) agentEar.stop();
+    if (agentEar instanceof GatedEar) ((GatedEar) agentEar).shutdown(); else if (agentEar != null) agentEar.stop();
     agentExec.shutdownNow();
     if(activationLocked){super.onDestroy();return;}
     pendingUiAction=null;if(mobileActions!=null)mobileActions.close();try{unregisterReceiver(stopLiveReceiver);}catch(IllegalArgumentException ignored){}

@@ -957,6 +957,9 @@ window.MyraaEvents = event => {
   if (event.type === 'agent-ear') {
     if (!agentSession) return;
     if (event.kind === 'partial') { el('presence').textContent = `Sun rahi hoon: ${String(event.text || '').slice(-70)}`; }
+    // Voice ID ear: another voice was left out, or FRIDAY was not sure it was the owner (nothing is acted on).
+    if (event.kind === 'ignored') { el('presence').textContent = 'Kisi aur ki awaz thi, ignore kar di.'; return; }
+    if (event.kind === 'unclear') { el('presence').textContent = event.code === 1 ? 'Awaz text mein nahi badal saki (internet?). Dobara boliye.' : 'Yaqeen nahi hua ke aap thay. Thoda qareeb ho kar dobara boliye.'; return; }
     if (event.kind === 'error') { notice(String(event.text || 'The microphone stopped.')); const a = agentSession; agentSession = null; a.stop(); return; }
     agentSession.heard(String(event.kind), String(event.text || '')); return;
   }
@@ -1302,7 +1305,7 @@ function renderAgent(raw = '') {
   el<HTMLSelectElement>('agent-brain').value = o.brain || 'auto';
   el<HTMLSelectElement>('agent-ear').value = o.earLang || 'en-IN';
   el<HTMLSelectElement>('agent-addressee').value = o.addressee || 'smart';
-  el('agent-note').textContent = o.engine !== 'agentic' ? 'Talk button starts Gemini Live.' : !o.geminiReady && !o.providerReady ? 'Add a Gemini key or an AI provider key first.' : !o.recognizer ? 'This phone has no speech recognizer: install or update the Google app.' : `Talk button starts agentic mode. Brain now: ${o.brainLabel}${o.provider && o.brain !== 'gemini' ? '' : ''}. A model slower than 30 seconds is skipped for the next one.`;
+  el('agent-note').textContent = o.engine !== 'agentic' ? 'Talk button starts Gemini Live.' : !o.geminiReady && !o.providerReady ? 'Add a Gemini key or an AI provider key first.' : !o.recognizer && o.voiceId !== 'on' ? 'This phone has no speech recognizer: install or update the Google app.' : `Talk button starts agentic mode. Brain now: ${o.brainLabel}. A model slower than 30 seconds is skipped for the next one. ${o.voiceId === 'on' ? 'Voice ID is on: only your voice is heard; Gemini turns it into text.' : o.voiceId === 'not registered' ? 'Register Voice ID (below) so FRIDAY hears only your voice.' : o.voiceId === 'no Gemini key' ? 'Voice ID needs a Gemini key here (to turn your voice into text); until then every voice is heard.' : 'Voice ID is off: every voice is heard.'}`;
 }
 for (const [id, key] of [['agent-engine', 'engine'], ['agent-brain', 'brain'], ['agent-ear', 'earLang'], ['agent-addressee', 'addressee']] as const) {
   el<HTMLSelectElement>(id).onchange = () => renderAgent(JSON.stringify({ [key]: el<HTMLSelectElement>(id).value }));

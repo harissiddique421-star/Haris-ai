@@ -265,6 +265,17 @@ final class VoiceId {
 
   // ---- the Live call gate
   /** A gate for one Live call, or null with the reason in why[0] when Voice ID is off or cannot run. */
+  /** New gates for agentic mode's ear (one per listening stretch), or null with the reason in why[0]. */
+  static java.util.function.Supplier<VoiceGate> gates(Context c,String[] why){
+    if(!wanted(c)){why[0]="off";return null;}
+    if(!registered(c)){why[0]="not registered";return null;}
+    SpeakerProfile prof=load(c);if(prof==null){why[0]="profile unreadable: register again";return null;}
+    SileroVad vad=VoiceModels.vad(c);Voiceprinter enc=VoiceModels.voiceprinter(c,prof.model);
+    if(vad==null||enc==null){why[0]="voice models unavailable";return null;}
+    double t=prof.threshold(sensitivity(c));int end=endMs(c);
+    ControlLog.i(String.format(Locale.ROOT,"voice id: agentic ear gated (%s, needs %.2f, %s)",prof.model,t,sensitivity(c)));
+    why[0]="on";return ()->{vad.reset();return new VoiceGate(vad,wav->prof.score(enc.embed(wav)),t,end);};
+  }
   static VoiceGateSession startGate(Context c,String[] why){
     if(!wanted(c)){why[0]="off";return null;}
     if(!registered(c)){why[0]="not registered";return null;}
