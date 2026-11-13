@@ -127,6 +127,7 @@ public class MainActivity extends Activity {
     if(Build.VERSION.SDK_INT>=33)registerReceiver(stopLiveReceiver,liveFilter(),Context.RECEIVER_NOT_EXPORTED);
     else registerReceiver(stopLiveReceiver,liveFilter());
     pendingWake=WakeWordService.WAKE.equals(getIntent()==null?null:getIntent().getAction());wakeWindow(getIntent());
+    takeOrder(getIntent());
     createWebView();
     sharedVoiceNote(getIntent());
   }
@@ -135,7 +136,16 @@ public class MainActivity extends Activity {
     if(activationLocked)return;
     if(WakeWordService.WAKE.equals(intent.getAction())){pendingWake=true;wakeWindow(intent);}
     if(CompanionMode.OPEN.equals(intent.getAction())){pendingCheckin=true;emit(json("type","companion-checkin"));}
+    if(takeOrder(intent))emit(json("type","order"));
     sharedVoiceNote(intent);
+  }
+  /** A standing order that fired with kind "do" (see Orders): the page runs it once it is ready. */
+  private volatile String pendingOrder;
+  private boolean takeOrder(Intent intent){
+    if(intent==null||!Orders.OPEN.equals(intent.getAction()))return false;
+    pendingOrder=Orders.prompt(intent.getStringExtra("order"),intent.getStringExtra("event"),intent.getStringExtra("task"));
+    intent.setAction(null);
+    return true;
   }
 
   // ---- WhatsApp voice notes shared to FRIDAY (see VoiceNotes)
@@ -749,6 +759,9 @@ public class MainActivity extends Activity {
     }
     /** True once after the user tapped the companion check-in: the page then starts the conversation. */
     @JavascriptInterface public boolean consumeCheckin() { boolean v = pendingCheckin; pendingCheckin = false; return v; }
+    @JavascriptInterface public String consumeOrder() { if (keyguardLocked()) return ""; String o = pendingOrder; pendingOrder = null; return o == null ? "" : o; }
+    @JavascriptInterface public String ordersList() { return Orders.list(MainActivity.this).toString(); }
+    @JavascriptInterface public String ordersDelete(String id) { try { return Orders.delete(MainActivity.this, new JSONObject().put("id", Long.parseLong(id))).toString(); } catch (Exception e) { return "{}"; } }
     @JavascriptInterface public boolean consumeWake() { if (keyguardLocked()) return false; boolean w = pendingWake; pendingWake = false; return w; }
     @JavascriptInterface public void guardianRecord() { runOnUiThread(() -> {
       if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) { requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, WAKE_MIC_REQUEST); guardianEvent("error", 0, "Allow the microphone, then tap Record my voice again."); return; }

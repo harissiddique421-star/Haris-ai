@@ -21,7 +21,7 @@ import { qualityProfile, withQuality } from '../character/core/quality';
 import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 
-interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; moduleOptions?(module: string, on: boolean): string; activityHistory?(): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; agentStep?(id: string, json: string): void; agentCancel?(): void; agentEar?(command: string, lang: string): string; agentOptions?(json: string): string; agentInstruction?(): string; agentSpeak?(text: string): void; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; moduleOptions?(module: string, on: boolean): string; activityHistory?(): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; agentStep?(id: string, json: string): void; agentCancel?(): void; agentEar?(command: string, lang: string): string; agentOptions?(json: string): string; agentInstruction?(): string; agentSpeak?(text: string): void; consumeOrder?(): string; ordersList?(): string; ordersDelete?(id: string): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -293,7 +293,7 @@ function liveState(value: LiveState) {
   if (value === 'speaking') { heardUserSinceReply = false; checkinPending = false; if (thinkingTimer) { clearTimeout(thinkingTimer); thinkingTimer = null; } }
   queueMicrotask(() => { if (value === "disconnected") stopVision(liveResume.handoff); else updateVisionButtons(); });
   const active = value !== 'disconnected';
-  if (value === 'listening') { if (!liveUpSince) { liveUpSince = Date.now(); if (callStartedBy) setTimeout(sendGreeting, 400); } notice('Live voice connected. Speak naturally.'); }
+  if (value === 'listening') { if (!liveUpSince) { liveUpSince = Date.now(); if (pendingOrderPrompt) { const order = pendingOrderPrompt; pendingOrderPrompt = ''; setTimeout(() => { orchestrator.phonePrompted(); liveSession?.sendText(order); }, 400); } else if (callStartedBy) setTimeout(sendGreeting, 400); } notice('Live voice connected. Speak naturally.'); }
   el('voice').setAttribute('aria-pressed', String(active));
   el('voice').querySelector('span')!.textContent = active ? 'Live' : 'AI';
   el('listen-state').textContent = value === 'connecting' ? 'CONNECTING…' : value === 'speaking' ? 'SPEAKING…' : value === 'listening' ? 'LISTENING…' : '';
@@ -421,6 +421,9 @@ app.innerHTML = `
         <label>Autonomy level<select id="autonomy-level"><option value="assisted">Assisted · ask before every action</option><option value="balanced">Balanced · simple actions at once</option><option value="maximum">Maximum · low-risk steps without asking</option></select></label>
         <label class="check"><input id="autonomy-pause" type="checkbox"> Pause FRIDAY (no phone actions, no check-ins)</label>
         <p id="autonomy-note" class="muted" role="status"></p></div>
+      <div class="card"><b>Standing orders</b><small>Things FRIDAY does by herself when something happens. Say for example "har subah 8 baje briefing do", "jab Ali ka message aaye to mujhe batana" or "battery 20% ho to battery saver on karo". Messages, calls and payments still wait for your yes. Say "hukum list karo" or "hukum 2 hatao" to manage them.</small>
+        <ul id="orders-list" class="muted"></ul>
+        <div class="row"><button id="orders-refresh" type="button">Refresh</button></div></div>
       <div class="card"><b>Voice engine</b><small>Live: Gemini Live, fastest for talking. Agentic: FRIDAY hears with Android's speech recognition, thinks with the brain you choose (DeepSeek, OpenRouter, OpenAI, Groq or Gemini, keys under AI providers below) and speaks with the phone's voice. Agentic is slower to answer but does many tasks from one command and checks each step on the screen. Voice ID does not filter agentic mode yet.</small>
         <label>Engine<select id="agent-engine"><option value="live">Live · Gemini Live (normal)</option><option value="agentic">Agentic · many tasks, checked steps</option></select></label>
         <label>Brain<select id="agent-brain"><option value="auto">Auto · your AI provider, else Gemini</option><option value="provider">AI provider first (below)</option><option value="gemini">Gemini first</option></select></label>
@@ -1027,6 +1030,7 @@ window.MyraaEvents = event => {
   if (event.type === 'pattern-auth') { const waiter = authWaiter; authWaiter = null; waiter?.(!!event.ok, String(event.message || '')); renderSecurity(); return; }
   if (event.type === 'wake-test') { renderWakeTest(event); return; }
   if (event.type === 'wake') { if (bridge?.consumeWake?.()) void wakeUp(); return; }
+  if (event.type === 'order') { takeOrder(); renderOrders(); return; }
   if (event.type === 'companion-checkin') { if (bridge?.consumeCheckin?.()) void checkinTalk(); return; }
   if (event.type === 'companion-mic') { toggleMic(); return; }
   if (event.type === 'backup') {
@@ -1119,6 +1123,17 @@ function readAgentOptions(raw = '') { try { agentOpts = JSON.parse(bridge?.agent
 function agenticEngine() { return !!bridge?.agentStep && readAgentOptions().engine === 'agentic'; }
 /** A message from the phone to whichever voice conversation is running. */
 function voiceSend(text: string) { if (agentSession?.active()) agentSession.sendText(text); else liveSession?.sendText(text); }
+/** A standing order fired: FRIDAY carries it out in the voice session that is on, or starts one for it (without a greeting). */
+let pendingOrderPrompt = '';
+function runOrder(prompt: string) {
+  if (!prompt) return;
+  metric('order_fired');
+  if (agentSession?.active() || (liveSession && liveSession.getState() !== 'disconnected')) { orchestrator.phonePrompted(); voiceSend(prompt); return; }
+  pendingOrderPrompt = prompt; noGreeting = true; el('voice').click();
+  if (agentSession?.active()) { pendingOrderPrompt = ''; orchestrator.phonePrompted(); agentSession.sendText(prompt); }
+  else if (!liveSession) pendingOrderPrompt = '';
+}
+function takeOrder() { const p = bridge?.consumeOrder?.() || ''; if (p) setTimeout(() => runOrder(p), 600); return !!p; }
 function agentSpeak(text: string): Promise<void> {
   return new Promise(resolve => {
     const done = () => { if (speechWaiter === done) speechWaiter = null; clearTimeout(timer); resolve(); };
@@ -1154,7 +1169,7 @@ function startAgentic(startedBy: string) {
     onIgnored: text => notice(`Not answered, it sounded meant for someone else: "${text.slice(0, 60)}". Say "FRIDAY" first if it was for me.`),
     onAction: (action, args, result) => { appendAction(action, result); trackAction(action, args, String(result?.status || '')); },
   });
-  const why = session.start(startedBy === 'checkin' ? '' : 'Ji, boliye. Main sun rahi hoon.');
+  const why = session.start(startedBy === 'checkin' || startedBy === '' ? '' : 'Ji, boliye. Main sun rahi hoon.');
   if (why !== 'ok') { notice(why); return; }
   agentSession = session; metric('agentic_start');
   notice(`Agentic mode on · brain: ${o.brainLabel || 'auto'}. Say "ruko" to stop a task.`);
@@ -1314,6 +1329,21 @@ for (const [id, key] of [['agent-engine', 'engine'], ['agent-brain', 'brain'], [
   el<HTMLSelectElement>(id).onchange = () => renderAgent(JSON.stringify({ [key]: el<HTMLSelectElement>(id).value }));
 }
 renderAgent();
+function renderOrders() {
+  const list = el('orders-list'); list.textContent = '';
+  if (!bridge?.ordersList) { list.textContent = 'Standing orders need the updated Android app.'; return; }
+  let items: { number: number; id: number; order: string }[] = [];
+  try { items = JSON.parse(bridge.ordersList() || '{}').orders || []; } catch { items = []; }
+  if (!items.length) { list.textContent = 'No standing orders yet.'; return; }
+  for (const item of items) {
+    const li = document.createElement('li'); li.textContent = `${item.number}. ${item.order} `;
+    const del = document.createElement('button'); del.type = 'button'; del.textContent = 'Delete';
+    del.onclick = () => { if (confirm(`Delete standing order ${item.number}?`)) { bridge?.ordersDelete?.(String(item.id)); renderOrders(); } };
+    li.append(del); list.append(li);
+  }
+}
+el('orders-refresh').onclick = () => renderOrders();
+renderOrders();
 el('alt-test').onclick = () => { if (saveProvider()) { el('alt-test-note').textContent = 'Testing…'; bridge?.providerTest?.(); } };
 el('alt-remove').onclick = () => { if (confirm('Remove the saved key for the second provider?')) saveProvider({ clearKey: true, use: 'off' }); };
 el('cc-refresh').onclick = () => renderCommandCenter();
@@ -1469,8 +1499,8 @@ async function checkinTalk() {
   if (liveActive()) { listeningMinimized = false; showListening(true); return; }
   checkinStarting = true; el('voice').click(); checkinStarting = false;
 }
-if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 400); else if (bridge?.consumeCheckin?.()) setTimeout(() => void checkinTalk(), 400); else setTimeout(() => void appGate(), 1500);
-window.addEventListener('myraa:lifecycle', event => { if ((event as CustomEvent).detail?.active) setTimeout(() => void appGate(), 300); });
+if (bridge?.consumeWake?.()) setTimeout(() => void wakeUp(), 400); else if (takeOrder()) { /* the order starts the voice session */ } else if (bridge?.consumeCheckin?.()) setTimeout(() => void checkinTalk(), 400); else setTimeout(() => void appGate(), 1500);
+window.addEventListener('myraa:lifecycle', event => { if ((event as CustomEvent).detail?.active) { setTimeout(() => void appGate(), 300); takeOrder(); renderOrders(); } });
 renderHistory(); refreshSettings(); void loadAvatar();
 el('boot-version').textContent = 'v' + (state.version || '1.0');
 el('connection-pill').textContent = state.keyConfigured ? 'Ready' : 'Setup';

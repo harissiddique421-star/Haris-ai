@@ -50,7 +50,7 @@
     </service>
     <receiver android:name=".Updater$Result" android:exported="false" />
     <receiver android:name=".ReminderReceiver" android:exported="false">
-      <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /></intent-filter>
+      <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /><action android:name="android.intent.action.MY_PACKAGE_REPLACED" /><action android:name="android.intent.action.ACTION_POWER_CONNECTED" /><action android:name="android.intent.action.ACTION_POWER_DISCONNECTED" /></intent-filter>
     </receiver>
     <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
     <service android:name=".LiveVoiceService" android:exported="false" android:foregroundServiceType="microphone|mediaPlayback|mediaProjection" />
