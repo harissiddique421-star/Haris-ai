@@ -1,0 +1,84 @@
+name: Compare voice engines
+
+# Downloads sherpa-onnx speaker, wake word and TTS models and compares them with FRIDAY's current
+# voice engine on the Voice ID test recordings. Read-only: it builds nothing and changes nothing.
+# The report is in the run summary and in the voice-engines-report artifact.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/voice-engines.yml"
+      - "friday/scripts/compare-voice-engines.py"
+      - "friday/android/tests/jvm/com/myraa/mobile/SpeakerCompare.java"
+
+permissions:
+  contents: read
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: friday
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install sherpa-onnx
+        run: pip install "sherpa-onnx==2.0.1" "numpy<3"
+      - name: Download models
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -u
+          M="$RUNNER_TEMP/models"; mkdir -p "$M/speaker" "$M/kws" "$M/tts"
+          R=k2-fsa/sherpa-onnx
+          # Speaker models: each one is optional, so a renamed file skips that model only.
+          for f in wespeaker_en_voxceleb_resnet34.onnx wespeaker_en_voxceleb_CAM++.onnx \
+                   3dspeaker_speech_campplus_sv_en_voxceleb_16k.onnx 3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx \
+                   nemo_en_titanet_small.onnx; do
+            gh release download speaker-recongition-models -R "$R" -p "$f" -D "$M/speaker" || echo "skipped $f"
+          done
+          gh release download kws-models -R "$R" -p "sherpa-onnx-kws-zipformer-gigaspeech-3.3M-2024-01-01.tar.bz2" -D "$M" \
+            && tar -xjf "$M"/sherpa-onnx-kws-zipformer-gigaspeech-*.tar.bz2 -C "$M/kws" || echo "skipped wake word model"
+          gh release download tts-models -R "$R" -p "vits-piper-en_US-amy-low.tar.bz2" -D "$M" \
+            && tar -xjf "$M"/vits-piper-en_US-amy-low.tar.bz2 -C "$M/tts" || echo "skipped TTS model"
+          ls -la "$M/speaker"; find "$M/kws" "$M/tts" -maxdepth 2 | head -40
+          echo "MODELS=$M" >> "$GITHUB_ENV"
+      - name: Score the current voiceprint (GE2E)
+        run: |
+          OUT="$RUNNER_TEMP/ge2e"; mkdir -p "$OUT/classes"
+          JSON="$OUT/json-20240303.jar"
+          curl -fsSL -o "$JSON" https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
+          echo "3cf6cd6892e32e2b4c1c39e0f52f5248a2f5b37646fdfbb79a66b46b618414ed  $JSON" | sha256sum -c -
+          SRC=android/app/src/main/java/com/myraa/mobile
+          javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" \
+            "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/VoiceEncoder.java" "$SRC/SpeechSegmenter.java" \
+            "$SRC/SpeakerProfile.java" "$SRC/NoiseReducer.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
+            "$SRC/MemoryRank.java" "$SRC/NoteLogic.java" "$SRC/LinkSafety.java" "$SRC/ExpenseLogic.java" "$SRC/HabitLogic.java" "$SRC/Persona.java" \
+            "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" "$SRC/UnlockTask.java" "$SRC/VoiceNotes.java" "$SRC/ContactMatcher.java" \
+            "$SRC/TextProviders.java" "$SRC/GeminiAccess.java" android/tests/jvm/android/content/Context.java \
+            android/tests/jvm/android/util/Log.java android/tests/jvm/com/myraa/mobile/*.java
+          java -cp "$OUT/classes:$JSON" com.myraa.mobile.SpeakerCompare android/models android/tests/jvm/fixtures/voiceid > "$RUNNER_TEMP/ge2e.json"
+      - name: Compare
+        run: |
+          python scripts/compare-voice-engines.py --fixtures android/tests/jvm/fixtures/voiceid \
+            --models "$MODELS" --baseline "$RUNNER_TEMP/ge2e.json" --out "$RUNNER_TEMP/voice-engines.md"
+          cat "$RUNNER_TEMP/voice-engines.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: voice-engines-report
+          path: |
+            ${{ runner.temp }}/voice-engines.md
+            ${{ runner.temp }}/voice-engines.md.json
+            ${{ runner.temp }}/ge2e.json
+          if-no-files-found: warn
+          retention-days: 14
