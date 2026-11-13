@@ -490,10 +490,26 @@ public final class MobileActions {
     }
     boolean exact=matches.size()==1&&(normalize(matches.get(0).name).equals(normalize(recipient))||ContactMatcher.score(recipient,matches.get(0).name)>=ContactMatcher.HIGH);
     if(exact){then.with(matches.get(0));return;}
-    if(chooser!=null){finish(id,"busy","Choose the recipient from the current list first.");return;}
-    String[] labels=new String[matches.size()];for(int i=0;i<labels.length;i++)labels[i]=matches.get(i).name+" · +"+matches.get(i).phone;
-    chooserId=id;chooser=new AlertDialog.Builder(activity).setTitle("Which "+recipient+"?").setItems(labels,(d,index)->{chooser=null;chooserId=null;then.with(matches.get(index));})
-      .setNegativeButton("Cancel",(d,w)->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).setOnCancelListener(d->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was sent.");}).show();
+    List<String> names=new ArrayList<>(),phones=new ArrayList<>();for(Recipient r:matches){names.add(r.name);phones.add(r.phone);}
+    int pick=matches.size()>1?ContactMatcher.pick(recipient.trim(),heard,names):-1;
+    if(pick>=0){ControlLog.i("contact: "+matches.size()+" matches, the user's words name one");then.with(matches.get(pick));return;}
+    askWhich(id,recipient.trim(),names,phones);
+  }
+  /**
+   * Several saved contacts fit: FRIDAY asks the user out loud which one (no list pops up over the screen), then the
+   * action is called again with the full saved name the user picks, which matches exactly one contact.
+   */
+  private void askWhich(String id,String asked,List<String> names,List<String> phones){
+    ControlLog.i("contact \""+asked+"\": "+names.size()+" matches, asking the user by voice");
+    Set<String> twice=new HashSet<>(),seen=new HashSet<>();for(String n:names)if(!seen.add(normalize(n)))twice.add(normalize(n));
+    StringBuilder list=new StringBuilder();JSONArray out=new JSONArray();
+    for(int i=0;i<names.size()&&i<8;i++){
+      String p=phones.get(i),label=names.get(i)+(twice.contains(normalize(names.get(i)))&&p.length()>4?" (number ending "+p.substring(p.length()-4)+")":"");
+      if(i>0)list.append("; ");list.append(i+1).append(". ").append(label);out.put(label);
+    }
+    JSONObject v=status("choose_contact","Several saved contacts match \""+asked+"\": "+list+". Nothing was sent yet. Read these names to the user in one short line and ask which one they mean (for example \"Kaun se Anas? S.M.Anas, Md Anas ya Anas Friend?\"). When they answer, call the same action again with recipient = that full saved name exactly as listed (and the same message). Never pick one yourself.");
+    try{v.put("contacts",out);}catch(JSONException ignored){}
+    finish(id,v);
   }
   /** A close but uncertain contact: the user picks or repeats the name; FRIDAY never picks one by herself. */
   private void didYouMean(String id,String asked,List<String> names){
@@ -1135,13 +1151,11 @@ public final class MobileActions {
       }
       finish(id,"not_found",phoneOnly?recipient.trim()+" is in your phone contacts, but WhatsApp has no account synced for them, so I can't place a WhatsApp call. Open WhatsApp once so it syncs contacts, or check they use WhatsApp.":"I couldn't find a WhatsApp contact called "+recipient.trim()+". Say the full saved name.");return;
     }
-    boolean exact=matches.size()==1;
-    if(exact){then.with(matches.get(0));return;}
-    if(chooser!=null){finish(id,"busy","Choose the contact from the current list first.");return;}
-    String[] labels=new String[matches.size()];for(int i=0;i<labels.length;i++)labels[i]=matches.get(i).name+" · +"+matches.get(i).phone;
-    ControlLog.i("whatsapp contact: several matches, asking the user");
-    chooserId=id;chooser=new AlertDialog.Builder(activity).setTitle("Which "+recipient.trim()+"?").setItems(labels,(d,index)->{chooser=null;chooserId=null;then.with(matches.get(index));})
-      .setNegativeButton("Cancel",(d,w)->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was done.");}).setOnCancelListener(d->{chooser=null;chooserId=null;finish(id,"cancelled","Cancelled. Nothing was done.");}).show();
+    if(matches.size()==1){then.with(matches.get(0));return;}
+    List<String> names=new ArrayList<>(),phones=new ArrayList<>();for(WaContact r:matches){names.add(r.name);phones.add(r.phone);}
+    int pick=ContactMatcher.pick(recipient.trim(),heard,names);
+    if(pick>=0){ControlLog.i("whatsapp contact: "+matches.size()+" matches, the user's words name one");then.with(matches.get(pick));return;}
+    askWhich(id,recipient.trim(),names,phones);
   }
   private void waCall(String id,String recipient,boolean video,boolean onScreen){
     resolveWhatsApp(id,recipient,video?WA_VIDEO:WA_VOICE,false,wa->{

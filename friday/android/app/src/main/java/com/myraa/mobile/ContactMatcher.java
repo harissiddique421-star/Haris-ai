@@ -155,4 +155,25 @@ final class ContactMatcher {
     }
     return out;
   }
+
+  /**
+   * Several saved contacts fit the name the model passed ("Anas"). Picks one only when it is clearly the one meant:
+   * its full name was given, or the user's own words name it (two or more words, "sm anas") far better than any other.
+   * Returns -1 when FRIDAY must ask the user instead.
+   */
+  static int pick(String recipient,String heard,List<String> names){
+    if(names.size()==1)return 0;
+    int exact=-1,count=0;
+    for(int i=0;i<names.size();i++)if(norm(names.get(i)).equals(norm(recipient))||norm(names.get(i)).replace(" ","").equals(norm(recipient).replace(" ",""))){exact=i;count++;}
+    if(count==1)return exact;
+    // A one-word name ("Anas") fits all of them equally, so only longer names, said or passed, can tell them apart.
+    List<String> said=new ArrayList<>();if(words(recipient).size()>1)said.add(recipient);
+    for(String p:pieces(heard==null?"":heard))if(p.contains(" "))said.add(p);
+    double top=0,second=0;int at=-1;
+    for(int i=0;i<names.size();i++){
+      double best=0;for(String q:said)best=Math.max(best,score(q,names.get(i)));
+      if(best>top){second=top;top=best;at=i;}else if(best>second)second=best;
+    }
+    return top>=0.9&&top-second>=0.15?at:-1;
+  }
 }
