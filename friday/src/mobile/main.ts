@@ -244,7 +244,7 @@ function phoneYes(text: string): boolean {
   confirmMemory.ran(p.token, run);
   void run.then(result => {
     confirmMemory.ran(p.token, result);
-    notice(String(result?.message || 'Done.')); appendAction(p.action, result); trackAction(p.action, p.args, String(result?.status || ''));
+    notice(shown(result) || 'Done.'); appendAction(p.action, result); trackAction(p.action, p.args, String(result?.status || ''));
     const what = `${p.action}${p.args.recipient ? ` to ${String(p.args.recipient).slice(0, 60)}` : ''}${p.args.message ? `: "${String(p.args.message).slice(0, 200)}"` : ''}`;
     orchestrator.phonePrompted();
     voiceSend(`[Phone] The user answered "${text.slice(0, 60)}" (yes) to your question, so the phone already did it (${what}). Result: ${String(result?.message || result?.status || '').slice(0, 300)} Tell the user in one short line. Do not call ${p.action} again for this.`);
@@ -624,14 +624,18 @@ function showView(view: 'home' | 'chat') {
   if (view === 'chat') el('messages').scrollTop = el('messages').scrollHeight;
 }
 const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling', 'dialer_opened', 'saved']);
+/** Long jobs (website, research) that started in the background: shown as "working", not as an error. */
+const pendingStatuses = new Set(['started']);
+/** What the user sees for a result: the short user line when Android gave one, never the model's instructions. */
+const shown = (result: any) => String(result?.display || result?.message || '');
 const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', search_web: 'Web search', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', research_report: 'Research report', build_website: 'Website', list_documents: 'Documents', open_document: 'Document', share_document: 'Share', send_document: 'WhatsApp document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy', task: 'Task', check_link: 'Link safety', my_words: 'My words', set_language: 'Language', expense: 'Expense', suggestions: 'Suggestion' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
-  const card = document.createElement('article'); const ok = okStatuses.has(result?.status);
-  card.className = `action-card ${ok ? 'ok' : result?.status === 'needs_confirmation' ? 'ask' : 'warn'}`;
+  const card = document.createElement('article'); const ok = okStatuses.has(result?.status), pending = pendingStatuses.has(result?.status);
+  card.className = `action-card ${ok ? 'ok' : pending || result?.status === 'needs_confirmation' ? 'ask' : 'warn'}`;
   const title = document.createElement('b'); title.textContent = actionNames[action] || 'Phone';
-  const body = document.createElement('p'); body.textContent = String(result?.message || 'Finished.').slice(0, 400);
-  const mark = document.createElement('i'); mark.textContent = ok ? '✓' : result?.status === 'needs_confirmation' ? '?' : '!';
+  const body = document.createElement('p'); body.textContent = (shown(result) || 'Finished.').slice(0, 400);
+  const mark = document.createElement('i'); mark.textContent = ok ? '✓' : pending ? '⏳' : result?.status === 'needs_confirmation' ? '?' : '!';
   card.append(mark, title, body); el('messages').appendChild(card); el('messages').scrollTop = el('messages').scrollHeight;
 }
 const onScreenConfirm = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
@@ -639,7 +643,7 @@ const refreshAfter = new Set(['remember', 'forget', 'set_persona', 'set_driving_
 /** Runs a typed command; a routine runs its saved steps one by one and stops at anything that needs the user. */
 async function runTyped(mobile: MobileAction) {
   const result = await orchestrator.dispatch('mobile_action', onScreenConfirm.has(mobile.action) ? { ...mobile, confirm_on_screen: true } : mobile, true);
-  appendAction(mobile.action, result); notice(result?.message || '');
+  appendAction(mobile.action, result); notice(shown(result));
   if (refreshAfter.has(mobile.action)) refreshState();
   if (mobile.action === 'sleep') { stopVoice(); return; }
   if (mobile.action !== 'run_routine' || result?.status !== 'steps') return;
@@ -648,7 +652,7 @@ async function runTyped(mobile: MobileAction) {
     const step = parseMobileAction(steps[i]);
     if (!step || step.action === 'run_routine') { append('model', `Step ${i + 1} ("${steps[i]}") needs a Live call, so I stopped here. Start FRIDAY Live and say the routine name to run all of it.`); return; }
     const done = await orchestrator.dispatch('mobile_action', onScreenConfirm.has(step.action) ? { ...step, confirm_on_screen: true } : step, true);
-    appendAction(step.action, done); notice(done?.message || '');
+    appendAction(step.action, done); notice(shown(done));
     if (!['done', 'set', 'opened', 'playing', 'sent', 'calling', 'draft_opened', 'saved'].includes(String(done?.status))) { append('model', `Routine stopped at step ${i + 1}: ${done?.message || 'it did not finish.'}`); return; }
     // Only steps that open a screen need a moment for it to appear; quick ones go straight on.
     if (!QUICK.has(step.action)) await new Promise(resolve => setTimeout(resolve, 1200));
@@ -1101,6 +1105,10 @@ window.MyraaEvents = event => {
     const pictures = event.logo === true && event.hero === true ? 'with its own logo and hero image' : event.logo === true ? 'with its own logo; the hero picture could not be made, so it has a colour background' : 'with a simple initials logo and a colour background, because Gemini image making is not available on this API key right now';
     const where = event.opened === true ? 'It is open in the browser now.' : 'Say it can be opened from Downloads/FRIDAY.';
     notice(ok ? `Website ready: ${name} (in Downloads/FRIDAY).` : String(event.message || 'The website could not be made.'));
+    // Always show the outcome in the chat too, so a typed request is never left on "building" with no answer.
+    append('model', ok
+      ? `Website ready: ${name} (Downloads/FRIDAY mein). ${event.logo === true ? 'Logo' : 'Simple initials logo'}${event.hero === true ? ' aur hero picture ke saath.' : ', picture ki jagah colour background (Gemini picture abhi nahi bana saka).'}`
+      : String(event.message || 'The website could not be made.'));
     const say = ok
       ? `[Phone] The website for "${title}" is ready, ${pictures}. Saved as ${name} in Downloads/FRIDAY. ${where} About it: "${String(event.summary || '').slice(0, 300)}". Tell the user in one or two short spoken lines, mention that the contact form is design only, and ask if they want any change (colours, text or images) or to send it on WhatsApp.`
       : `[Phone] The website failed: ${String(event.message || '').slice(0, 300)} Tell the user in one short line and offer to try again.`;
@@ -1330,7 +1338,7 @@ el('voice').onclick = () => {
     onReplyLatency: ms => { if (ms >= 0 && ms < 60_000) { metric('live_reply'); metric('live_reply_ms', ms); } },
     connection: { createSocket: () => new MobileLiveTransport(bridge), voiceGate: voiceGateLink },
     onStateChange: liveState, onTranscription: liveTranscription,
-    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void modelDispatch(name, args).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(result.message); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
+    onToolCall: (name, args, callback) => { if (name !== 'mobile_action') { callback({ status: 'unsupported', message: 'That tool is unavailable on mobile.' }); return; } markActivity(); toolsRunning++; system?.setFrameInput({ activity: 'thinking', emotion: 'thinking' }); void modelDispatch(name, args).then(result => { toolsRunning = Math.max(0, toolsRunning - 1); if (FAILED_COMPANION.has(String(result?.status))) companionErrorUntil = Date.now() + 3500; markActivity(); notice(shown(result)); const action = String((args as any)?.action || ''); appendAction(action, result); trackAction(action, args, String(result?.status || '')); const tone = emotions.fromAction(action, String(result?.status || '')); system?.setFrameInput({ emotion: AVATAR_EMOTION[tone] });
       // Gemini gets the tone to use and what is open/playing now, so follow-ups like "volume kam karo" or "Quran wali video chalao" need no extra questions.
       callback({ ...result, tone, tone_hint: TONE_HINT[tone], context: { current_app: convo.currentApp || 'unknown', now_playing: convo.media || 'nothing known', last_action: action } }); if (/^(?:set_(?:driving_mode|call_announce|wake_word|language)|save_routine|delete_routine)$/.test(String((args as any)?.action || ''))) refreshState(); if (result?.sleep) setTimeout(() => { if (liveActive()) { stopVoice(); notice('FRIDAY is sleeping. Say "Wake up FRIDAY" to start again.'); } }, 3500); if (result?.reconnect) { refreshState(); setTimeout(() => { stopVoice(); setTimeout(() => { noGreeting = true; el('voice').click(); }, 900); }, 3500); } }); },
     onError: message => {

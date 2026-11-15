@@ -625,6 +625,7 @@ public final class MobileActions {
     String requested=args.optString("title","").trim();
     researching=true;
     JSONObject started=status("started","Researching \""+topic+"\" on the web now; the report takes about one to two minutes. Tell the user in one short line that you are researching and will say when the PDF is ready. Keep talking normally meanwhile. Do not call research_report again for this topic.");
+    try{started.put("display","Research ho rahi hai. 1-2 minute mein PDF report ready ho jayegi, bata dungi.");}catch(JSONException ignored){}
     finish(id,started);
     ControlLog.i("research: started ("+depth+")");
     research.execute(()->{
@@ -658,12 +659,14 @@ public final class MobileActions {
     if(details.length()>WebsiteBuilder.MAX_BRIEF)details=details.substring(0,WebsiteBuilder.MAX_BRIEF);
     if(name.length()>80)name=name.substring(0,80);
     if(gemini==null){finish(id,"unavailable","Building websites needs the updated FRIDAY app.");return;}
-    if(buildingSite){finish(id,"busy","A website is already being built. Wait for it to finish first.");return;}
+    if(buildingSite){finish(id,"busy","A website is already being built and the user will be told when it is ready. Tell the user in one short line to wait for it; after it is ready, the change (picture, logo, colours or text) can be made with build_website again.");return;}
     String key;try{key=gemini.key();}catch(Exception e){key="";}
     if(key.isEmpty()){finish(id,"unavailable","Building websites needs the Gemini API key in Settings.");return;}
     String model=gemini.model(),language=args.optString("language","").trim(),detailsF=details,nameF=name,keyF=key;
     buildingSite=true;
-    finish(id,status("started","Building the website now: page, logo and hero image; it takes about one to two minutes. Tell the user in one short line that you are making it and will say when it is ready. Keep talking normally meanwhile. Do not call build_website again for this site."));
+    JSONObject started=status("started","Building the website now: page, logo and hero image; it takes about one to two minutes. Tell the user in one short line that you are making it and will say when it is ready. Keep talking normally meanwhile. Do not call build_website again while this one is being made; when it is ready and the user wants a change (a picture, the logo, colours or text), call build_website again with the full updated brief.");
+    try{started.put("display","Website ban rahi hai (page, logo aur picture). 1-2 minute lagenge, ready hote hi bata dungi.");}catch(JSONException ignored){}
+    finish(id,started);
     ControlLog.i("website: started");
     sites.execute(()->{
       JSONObject event=new JSONObject();
