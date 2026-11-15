@@ -673,9 +673,9 @@ public final class MobileActions {
       try{
         WebsiteBuilder.Site site=WebsiteBuilder.run(keyF,model,nameF,detailsF,language);
         Documents.Saved doc=WebsiteBuilder.save(activity,site);
-        ControlLog.i("website: done in "+(site.ms/1000)+" s, logo "+(site.logoMade?"made":"initials")+", hero "+(site.heroMade?"made":"colour"));
+        ControlLog.i("website: done in "+(site.ms/1000)+" s, logo "+site.logoKind+", hero "+site.heroKind+", "+site.photos+" internet photos");
         event.put("type","website-done").put("ok",true).put("title",site.name).put("name",doc.name).put("summary",site.summary)
-          .put("logo",site.logoMade).put("hero",site.heroMade).put("seconds",site.ms/1000);
+          .put("logo",site.logoMade).put("hero",site.heroMade).put("logo_kind",site.logoKind).put("hero_kind",site.heroKind).put("photos",site.photos).put("seconds",site.ms/1000);
         Intent view=new Intent(Intent.ACTION_VIEW).setDataAndType(doc.uri,doc.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         boolean[] opened={false};
         java.util.concurrent.CountDownLatch done=new java.util.concurrent.CountDownLatch(1);
