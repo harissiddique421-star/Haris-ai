@@ -17,7 +17,9 @@ import java.io.OutputStream;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.Locale;
 import javax.net.ssl.HttpsURLConnection;
 import org.json.JSONArray;
@@ -35,12 +37,17 @@ final class WebsiteBuilder {
   private WebsiteBuilder(){}
   static final int MAX_BRIEF=1500;
   static final String LOGO="{{LOGO}}",HERO="{{HERO}}";
+  /** Extra photo spots the page may use (About, Services, gallery); filled with real photos from the internet. */
+  static final String[] PHOTOS={"{{PHOTO1}}","{{PHOTO2}}","{{PHOTO3}}"};
   /** Gemini image models, newest first; the first one the key can use makes the pictures. */
   static final String[] IMAGE_MODELS={"gemini-3.1-flash-image","gemini-2.5-flash-image","gemini-3-pro-image"};
 
   static final class Site {
-    final String name,html,summary;final boolean logoMade,heroMade;final long ms;
-    Site(String name,String html,String summary,boolean logoMade,boolean heroMade,long ms){this.name=name;this.html=html;this.summary=summary;this.logoMade=logoMade;this.heroMade=heroMade;this.ms=ms;}
+    final String name,html,summary,logoKind,heroKind;final boolean logoMade,heroMade;final int photos;final long ms;
+    Site(String name,String html,String summary,String logoKind,String heroKind,int photos,long ms){
+      this.name=name;this.html=html;this.summary=summary;this.logoKind=logoKind;this.heroKind=heroKind;this.photos=photos;this.ms=ms;
+      this.logoMade=!"initials".equals(logoKind);this.heroMade=!"colour".equals(heroKind);
+    }
   }
 
   // ---- What Gemini is asked
@@ -48,17 +55,19 @@ final class WebsiteBuilder {
   static String instruction(String language){
     String lang=language==null||language.trim().isEmpty()?"English":language.trim();
     return "You are a senior web designer and front-end developer. Build ONE complete, professional, responsive one-page website.\n"
-      +"Return JSON only, with these fields: html (the whole page), logo_prompt, hero_prompt, hero_alt, brand_color (#rrggbb), summary (one short sentence describing the site).\n"
+      +"Return JSON only, with these fields: html (the whole page), logo_svg, logo_prompt, hero_prompt, photo_query, hero_alt, brand_color (#rrggbb), summary (one short sentence describing the site).\n"
       +"HTML rules:\n"
       +"- One file: <!doctype html>, <html lang>, <head> with charset, viewport, <title>, <meta name=\"description\">, <link rel=\"icon\" href=\""+LOGO+"\">, and ALL CSS in one <style> tag. JavaScript only a few lines for the mobile menu, in one <script> tag.\n"
       +"- Mobile-first and responsive: must look right at 360px, 768px and 1200px wide. Use CSS variables --primary, --accent, --text, --bg for the brand colours. Good contrast, readable font sizes.\n"
       +"- Semantic tags: header with nav, main, section, footer. Sections in order: Hero, About, Services (cards), Contact, unless the brief asks for others.\n"
-      +"- The logo is an <img src=\""+LOGO+"\" alt=\"<name> logo\"> in the header (height about 44px). The hero has an <img src=\""+HERO+"\" alt=\"...\"> (object-fit: cover, no loading=lazy) with the headline and a call-to-action button over or beside it. Use these two placeholders exactly; do not use any other image file or image URL. Icons may be inline SVG or emoji.\n"
+      +"- The logo is an <img src=\""+LOGO+"\" alt=\"<name> logo\"> in the header (height about 44px, width auto); it already contains the brand name, so do not repeat the name as text next to it. The hero has an <img src=\""+HERO+"\" alt=\"...\"> (object-fit: cover, no loading=lazy) with the headline and a call-to-action button over or beside it. Use these two placeholders exactly. For real photos in About, Services or a small gallery you may also use <img src=\"{{PHOTO1}}\">, <img src=\"{{PHOTO2}}\"> and <img src=\"{{PHOTO3}}\"> (each at most once, with a good alt, object-fit: cover, a fixed height or aspect-ratio, rounded corners); use at least two of them. Do not use any other image file or image URL. Icons may be inline SVG or emoji.\n"
       +"- No external resources except Google Fonts. No analytics, no trackers, no external scripts.\n"
       +"- If a WhatsApp or phone number is given, add a WhatsApp button linking to https://wa.me/<digits only, with country code> and a tel: link.\n"
       +"- The contact form is design only: add a small line under it saying messages are not sent yet. Do not pretend it works.\n"
       +"- NEVER invent facts: no fake reviews, testimonials, client names, awards, prices or statistics. Never invent a phone, email or address; if missing, write a clear placeholder like [Your phone number].\n"
       +"- All visible text in "+lang+". Short, clear, professional copy that fits the business.\n"
+      +"logo_svg: design the brand's logo yourself like a senior brand designer would: one complete, original SVG (viewBox about 0 0 480 120, horizontal lockup) with a distinctive symbol built from the business's idea (not a generic circle, star or initials in a box) next to the brand name as a clean wordmark in the brand colours. Use only path, circle, rect, polygon, ellipse, line, g, defs, linearGradient and text (font-family: Poppins, Montserrat, Arial, sans-serif; font-weight 600-800, letter-spacing a little). No images, no scripts, no links, no external fonts. Balanced spacing, crisp shapes, readable at 44px tall, looks good on a white header.\n"
+      +"photo_query: 2 to 5 plain English keywords to search real stock photos that fit the business (for example \"bakery fresh bread\" or \"modern dental clinic\").\n"
       +"logo_prompt: describe a simple, flat, modern logo mark for this brand (shape, symbol, colours). hero_prompt: describe a high-quality photo for the hero that fits the business, in the brand colours and mood. Both prompts in English, and both images must contain no text or letters.";
   }
 
@@ -156,17 +165,48 @@ final class WebsiteBuilder {
     String title=name==null||name.trim().isEmpty()?titleOf(html):name.trim();
     ControlLog.i("website: page written ("+(html.length()/1024)+" KB)");
 
-    String logo=null,hero=null;boolean imagesWork=true;
-    try{byte[] png=image(key,logoPrompt(title,site.optString("logo_prompt"),brand),"1:1");if(png!=null)logo=dataUri(png,512,true);}
-    catch(Exception e){imagesWork=false;ControlLog.i("website: logo not made ("+code(e)+")");}
-    // When no image model worked for the logo (no access or quota), the hero would fail the same way: do not wait for it.
-    if(imagesWork){
-      try{byte[] jpg=image(key,heroPrompt(site.optString("hero_prompt"),brand),"16:9");if(jpg!=null)hero=dataUri(jpg,1600,false);}
+    // Logo: FRIDAY's own vector design first (sharp, with the name, works on every key), then Gemini's image model, then initials.
+    String logo=null,logoKind="initials";
+    String svg=SvgLogo.safe(site.optString("logo_svg"));
+    if(svg!=null){logo=SvgLogo.uri(svg);logoKind="designed";ControlLog.i("website: logo designed (SVG)");}
+    boolean imagesWork=true;
+    if(logo==null){
+      try{byte[] png=image(key,logoPrompt(title,site.optString("logo_prompt"),brand),"1:1");if(png!=null){logo=dataUri(png,512,true);if(logo!=null)logoKind="image";}}
+      catch(Exception e){imagesWork=false;ControlLog.i("website: logo not made ("+code(e)+")");}
+    }
+    // Real photos from the internet (openly licensed, credited in the footer).
+    List<WebPhotos.Photo> found=WebPhotos.search(site.optString("photo_query",title),6);
+    List<WebPhotos.Photo> used=new ArrayList<>();List<String> photos=new ArrayList<>();
+    for(WebPhotos.Photo p:found){
+      if(photos.size()>=1+PHOTOS.length)break;
+      byte[] raw=WebPhotos.download(p);String uri=raw==null?null:dataUri(raw,1400,false);
+      if(uri!=null){photos.add(uri);used.add(p);}
+    }
+    ControlLog.i("website: "+photos.size()+" internet photos");
+    // Hero: a real photo when the user asked for real or internet pictures, otherwise Gemini's picture, then a real photo.
+    String hero=null,heroKind="colour";int next=0;
+    if(wantsRealPhotos(details)&&!photos.isEmpty()){hero=photos.get(next++);heroKind="photo";}
+    if(hero==null&&imagesWork){
+      try{byte[] jpg=image(key,heroPrompt(site.optString("hero_prompt"),brand),"16:9");if(jpg!=null){hero=dataUri(jpg,1600,false);if(hero!=null)heroKind="made";}}
       catch(Exception e){ControlLog.i("website: hero not made ("+code(e)+")");}
     }
-    boolean logoMade=logo!=null,heroMade=hero!=null;
-    String page=fill(html,logoMade?logo:fallbackLogo(title,brand),heroMade?hero:fallbackHero(brand));
-    return new Site(title,page,clip(site.optString("summary"),300),logoMade,heroMade,System.currentTimeMillis()-started);
+    if(hero==null&&next<photos.size()){hero=photos.get(next++);heroKind="photo";}
+    if(logo==null)logo=fallbackLogo(title,brand);
+    String page=fill(html,logo,hero!=null?hero:fallbackHero(brand));
+    int placed=0;List<WebPhotos.Photo> credited=new ArrayList<>();
+    if("photo".equals(heroKind))credited.add(used.get(0));
+    for(String spot:PHOTOS){
+      if(!page.contains(spot))continue;
+      if(next<photos.size()){page=page.replace(spot,photos.get(next));credited.add(used.get(next));next++;placed++;}
+      else page=page.replace(spot,fallbackHero(brand));
+    }
+    page=WebPhotos.addCredits(page,credited);
+    return new Site(title,page,clip(site.optString("summary"),300),logoKind,heroKind,credited.size(),System.currentTimeMillis()-started);
+  }
+
+  /** The user asked for real pictures ("internet se picture", "real photo", "asli tasveer"). */
+  static boolean wantsRealPhotos(String brief){
+    return brief!=null&&brief.toLowerCase(Locale.ROOT).matches("(?s).*(internet|real photo|real picture|real image|stock|asli|online se|google se).*");
   }
 
   static String geminiText(JSONObject r){
