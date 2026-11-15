@@ -15,7 +15,7 @@ import org.json.*;
  * the matching system settings page for special access.
  */
 final class PermissionsCenter {
-  static final int REQUEST=80;
+  static final int REQUEST=80,ROLE_REQUEST=81;
   private final Activity activity;
   PermissionsCenter(Activity activity){this.activity=activity;}
 
@@ -34,6 +34,10 @@ final class PermissionsCenter {
     {"system_settings","Modify system settings","So FRIDAY can change screen brightness."},
     {"overlay","Display over other apps","For the floating FRIDAY button while you use other apps."},
     {"fullscreen","Wake up on the lock screen","So \"Wake up FRIDAY\" can turn the screen on when the phone is locked. You still unlock it yourself."},
+    {"location","Location","For namaz times, emergency SOS and Find my phone (the map link FRIDAY texts back)."},
+    {"location_background","Location: allow all the time","So Find my phone can send the location while FRIDAY is closed. Choose \"Allow all the time\"."},
+    {"sms_receive","Receive SMS (Find my phone)","So FRIDAY notices your \"FRIDAY dhoondo <code>\" SMS. No other SMS is read or kept."},
+    {"call_screening","Call screening (spam warning)","So Android shows FRIDAY calls from numbers that are not in your contacts, to warn you and reject numbers you blocked."},
     {"calendar","Calendar","So the morning briefing can tell you today's events."},
     {"call_log","Call history","So FRIDAY can tell you who called while you missed it."},
     {"exact_alarms","Alarms & reminders","So medicine and bill reminders ring on the exact minute."},
@@ -55,6 +59,10 @@ final class PermissionsCenter {
       case "dnd":return activity.getSystemService(NotificationManager.class).isNotificationPolicyAccessGranted();
       case "system_settings":return Settings.System.canWrite(activity);
       case "overlay":return Settings.canDrawOverlays(activity);
+      case "location":return Sos.granted(activity);
+      case "location_background":return Build.VERSION.SDK_INT<29||runtime(Manifest.permission.ACCESS_BACKGROUND_LOCATION);
+      case "sms_receive":return runtime(Manifest.permission.RECEIVE_SMS);
+      case "call_screening":return SpamGuard.screening(activity);
       case "calendar":return runtime(Manifest.permission.READ_CALENDAR);
       case "call_log":return runtime(Manifest.permission.READ_CALL_LOG);
       case "exact_alarms":return CareReminders.exact(activity);
@@ -84,6 +92,25 @@ final class PermissionsCenter {
       case "answer_calls":runtime=Manifest.permission.ANSWER_PHONE_CALLS;break;
       case "sms":runtime=Manifest.permission.SEND_SMS;break;
       case "calendar":runtime=Manifest.permission.READ_CALENDAR;break;
+      case "sms_receive":runtime=Manifest.permission.RECEIVE_SMS;break;
+      case "location":
+        // Android 12+ ignores a request for precise location alone, so both are asked together.
+        if(!Sos.granted(activity)&&!activity.shouldShowRequestPermissionRationale(Manifest.permission.ACCESS_FINE_LOCATION)&&activity.getSharedPreferences("myraa.mobile.v1",0).getBoolean("asked.location",false))
+          return open(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+activity.getPackageName())));
+        activity.getSharedPreferences("myraa.mobile.v1",0).edit().putBoolean("asked.location",true).apply();
+        activity.requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION},REQUEST);return true;
+      case "location_background":
+        if(Build.VERSION.SDK_INT<29)return false;
+        if(!Sos.granted(activity))return request("location"); // Android asks for "all the time" only after "while using"
+        // Android 11+ answers this by opening FRIDAY's location page, where the user picks "Allow all the time".
+        activity.requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION},REQUEST);return true;
+      case "call_screening":
+        if(Build.VERSION.SDK_INT<29)return false;
+        try{
+          android.app.role.RoleManager roles=activity.getSystemService(android.app.role.RoleManager.class);
+          if(roles==null||!roles.isRoleAvailable(android.app.role.RoleManager.ROLE_CALL_SCREENING))return false;
+          activity.startActivityForResult(roles.createRequestRoleIntent(android.app.role.RoleManager.ROLE_CALL_SCREENING),ROLE_REQUEST);return true;
+        }catch(RuntimeException e){return false;}
       case "call_log":runtime=Manifest.permission.READ_CALL_LOG;break;
       case "exact_alarms":return Build.VERSION.SDK_INT>=31&&open(new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,Uri.parse("package:"+activity.getPackageName())));
       case "notifications_post":if(Build.VERSION.SDK_INT>=33)runtime=Manifest.permission.POST_NOTIFICATIONS;else return open(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE,activity.getPackageName()));break;

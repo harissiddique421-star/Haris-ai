@@ -22,7 +22,7 @@ import { setCharacterRealism } from '../character/materials/AnimeMaterial';
 import { parseCharacterCommand } from '../../shared/character/commands';
 import { ConfirmMemory } from './confirmYes';
 
-interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; moduleOptions?(module: string, on: boolean): string; activityHistory?(): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; agentStep?(id: string, json: string): void; agentCancel?(): void; agentEar?(command: string, lang: string): string; agentOptions?(json: string): string; agentInstruction?(): string; agentSpeak?(text: string): void; consumeOrder?(): string; ordersList?(): string; ordersDelete?(id: string): string; }
+interface Bridge { consumeCheckin?(): boolean; setAssistant?(json: string): void; saveConversation?(json: string): void; requestPermission?(id: string): void; getState(): string; configure(json: string): void; checkConnection(json: string): void; chat(text: string, id: string): void; cancel(): void; startLive(id: string): void; endLive(): void; speak(text: string): void; stopSpeech(): void; clearHistory(): void; clearKey(): void; openSettings(): void; mobileAction(id: string, name: string, args: string): void; openFloatingSettings(): void; openAccessibilitySettings?(): void; openNotificationSettings?(): void; requestCamera?(): void; startScreenShare?(): void; stopScreenShare?(): void; cancelMobileAction(id: string): void; consumeWake?(): boolean; nextLiveModel?(failed: string): string; liveModel?(): string; reconnectLive?(id: string): void; lifecycleStatus?(): string; guardianRecord?(): void; guardianDelete?(): void; wakeOptions?(json: string): void; wakeTest?(): void; patternState?(): string; patternSave?(a: string, b: string): string; patternVerify?(p: string): string; patternOptions?(json: string): string; patternRemove?(): string; patternDevice?(purpose: string): void; haptic?(): void; exportBackup?(): void; importBackup?(): void; companion?(state: string, emotion: string, level: number): void; voiceIdRegister?(): void; voiceIdAddSamples?(): void; voiceIdPcm?(b64: string): void; voiceIdPcmFailed?(why: string): void; voiceIdTest?(who: string): void; voiceIdDelete?(): void; voiceNotesClear?(): string; providerOptions?(json: string): string; providerTest?(): void; autonomyOptions?(level: string): string; moduleOptions?(module: string, on: boolean): string; activityHistory?(): string; voiceIdOptions?(json: string): void; voiceGateStart?(): string; voiceGateFeed?(id: number, pcm: string, ai: number): string; voiceGateStop?(id: number): void; voiceGateStatus?(): string; selfDevState?(): string; selfDevAction?(json: string): string; selfDevMetric?(kind: string, value: number): void; selfDevIdeas?(): void; updateState?(): string; updateCheck?(): void; updateDownload?(): void; updateInstall?(): void; updateOptions?(json: string): string; agentStep?(id: string, json: string): void; agentCancel?(): void; agentEar?(command: string, lang: string): string; agentOptions?(json: string): string; agentInstruction?(): string; agentSpeak?(text: string): void; consumeOrder?(): string; ordersList?(): string; ordersDelete?(id: string): string; protectState?(): string; protectOptions?(json: string): string; }
 declare global { interface Window { MyraaNative?: Bridge; MyraaEvents?: (event: any) => void; __mobileDiagnostics?: () => unknown; } }
 const bridge = window.MyraaNative;
 let state: any = bridge ? JSON.parse(bridge.getState()) : { history: [], model: 'gemini-3.5-flash', quality: 'low', language: 'hi-IN', keyConfigured: false };
@@ -411,7 +411,7 @@ app.innerHTML = `
     <div class="settings-page" data-page="menu">
       <p class="group">ACCOUNT</p><div class="menu"><button data-go="personal"><b>Personal</b><small>Your name, Gemini key, models, language</small></button></div>
       <p class="group">ASSISTANT</p><div class="menu"><button data-go="assistant"><b>FRIDAY</b><small>Persona and voice</small></button><button data-go="memory"><b>Memory</b><small>What FRIDAY remembers about you</small></button><button data-go="selfdev"><b>FRIDAY Evolution</b><small>Health, self-healing, error history, improvement ideas and approvals</small></button></div>
-      <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button><button data-go="security"><b>Security</b><small>FRIDAY Pattern, fingerprint or phone lock</small></button></div>
+      <p class="group">SAFETY AND ACCESS</p><div class="menu"><button data-go="permissions"><b>Permissions</b><small>Grant the access FRIDAY's features need</small></button><button data-go="security"><b>Security</b><small>FRIDAY Pattern, fingerprint or phone lock</small></button><button data-go="protect"><b>Phone protection</b><small>Find my lost phone by SMS, spam / fraud call warning</small></button></div>
       <p class="group">SYSTEM</p><div class="menu"><button data-go="command"><b>Command Center</b><small>Health of every part, module switches, recent activity</small></button><button data-go="advanced"><b>Advanced</b><small>Graphics, read aloud, history, diagnostics</small></button></div>
     </div>
     <div class="settings-page" data-page="personal" hidden>
@@ -507,6 +507,21 @@ app.innerHTML = `
         <ul id="note-list" class="memory-list"></ul></div>
     </div>
     <div class="settings-page" data-page="permissions" hidden><p class="muted">FRIDAY needs these to do things for you. Allow only what you want.</p><div id="permission-list" class="permission-list"></div><div class="row"><button id="health-check" type="button">Run FRIDAY health check</button></div></div>
+    <div class="settings-page" data-page="protect" hidden>
+      <div class="card"><b>Find my phone</b><small>Phone kho gaya? From any other phone, send this SMS to your number: <b>FRIDAY dhoondo</b> and your secret code, for example "FRIDAY dhoondo 1234". This phone then rings loudly for one minute, even on silent, and texts its location (a Google Maps link) and battery back to that number. A wrong code gets no reply, and after 5 wrong codes FRIDAY ignores codes for an hour. Only a protected copy of the code is kept on this phone.</small>
+        <label class="check"><input id="finder-on" type="checkbox"> Turn on Find my phone</label>
+        <label>Secret code<input id="finder-code" type="password" inputmode="text" autocomplete="off" maxlength="12" placeholder="4 to 12 letters or numbers"></label>
+        <div class="row"><button id="finder-save" type="button" class="primary">Save code</button><button id="finder-test" type="button">Test ring (10 sec)</button></div>
+        <p id="finder-status" class="muted" role="status" aria-live="polite"></p>
+        <div id="finder-perms" class="permission-list"></div></div>
+      <div class="card"><b>Spam / fraud call warning</b><small>When a number that is not in your contacts calls, FRIDAY warns you that it may be spam or fraud (private and foreign numbers get a stronger warning), and the warning has a "Block karo" button. FRIDAY rejects calls from numbers you block. Never tell a caller your OTP, PIN, CNIC or bank details.</small>
+        <label class="check"><input id="spam-on" type="checkbox"> Warn me about calls from unknown numbers</label>
+        <p id="spam-status" class="muted" role="status" aria-live="polite"></p>
+        <div id="spam-perms" class="permission-list"></div>
+        <label>Block a number<input id="spam-number" type="tel" autocomplete="off" maxlength="20" placeholder="e.g. 03001234567"></label>
+        <div class="row"><button id="spam-block" type="button">Block</button></div>
+        <small>Blocked numbers</small><ul id="spam-blocked" class="memory-list"></ul></div>
+    </div>
     <div class="settings-page" data-page="security" hidden>
       <div class="card"><b>FRIDAY Pattern</b><small>Locks FRIDAY's own screens with a 3x3 pattern. It does not unlock your phone and FRIDAY never sees your phone's PIN or pattern. The pattern is kept only as a protected code made with a key in your phone's secure hardware.</small>
         <p id="pattern-status" class="muted"></p>
@@ -822,11 +837,45 @@ function renderPermissions() {
     card.append(text, action); list.append(card);
   }
 }
-const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', security: 'Security', advanced: 'Advanced', selfdev: 'FRIDAY Evolution' };
+// ---- Phone protection: Find my phone by SMS and the spam call warning (Android does the work, see PhoneFinder / SpamGuard)
+function protectCall(input?: Record<string, unknown>) {
+  try { return JSON.parse((input ? bridge?.protectOptions?.(JSON.stringify(input)) : bridge?.protectState?.()) || 'null'); } catch { return null; }
+}
+function permChips(target: string, ids: string[], perms: any[]) {
+  const list = el(target); list.replaceChildren();
+  for (const id of ids) {
+    const p = perms.find((x) => x.id === id); if (!p || p.granted) continue;
+    const card = document.createElement('div'); card.className = 'perm';
+    const text = document.createElement('div'); const t = document.createElement('b'); t.textContent = p.title; const w = document.createElement('small'); w.textContent = p.why; text.append(t, w);
+    const grant = Object.assign(document.createElement('button'), { className: 'grant', textContent: 'Grant', type: 'button' }); grant.onclick = () => bridge?.requestPermission?.(p.id);
+    card.append(text, grant); list.append(card);
+  }
+}
+function renderProtect(data?: any, message?: string) {
+  if (!data) data = protectCall();
+  if (!data || !data.finder) { el('finder-status').textContent = 'Phone protection works inside the updated Android app.'; return; }
+  const f = data.finder, s = data.spam || {}, perms: any[] = data.permissions || [];
+  el<HTMLInputElement>('finder-on').checked = !!f.enabled;
+  el('finder-status').textContent = message ?? (f.locked ? 'Too many wrong codes were sent. Codes are ignored for an hour.' : !f.hasCode ? 'No secret code yet. Type one and tap Save code.' : f.enabled ? `On. Send "FRIDAY dhoondo" and your code from any other phone.${f.lastFound ? ' Last used ' + new Date(f.lastFound).toLocaleString() + '.' : ''}` : 'Code saved. Turn on Find my phone to use it.');
+  permChips('finder-perms', ['sms_receive', 'sms', 'location', 'location_background', 'fullscreen', 'battery'], perms);
+  el<HTMLInputElement>('spam-on').checked = s.enabled !== false;
+  el('spam-status').textContent = !s.screeningAvailable ? 'FRIDAY warns using the call notification, so Notification access must be on.' : s.screening ? 'Call screening is on: Android shows FRIDAY every call from an unknown number.' : 'Allow Call screening below for the best warnings. Until then FRIDAY uses the call notification (needs Notification access).';
+  permChips('spam-perms', s.screeningAvailable ? ['call_screening', 'notification_access', 'answer_calls'] : ['notification_access', 'answer_calls'], perms);
+  const list = el('spam-blocked'); list.replaceChildren();
+  for (const b of (s.blocked || []) as any[]) {
+    const li = document.createElement('li'); const span = document.createElement('span'); span.textContent = b.number || b.key;
+    const un = Object.assign(document.createElement('button'), { textContent: 'Unblock', type: 'button' }); un.style.fontSize = '14px';
+    un.onclick = () => { const r = protectCall({ part: 'spam', unblock: b.key }); if (r) renderProtect(r, undefined); notice(r?.message || ''); };
+    li.append(span, un); list.append(li);
+  }
+  if (!(s.blocked || []).length) { const li = document.createElement('li'); li.className = 'muted'; li.textContent = 'None'; list.append(li); }
+}
+const pageTitles: Record<string, string> = { menu: 'Settings', personal: 'Personal', assistant: 'FRIDAY', memory: 'Memory', permissions: 'Permissions', security: 'Security', protect: 'Phone protection', advanced: 'Advanced', selfdev: 'FRIDAY Evolution' };
 function settingsPage(page: string) {
   for (const section of document.querySelectorAll<HTMLElement>('.settings-page')) section.hidden = section.dataset.page !== page;
   el('settings-title').textContent = pageTitles[page] || 'Settings'; el('settings-back').toggleAttribute('hidden', page === 'menu');
   if (page === 'permissions') refreshState();
+  if (page === 'protect') renderProtect();
   if (page === 'selfdev') { renderEvolution(); renderSelfDev(); renderUpdate(); }
 }
 function renderUpdate(data?: any) {
@@ -1191,7 +1240,7 @@ window.MyraaEvents = event => {
   if (event.type === 'update') { renderUpdate(event.state); if (event.notify && event.state?.latest) notice(`FRIDAY ${event.state.latest.versionName} is ready. See Settings > Self-development to read what changed and install it.`); else if (event.state?.message && !el<HTMLDialogElement>('settings-panel').open) notice(event.state.message); }
   if (event.type === 'evolution') { if (!el('settings-panel').querySelector<HTMLElement>('[data-page="selfdev"]')!.hidden) { renderEvolution(); renderSelfDev(); } return; }
   if (event.type === 'selfdev') { if (event.message) notice(event.message); if (event.refresh && !el('settings-panel').querySelector<HTMLElement>('[data-page="selfdev"]')!.hidden) renderSelfDev(); }
-  if (event.type === 'permissions') { state.permissions = event.permissions; renderPermissions(); if (event.message) notice(event.message); }
+  if (event.type === 'permissions') { state.permissions = event.permissions; renderPermissions(); if (!el('settings-panel').querySelector<HTMLElement>('[data-page="protect"]')!.hidden) renderProtect(); if (event.message) notice(event.message); }
   if (event.type === 'reply' && event.id === requestId) {
     busy = false; lastReply = event.text; append('model', event.text); notice(event.note || '');
     pendingText = '';
@@ -1404,6 +1453,11 @@ el('camera').onclick = () => { if (cameraStream) { stopCamera(); notice('Camera 
 el('screen').onclick = () => { if (screenSharing) bridge?.stopScreenShare?.(); else if (!liveActive()) notice('Start a Live call first, then share your screen.'); else bridge?.startScreenShare?.(); };
 el('camera-preview').onclick = () => { cameraFacing = cameraFacing === 'environment' ? 'user' : 'environment'; stopCamera(); bridge?.requestCamera ? bridge.requestCamera() : void startCamera(); };
 for (const button of document.querySelectorAll<HTMLButtonElement>('[data-go]')) button.onclick = async () => { if (button.dataset.go === 'memory' && !(await unlockFor('memory'))) return; if (button.dataset.go === 'security') renderSecurity(); if (button.dataset.go === 'command') renderCommandCenter(); settingsPage(button.dataset.go!); };
+el('finder-on').onchange = () => { const r = protectCall({ enabled: el<HTMLInputElement>('finder-on').checked }); if (r) renderProtect(r, r.ok ? undefined : r.message); if (r?.message) notice(r.message); };
+el('finder-save').onclick = () => { const code = el<HTMLInputElement>('finder-code').value.trim(); let r = protectCall({ code }); if (r?.ok && !r.finder?.enabled) r = protectCall({ enabled: true }) || r; if (r) { if (r.ok) el<HTMLInputElement>('finder-code').value = ''; renderProtect(r, r.ok ? undefined : r.message); notice(r.ok ? `Saved. To find this phone, send "FRIDAY dhoondo ${code}" by SMS from another phone.` : r.message); } };
+el('finder-test').onclick = () => { const r = protectCall({ test: true }); if (r?.message) notice(r.message); };
+el('spam-on').onchange = () => { const r = protectCall({ part: 'spam', enabled: el<HTMLInputElement>('spam-on').checked }); if (r) renderProtect(r); if (r?.message) notice(r.message); };
+el('spam-block').onclick = () => { const r = protectCall({ part: 'spam', block: el<HTMLInputElement>('spam-number').value }); if (r) { if (r.ok) el<HTMLInputElement>('spam-number').value = ''; renderProtect(r); notice(r.message); } };
 el('update-check').onclick = () => { if (!bridge?.updateCheck) return notice('Updates work inside the Android app.'); el('update-status').textContent = 'Checking GitHub…'; bridge.updateCheck(); };
 el('update-download').onclick = () => { el('update-status').textContent = 'Downloading and checking…'; bridge?.updateDownload?.(); };
 el('update-install').onclick = () => { if (!confirm('Install the new FRIDAY? The current version and a data backup are saved to Downloads/FRIDAY first, and Android will ask you to confirm.')) return; bridge?.updateInstall?.(); };

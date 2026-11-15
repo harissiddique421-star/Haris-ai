@@ -819,6 +819,14 @@ public class MainActivity extends Activity {
     @JavascriptInterface public String patternOptions(String raw) { try { return FridayPattern.options(MainActivity.this, new JSONObject(raw == null ? "{}" : raw)).toString(); } catch (JSONException e) { return "{\"ok\":false,\"message\":\"Invalid options.\"}"; } }
     @JavascriptInterface public String patternRemove() { return FridayPattern.remove(MainActivity.this).toString(); }
     @JavascriptInterface public void patternDevice(String purpose) { runOnUiThread(() -> deviceAuth("reset".equals(purpose) ? "reset" : "unlock")); }
+    // ---- Phone protection: Find my phone and the spam call warning
+    @JavascriptInterface public String protectState() { return protectJson(); }
+    @JavascriptInterface public String protectOptions(String raw) {
+      try { JSONObject in = new JSONObject(raw == null ? "{}" : raw);
+        JSONObject r = "spam".equals(in.optString("part")) ? SpamGuard.options(MainActivity.this, in) : PhoneFinder.options(MainActivity.this, in);
+        JSONObject out = new JSONObject(protectJson()); out.put("ok", r.optBoolean("ok", true)).put("message", r.optString("message", "")); return out.toString();
+      } catch (JSONException e) { return "{\"ok\":false,\"message\":\"Invalid options.\"}"; }
+    }
     @JavascriptInterface public void haptic() { runOnUiThread(() -> { try { web.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY); } catch (RuntimeException ignored) {} }); }
     @JavascriptInterface public void guardianDelete() { runOnUiThread(() -> { VoiceGuardian.delete(MainActivity.this); WakeWordService.refresh(MainActivity.this); guardianEvent("deleted", 0, "Your saved voice is deleted. The wake word now works for any voice."); }); }
     @JavascriptInterface public void exportBackup() { runOnUiThread(() -> {
@@ -1466,8 +1474,13 @@ public class MainActivity extends Activity {
       }
     });
   }
+  private String protectJson(){
+    try{return new JSONObject().put("finder",PhoneFinder.state(this)).put("spam",SpamGuard.state(this)).put("permissions",permissionsCenter.state()).toString();}
+    catch(JSONException e){return "{}";}
+  }
   @Override protected void onActivityResult(int request,int result,Intent data){
     super.onActivityResult(request,result,data);
+    if(request==PermissionsCenter.ROLE_REQUEST){emit(json("type","permissions","permissions",permissionsCenter.state()));return;}
     if(request==DEVICE_AUTH){deviceAuthDone(result==RESULT_OK,result==RESULT_OK?"":"Cancelled.");return;}
     if(request==BACKUP_EXPORT||request==BACKUP_IMPORT){
       if(result!=RESULT_OK||data==null||data.getData()==null){backupResult("cancelled","Backup cancelled.");return;}

@@ -110,6 +110,8 @@ public final class NotificationReader extends NotificationListenerService {
         long now=System.currentTimeMillis();
         boolean again=!caller.isEmpty()&&caller.equalsIgnoreCase(lastCaller)&&now-lastCallerAt<15*60_000L;
         lastCaller=caller;lastCallerAt=now;ringingCaller=caller.isEmpty()?"":caller;
+        // Spam warning / blocked numbers when FRIDAY cannot screen calls itself (see SpamGuard).
+        try{SpamGuard.fromNotification(this,caller);}catch(RuntimeException ignored){}
         ControlLog.i("call: ringing, "+(caller.isEmpty()?"no caller id":CallerName.isNumber(caller)?"number not in contacts":"saved contact")+(again?", again":""));
         // A Live call says who is calling itself; otherwise the phone's own voice announces it.
         if(listener!=null)listener.ringing(caller,again);else announcer().ringing(key,caller,again);
