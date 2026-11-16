@@ -41,7 +41,17 @@ final class MediaPlayback {
   static boolean hasYouTubeLink(String text){return videoId(text)!=null;}
 
   // ---- search
-  static final class Video { final String id,title; Video(String id,String title){this.id=id;this.title=title;} }
+  static final class Video { final String id,title,channel; Video(String id,String title,String channel){this.id=id;this.title=title;this.channel=channel==null?"":channel;} }
+  private static final Pattern CHANNEL=Pattern.compile("\"(?:ownerText|longBylineText)\"\\s*:\\s*\\{\\s*\"runs\"\\s*:\\s*\\[\\s*\\{\\s*\"text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.){1,120})\"");
+  /** The result to play for a song: the real artist's upload before covers, lyrics or edits (see SongPick). */
+  static Video bestSong(String query,List<Video> found){
+    if(found.isEmpty())return null;
+    List<String> titles=new ArrayList<>(),channels=new ArrayList<>();
+    for(Video v:found){titles.add(v.title);channels.add(v.channel);}
+    int i=SongPick.best(query,titles,channels);
+    if(i>0)ControlLog.i("youtube: picked result "+(i+1)+" (artist's own upload) over the top result");
+    return found.get(i);
+  }
   /** Top results of a YouTube search, most relevant first (YouTube's own ranking). Retries once on a network error. */
   static List<Video> search(String query) throws IOException {
     IOException last=null;
@@ -62,10 +72,12 @@ final class MediaPlayback {
       String html=read(c.getInputStream(),3*1024*1024);
       List<Video> out=new ArrayList<>();Set<String> seen=new HashSet<>();
       Matcher m=RESULT.matcher(html);
-      while(m.find()&&out.size()<5){
+      while(m.find()&&out.size()<8){
         String id=m.group(1);if(!seen.add(id))continue;
-        Matcher t=TITLE.matcher(html.substring(m.end(),Math.min(html.length(),m.end()+4000)));
-        out.add(new Video(id,t.find()?unescape(t.group(1)):""));
+        String chunk=html.substring(m.end(),Math.min(html.length(),m.end()+12000));
+        Matcher next=RESULT.matcher(chunk);if(next.find())chunk=chunk.substring(0,next.start()); // only this result's fields
+        Matcher t=TITLE.matcher(chunk),ch=CHANNEL.matcher(chunk);
+        out.add(new Video(id,t.find()?unescape(t.group(1)):"",ch.find()?unescape(ch.group(1)):""));
       }
       return out;
     }finally{c.disconnect();}

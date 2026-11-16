@@ -319,6 +319,7 @@ public final class MobileActions {
         boolean opened=launcher.open(intent);if(!opened&&intent.getPackage()!=null)opened=launcher.open(new Intent(intent).setPackage(null));
         finish(id,opened?"opened":"unavailable",opened?(youtube?"YouTube":"Browser")+" search opened.":"No app can open this search on this device.");return;
       }
+      if("search_images".equals(action)){searchImages(id,args.optString("query"),Math.max(0,Math.min(20,args.optInt("number",0))));return;}
       if("whatsapp_message".equals(action)){
         String token=args.optString("confirm_token");
         // An old or used token with the full request: ask again with a fresh confirmation instead of a dead end
@@ -880,7 +881,7 @@ public final class MobileActions {
           finish(id,opened?"opened":"failed",opened?"I couldn't pick the video myself"+(why!=null?" (network problem)":"")+", so YouTube search for \""+text+"\" is open. Tap the one you want.":"I couldn't reach YouTube. Check the internet and try again.");
           return;
         }
-        MediaPlayback.Video v=results.get(0);
+        MediaPlayback.Video v=MediaPlayback.bestSong(text,results);
         openVideo(id,v.id,v.title,music,text);
       });
     });
@@ -1121,9 +1122,14 @@ public final class MobileActions {
       if(k==null){finish(id,"invalid","That confirmation expired or was already used. Ask again what to tap.");return;}
       target=k.name;expectPkg=k.phone;confirmed=true;
     }else target=args.optString("target").trim();
-    if(target.isEmpty()||target.length()>120){finish(id,"invalid","Say which button or item to tap.");return;}
     String pkg=c.foreground();
     if(expectPkg!=null&&!expectPkg.equals(pkg)){finish(id,"cancelled","The screen changed since you confirmed, so I did not tap anything.");return;}
+    // A picture by its number ("pehli picture kholo"): images have no button label to tap by.
+    int picture=args.optInt("number",0);
+    if(!confirmed&&picture>0&&target.isEmpty()){tapPicture(id,c,picture);return;}
+    // A position on the shared screen (0-1000 across and down), for things that have no label.
+    if(target.startsWith("@")||(!confirmed&&target.isEmpty()&&args.has("x")&&args.has("y"))){tapPosition(id,c,target.startsWith("@")?target:"@"+args.optInt("x",-1)+","+args.optInt("y",-1),pkg,confirmed);return;}
+    if(target.isEmpty()||target.length()>120){finish(id,"invalid","Say which button or item to tap.");return;}
     android.view.accessibility.AccessibilityNodeInfo node=c.find(target,false);
     if(node==null){ControlLog.i("tap: \""+target+"\" not found in "+pkg);finish(id,"not_found","I can't see \""+target+"\" on this screen. Use read_screen to see what is there.");return;}
     String label=PhoneController.labelOf(node);
@@ -1135,6 +1141,66 @@ public final class MobileActions {
     boolean ok=c.tap(node);
     ControlLog.i("tap \""+label+"\" in "+pkg+": "+(ok?"tapped":"no response"));
     finish(id,ok?"done":"failed",ok?"Tapped \""+label+"\". Check the screen again before the next step.":"That item did not respond to a tap.");
+  }
+  /** Opens the nth picture on the screen (1 = first), counted in reading order. */
+  private void tapPicture(String id,PhoneController c,int n){
+    List<android.view.accessibility.AccessibilityNodeInfo> pics=c.pictures();
+    if(pics.isEmpty()){ControlLog.i("tap picture: none on "+c.foreground());finish(id,"not_found","I can't find any pictures on this screen. If the page is still loading, wait a second and try again, or use tap with x and y on the shared screen.");return;}
+    if(n>pics.size()){finish(id,"not_found","Only "+pics.size()+" pictures are visible right now. Scroll down to see more, then ask again.");return;}
+    android.view.accessibility.AccessibilityNodeInfo node=pics.get(n-1);String label=PhoneController.labelOf(node);
+    boolean ok=c.tap(node);
+    ControlLog.i("tap picture "+n+" of "+pics.size()+" in "+c.foreground()+": "+(ok?"tapped":"no response"));
+    JSONObject v=status(ok?"done":"failed",ok?"Opened picture "+n+(label.isEmpty()?"":" (\""+(label.length()>80?label.substring(0,80)+"…":label)+"\")")+". It should be showing big now.":"That picture did not respond to a tap.");
+    try{v.put("pictures_on_screen",pics.size());}catch(JSONException ignored){}
+    finish(id,v);
+  }
+  /** Taps a point given as 0-1000 across and down the screen. Names what is there first, and risky items still need a yes. */
+  private void tapPosition(String id,PhoneController c,String spot,String pkg,boolean confirmed){
+    int x,y;
+    try{String[] p=spot.substring(1).split(",");x=Integer.parseInt(p[0].trim());y=Integer.parseInt(p[1].trim());}catch(RuntimeException e){finish(id,"invalid","Give x and y from 0 to 1000.");return;}
+    if(x<0||x>1000||y<0||y>1000){finish(id,"invalid","x and y go from 0 (left/top) to 1000 (right/bottom) of the shared screen.");return;}
+    android.graphics.Rect s=c.screenBounds();
+    float px=s.left+s.width()*x/1000f,py=s.top+s.height()*y/1000f;
+    android.view.accessibility.AccessibilityNodeInfo under=c.nodeAt(Math.round(px),Math.round(py));
+    String label=under==null?"":PhoneController.labelOf(under);
+    if(!confirmed&&PhoneController.risky(label,pkg)){
+      JSONObject value=status("needs_confirmation","That spot is \""+label+"\" in "+c.appLabel(pkg)+", which may send, pay, delete, install or change a permission. Ask the user this exact question and wait for a clear yes. Only after they say yes, call mobile_action again with action tap and this confirm_token.");
+      try{value.put("confirm_token",token("tap",new Recipient("@"+x+","+y,pkg),null)).put("label",label).put("app",c.appLabel(pkg));}catch(JSONException ignored){}
+      finish(id,value);return;
+    }
+    boolean ok=c.tapAt(px,py);
+    ControlLog.i("tap at "+x+","+y+" in "+pkg+": "+(ok?"tapped":"refused"));
+    finish(id,ok?"done":"failed",ok?"Tapped"+(label.isEmpty()?" there":" \""+label+"\"")+". Look at the screen again before the next step.":"Android did not accept the tap.");
+  }
+
+  /**
+   * Google Images for a query. With number (1 = first) it also opens that picture once the
+   * results have loaded, so "X ki picture kholo" ends with the picture open, not just a search.
+   */
+  private void searchImages(String id,String query,int open){
+    Intent intent=imageSearch(query);
+    boolean chrome=launcher.installed("com.android.chrome");if(chrome)intent.setPackage("com.android.chrome");
+    boolean opened=launcher.open(intent);if(!opened&&chrome)opened=launcher.open(new Intent(intent).setPackage(null));
+    if(!opened){finish(id,"unavailable","No browser can open Google Images on this phone.");return;}
+    if(open<=0){finish(id,"opened","Google Images for \""+query.trim()+"\" is open.");return;}
+    ControlLog.i("images: opened, waiting to open picture "+open);
+    long until=System.currentTimeMillis()+12000;
+    main.postDelayed(new Runnable(){public void run(){
+      if(gone(id))return;
+      PhoneController c=PhoneController.get();
+      if(c==null){finish(id,"opened","Google Images is open, but I can't tap the picture because FRIDAY's accessibility switch is off. Turn on FRIDAY phone control in Accessibility settings, or tap the picture yourself.");return;}
+      String pkg=c.foreground();
+      List<android.view.accessibility.AccessibilityNodeInfo> pics=activity.getPackageName().equals(pkg)?Collections.<android.view.accessibility.AccessibilityNodeInfo>emptyList():c.pictures();
+      if(pics.size()>=Math.min(open,4)||System.currentTimeMillis()>until){
+        if(pics.isEmpty()){ControlLog.i("images: no pictures found in "+pkg);finish(id,"opened","Google Images is open but I couldn't find the pictures to tap. Tell me to try again, or tap one yourself.");return;}
+        tapPicture(id,c,Math.min(open,pics.size()));return;
+      }
+      main.postDelayed(this,700);
+    }},2500);
+  }
+  public static Intent imageSearch(String query){
+    if(query==null||query.trim().isEmpty()||query.length()>1000)throw new IllegalArgumentException("Say what pictures you want to see.");
+    return new Intent(Intent.ACTION_VIEW,Uri.parse("https://www.google.com/search").buildUpon().appendQueryParameter("q",query.trim()).appendQueryParameter("tbm","isch").build());
   }
 
   interface ThenWa { void with(WaContact contact); }
