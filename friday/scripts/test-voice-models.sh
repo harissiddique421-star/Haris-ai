@@ -26,7 +26,7 @@ javac -encoding UTF-8 -source 8 -target 8 -nowarn -cp "$JSON" -d "$OUT/classes" 
   "$SRC/Safetensors.java" "$SRC/SileroVad.java" "$SRC/Voiceprinter.java" "$SRC/VoiceEncoder.java" "$SRC/TitaNet.java" "$SRC/WakeSpotter.java" $(find android/app/src/main/java/com/k2fsa -name "*.java") "$SRC/SpeechSegmenter.java" \
   "$SRC/SpeakerProfile.java" "$SRC/NoiseReducer.java" "$SRC/VoiceGate.java" "$SRC/VoiceGateSession.java" "$SRC/ControlLog.java" \
   "$SRC/MemoryRank.java" "$SRC/NoteLogic.java" "$SRC/LinkSafety.java" "$SRC/ExpenseLogic.java" "$SRC/HabitLogic.java" "$SRC/Persona.java" "$SRC/SelfImprovement.java" "$SRC/UpdatePlan.java" "$SRC/UnlockTask.java" \
-  "$SRC/VoiceNotes.java" "$SRC/ProtectLogic.java" "$SRC/ContactMatcher.java" "$SRC/TextProviders.java" "$SRC/GeminiAccess.java" android/tests/jvm/android/content/Context.java \
+  "$SRC/VoiceNotes.java" "$SRC/ProtectLogic.java" "$SRC/SongPick.java" "$SRC/ContactMatcher.java" "$SRC/TextProviders.java" "$SRC/GeminiAccess.java" android/tests/jvm/android/content/Context.java \
   android/tests/jvm/android/util/Log.java android/tests/jvm/com/myraa/mobile/*.java
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.VoiceModelsCheck android/models android/tests/jvm/fixtures
 java -cp "$OUT/classes:$JSON" com.myraa.mobile.SpeechSegmenterCheck android/models android/tests/jvm/fixtures
