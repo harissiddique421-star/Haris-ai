@@ -44,6 +44,7 @@ final class WebsiteBuilder {
 
   static final class Site {
     final String name,html,summary,logoKind,heroKind;final boolean logoMade,heroMade;final int photos;final long ms;
+    final List<byte[]> pictures=new ArrayList<>();
     Site(String name,String html,String summary,String logoKind,String heroKind,int photos,long ms){
       this.name=name;this.html=html;this.summary=summary;this.logoKind=logoKind;this.heroKind=heroKind;this.photos=photos;this.ms=ms;
       this.logoMade=!"initials".equals(logoKind);this.heroMade=!"colour".equals(heroKind);
@@ -55,19 +56,19 @@ final class WebsiteBuilder {
   static String instruction(String language){
     String lang=language==null||language.trim().isEmpty()?"English":language.trim();
     return "You are a senior web designer and front-end developer. Build ONE complete, professional, responsive one-page website.\n"
-      +"Return JSON only, with these fields: html (the whole page), logo_svg, logo_prompt, hero_prompt, photo_query, hero_alt, brand_color (#rrggbb), summary (one short sentence describing the site).\n"
+      +"Return JSON only, with these fields: html (the whole page), logo_svg, logo_prompt, hero_prompt, photo_query, gallery_title, hero_alt, brand_color (#rrggbb), summary (one short sentence describing the site).\n"
       +"HTML rules:\n"
       +"- One file: <!doctype html>, <html lang>, <head> with charset, viewport, <title>, <meta name=\"description\">, <link rel=\"icon\" href=\""+LOGO+"\">, and ALL CSS in one <style> tag. JavaScript only a few lines for the mobile menu, in one <script> tag.\n"
       +"- Mobile-first and responsive: must look right at 360px, 768px and 1200px wide. Use CSS variables --primary, --accent, --text, --bg for the brand colours. Good contrast, readable font sizes.\n"
       +"- Semantic tags: header with nav, main, section, footer. Sections in order: Hero, About, Services (cards), Contact, unless the brief asks for others.\n"
-      +"- The logo is an <img src=\""+LOGO+"\" alt=\"<name> logo\"> in the header (height about 44px, width auto); it already contains the brand name, so do not repeat the name as text next to it. The hero has an <img src=\""+HERO+"\" alt=\"...\"> (object-fit: cover, no loading=lazy) with the headline and a call-to-action button over or beside it. Use these two placeholders exactly. For real photos in About, Services or a small gallery you may also use <img src=\"{{PHOTO1}}\">, <img src=\"{{PHOTO2}}\"> and <img src=\"{{PHOTO3}}\"> (each at most once, with a good alt, object-fit: cover, a fixed height or aspect-ratio, rounded corners); use at least two of them. Do not use any other image file or image URL. Icons may be inline SVG or emoji.\n"
+      +"- The logo is an <img src=\""+LOGO+"\" alt=\"<name> logo\"> in the header (height about 44px, width auto); it already contains the brand name, so do not repeat the name as text next to it. The hero has an <img src=\""+HERO+"\" alt=\"...\"> (object-fit: cover, no loading=lazy) with the headline and a call-to-action button over or beside it. Use these two placeholders exactly. For real photos in About, Services or a small gallery you may also use <img src=\"{{PHOTO1}}\">, <img src=\"{{PHOTO2}}\"> and <img src=\"{{PHOTO3}}\"> (each at most once, with a good alt, object-fit: cover, a fixed height or aspect-ratio, rounded corners); use all three of them (real photos make the site look professional). Do not use any other image file or image URL. Icons may be inline SVG or emoji.\n"
       +"- No external resources except Google Fonts. No analytics, no trackers, no external scripts.\n"
       +"- If a WhatsApp or phone number is given, add a WhatsApp button linking to https://wa.me/<digits only, with country code> and a tel: link.\n"
       +"- The contact form is design only: add a small line under it saying messages are not sent yet. Do not pretend it works.\n"
       +"- NEVER invent facts: no fake reviews, testimonials, client names, awards, prices or statistics. Never invent a phone, email or address; if missing, write a clear placeholder like [Your phone number].\n"
       +"- All visible text in "+lang+". Short, clear, professional copy that fits the business.\n"
       +"logo_svg: design the brand's logo yourself like a senior brand designer would: one complete, original SVG (viewBox about 0 0 480 120, horizontal lockup) with a distinctive symbol built from the business's idea (not a generic circle, star or initials in a box) next to the brand name as a clean wordmark in the brand colours. Use only path, circle, rect, polygon, ellipse, line, g, defs, linearGradient and text (font-family: Poppins, Montserrat, Arial, sans-serif; font-weight 600-800, letter-spacing a little). No images, no scripts, no links, no external fonts. Balanced spacing, crisp shapes, readable at 44px tall, looks good on a white header.\n"
-      +"photo_query: 2 to 5 plain English keywords to search real stock photos that fit the business (for example \"bakery fresh bread\" or \"modern dental clinic\").\n"
+      +"photo_query: 2 to 4 plain, common English keywords to search real stock photos that fit the business (for example \"bakery bread\" or \"dental clinic\"); no brand names, no city names, most important word first. gallery_title: a short heading for a photo gallery, in the page language.\n"
       +"logo_prompt: describe a simple, flat, modern logo mark for this brand (shape, symbol, colours). hero_prompt: describe a high-quality photo for the hero that fits the business, in the brand colours and mood. Both prompts in English, and both images must contain no text or letters.";
   }
 
@@ -103,6 +104,10 @@ final class WebsiteBuilder {
     if(!low.contains("<html")||!low.contains("</html>")||h.length()<400)throw new IllegalArgumentException("The website came back incomplete. Try again, or ask for a simpler page.");
     h=h.replaceAll("(?is)<script[^>]*\\bsrc\\s*=[^>]*>\\s*</script>","");
     h=h.replaceAll("(?is)<iframe\\b.*?(</iframe>|/>)","");
+    if(!h.contains(HERO)){
+      int header=h.toLowerCase(Locale.ROOT).indexOf("</header>");
+      if(header>0)h=h.substring(0,header+9)+"<img src=\""+HERO+"\" alt=\"\" style=\"width:100%;height:clamp(220px,45vw,520px);object-fit:cover;display:block\">"+h.substring(header+9);
+    }
     if(!h.contains(LOGO)){
       int header=h.toLowerCase(Locale.ROOT).indexOf("<header");
       int close=header<0?-1:h.indexOf('>',header);
@@ -174,18 +179,19 @@ final class WebsiteBuilder {
       try{byte[] png=image(key,logoPrompt(title,site.optString("logo_prompt"),brand),"1:1");if(png!=null){logo=dataUri(png,512,true);if(logo!=null)logoKind="image";}}
       catch(Exception e){imagesWork=false;ControlLog.i("website: logo not made ("+code(e)+")");}
     }
-    // Real photos from the internet (openly licensed, credited in the footer).
-    List<WebPhotos.Photo> found=WebPhotos.search(site.optString("photo_query",title),6);
-    List<WebPhotos.Photo> used=new ArrayList<>();List<String> photos=new ArrayList<>();
-    for(WebPhotos.Photo p:found){
-      if(photos.size()>=1+PHOTOS.length)break;
-      byte[] raw=WebPhotos.download(p);String uri=raw==null?null:dataUri(raw,1400,false);
-      if(uri!=null){photos.add(uri);used.add(p);}
+    // Real photos from the internet, like a web designer picks stock photos: searched, downloaded to the phone,
+    // made web-sized and put inside the page itself (so they show even offline), credited in the footer.
+    List<WebPhotos.Got> got=WebPhotos.fetch(site.optString("photo_query",""),title,1+PHOTOS.length+1);
+    List<WebPhotos.Photo> used=new ArrayList<>();List<String> photos=new ArrayList<>();List<byte[]> files=new ArrayList<>();
+    for(WebPhotos.Got g:got){
+      byte[] jpg=webJpeg(g.bytes,1400);if(jpg==null)continue;
+      photos.add(jpegUri(jpg));used.add(g.photo);files.add(jpg);
     }
-    ControlLog.i("website: "+photos.size()+" internet photos");
-    // Hero: a real photo when the user asked for real or internet pictures, otherwise Gemini's picture, then a real photo.
+    ControlLog.i("website: "+photos.size()+" internet photos ready");
+    // Hero: a real internet photo first (what the user wants from a designer); Gemini's picture only when none was found,
+    // or when the brief asks for a made (AI) picture.
     String hero=null,heroKind="colour";int next=0;
-    if(wantsRealPhotos(details)&&!photos.isEmpty()){hero=photos.get(next++);heroKind="photo";}
+    if(!photos.isEmpty()&&!wantsMadePicture(details)){hero=photos.get(next++);heroKind="photo";}
     if(hero==null&&imagesWork){
       try{byte[] jpg=image(key,heroPrompt(site.optString("hero_prompt"),brand),"16:9");if(jpg!=null){hero=dataUri(jpg,1600,false);if(hero!=null)heroKind="made";}}
       catch(Exception e){ControlLog.i("website: hero not made ("+code(e)+")");}
@@ -193,15 +199,34 @@ final class WebsiteBuilder {
     if(hero==null&&next<photos.size()){hero=photos.get(next++);heroKind="photo";}
     if(logo==null)logo=fallbackLogo(title,brand);
     String page=fill(html,logo,hero!=null?hero:fallbackHero(brand));
-    int placed=0;List<WebPhotos.Photo> credited=new ArrayList<>();
-    if("photo".equals(heroKind))credited.add(used.get(0));
+    List<WebPhotos.Photo> credited=new ArrayList<>();List<byte[]> kept=new ArrayList<>();
+    if("photo".equals(heroKind)){credited.add(used.get(0));kept.add(files.get(0));}
+    boolean anySpot=false;
     for(String spot:PHOTOS){
       if(!page.contains(spot))continue;
-      if(next<photos.size()){page=page.replace(spot,photos.get(next));credited.add(used.get(next));next++;placed++;}
+      anySpot=true;
+      if(next<photos.size()){page=page.replace(spot,photos.get(next));credited.add(used.get(next));kept.add(files.get(next));next++;}
+      else if(!photos.isEmpty()){page=page.replace(spot,photos.get((next++)%photos.size()));}
       else page=page.replace(spot,fallbackHero(brand));
     }
+    // The model left no place for photos: add a small gallery with the photos that are left, as a designer would.
+    if(!anySpot&&next<photos.size()){
+      List<String> rest=new ArrayList<>();
+      while(next<photos.size()&&rest.size()<3){rest.add(photos.get(next));credited.add(used.get(next));kept.add(files.get(next));next++;}
+      page=WebPhotos.addGallery(page,rest,site.optString("gallery_title","Gallery"));
+    }
     page=WebPhotos.addCredits(page,credited);
-    return new Site(title,page,clip(site.optString("summary"),300),logoKind,heroKind,credited.size(),System.currentTimeMillis()-started);
+    Site made=new Site(title,page,clip(site.optString("summary"),300),logoKind,heroKind,credited.size(),System.currentTimeMillis()-started);
+    made.pictures.addAll(kept);
+    return made;
+  }
+
+  /** The user asked for a picture made by AI rather than a real photo ("AI picture", "generate", "bana kar"). */
+  static boolean wantsMadePicture(String brief){
+    if(brief==null)return false;
+    String b=brief.toLowerCase(Locale.ROOT);
+    if(wantsRealPhotos(b))return false;
+    return b.matches("(?s).*(\\bai (picture|image|photo|tasveer)|ai se (picture|image|tasveer)|ai generated|illustration|cartoon).*");
   }
 
   /** The user asked for real pictures ("internet se picture", "real photo", "asli tasveer"). */
@@ -259,13 +284,37 @@ final class WebsiteBuilder {
 
   /** Shrinks a picture for the web (logo PNG 512 px, hero JPEG 1600 px) and returns it as a data: URI. */
   private static String dataUri(byte[] raw,int max,boolean png){
-    Bitmap b=BitmapFactory.decodeByteArray(raw,0,raw.length);
+    Bitmap b=decode(raw,max);
     if(b==null)return null;
-    int w=b.getWidth(),h=b.getHeight();
-    if(Math.max(w,h)>max){float s=max/(float)Math.max(w,h);Bitmap scaled=Bitmap.createScaledBitmap(b,Math.round(w*s),Math.round(h*s),true);if(scaled!=b){b.recycle();b=scaled;}}
     ByteArrayOutputStream out=new ByteArrayOutputStream();
     b.compress(png?Bitmap.CompressFormat.PNG:Bitmap.CompressFormat.JPEG,png?100:80,out);b.recycle();
     return "data:image/"+(png?"png":"jpeg")+";base64,"+Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP);
+  }
+
+  /** A downloaded photo made web-sized (longest side max px) as JPEG bytes; null when it is not a picture. */
+  static byte[] webJpeg(byte[] raw,int max){
+    Bitmap b=decode(raw,max);
+    if(b==null)return null;
+    try{ByteArrayOutputStream out=new ByteArrayOutputStream();b.compress(Bitmap.CompressFormat.JPEG,82,out);return out.toByteArray();}
+    finally{b.recycle();}
+  }
+  static String jpegUri(byte[] jpg){return "data:image/jpeg;base64,"+Base64.encodeToString(jpg,Base64.NO_WRAP);}
+
+  /** Decodes a picture without loading a huge original into memory (big camera photos are read at a smaller size first). */
+  private static Bitmap decode(byte[] raw,int max){
+    if(raw==null||raw.length==0)return null;
+    try{
+      BitmapFactory.Options o=new BitmapFactory.Options();o.inJustDecodeBounds=true;
+      BitmapFactory.decodeByteArray(raw,0,raw.length,o);
+      if(o.outWidth<=0||o.outHeight<=0)return null;
+      int sample=1;while(Math.max(o.outWidth,o.outHeight)/(sample*2)>=max)sample*=2;
+      BitmapFactory.Options d=new BitmapFactory.Options();d.inSampleSize=sample;
+      Bitmap b=BitmapFactory.decodeByteArray(raw,0,raw.length,d);
+      if(b==null)return null;
+      int w=b.getWidth(),h=b.getHeight();
+      if(Math.max(w,h)>max){float s=max/(float)Math.max(w,h);Bitmap scaled=Bitmap.createScaledBitmap(b,Math.round(w*s),Math.round(h*s),true);if(scaled!=b){b.recycle();b=scaled;}}
+      return b;
+    }catch(OutOfMemoryError e){ControlLog.i("website: picture too big for memory");return null;}
   }
 
   private static JSONObject post(String key,String model,JSONObject request) throws Exception {
@@ -298,6 +347,27 @@ final class WebsiteBuilder {
       out.write(site.html.getBytes(StandardCharsets.UTF_8));
     }catch(IOException|RuntimeException e){resolver.delete(uri,null,null);throw e;}
     values.clear();values.put(MediaStore.MediaColumns.IS_PENDING,0);resolver.update(uri,values,null,null);
+    savePictures(c,site);
     return new Documents.Saved(uri,name,"text/html");
+  }
+
+  /** Also keeps the website's internet photos on the phone, in Pictures/FRIDAY/<site name>, so the user can see and reuse them. */
+  static int savePictures(Context c,Site site){
+    int saved=0;
+    String folder=fileName(site.name,new Date()).replaceAll("\\.html$","").trim();
+    ContentResolver resolver=c.getContentResolver();
+    for(int i=0;i<site.pictures.size();i++){
+      ContentValues v=new ContentValues();
+      v.put(MediaStore.MediaColumns.DISPLAY_NAME,"photo "+(i+1)+".jpg");v.put(MediaStore.MediaColumns.MIME_TYPE,"image/jpeg");
+      v.put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_PICTURES+"/FRIDAY/"+folder);v.put(MediaStore.MediaColumns.IS_PENDING,1);
+      Uri u=null;
+      try{
+        u=resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,v);if(u==null)continue;
+        try(OutputStream out=resolver.openOutputStream(u,"w")){if(out==null)throw new IOException("no stream");out.write(site.pictures.get(i));}
+        v.clear();v.put(MediaStore.MediaColumns.IS_PENDING,0);resolver.update(u,v,null,null);saved++;
+      }catch(Exception e){if(u!=null)try{resolver.delete(u,null,null);}catch(Exception ignored){}ControlLog.i("website: photo not saved to Pictures ("+e.getClass().getSimpleName()+")");}
+    }
+    if(saved>0)ControlLog.i("website: "+saved+" photos saved in Pictures/FRIDAY");
+    return saved;
   }
 }

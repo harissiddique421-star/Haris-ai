@@ -1154,12 +1154,12 @@ window.MyraaEvents = event => {
     const logoText = event.logo_kind === 'designed' ? 'a logo FRIDAY designed herself (vector, with the name)' : event.logo === true ? 'its own logo' : 'a simple initials logo';
     const heroText = event.hero_kind === 'photo' ? 'a real photo from the internet in the hero' : event.hero === true ? 'a hero picture made for it' : 'a colour background in the hero';
     const photoCount = Number(event.photos) || 0;
-    const pictures = `with ${logoText}, ${heroText}${photoCount ? `, and ${photoCount} real internet photo${photoCount > 1 ? 's' : ''} (openly licensed, credited in the footer)` : ', and no internet photos because the photo search was not reachable'}`;
+    const pictures = `with ${logoText}, ${heroText}${photoCount ? `, and ${photoCount} real internet photo${photoCount > 1 ? 's' : ''} (openly licensed, credited in the footer, also saved in the phone gallery under Pictures/FRIDAY)` : ', and no internet photos because the photo search was not reachable'}`;
     const where = event.opened === true ? 'It is open in the browser now.' : 'Say it can be opened from Downloads/FRIDAY.';
     notice(ok ? `Website ready: ${name} (in Downloads/FRIDAY).` : String(event.message || 'The website could not be made.'));
     // Always show the outcome in the chat too, so a typed request is never left on "building" with no answer.
     append('model', ok
-      ? `Website ready: ${name} (Downloads/FRIDAY mein). ${event.logo_kind === 'designed' ? 'FRIDAY ka design kiya hua logo' : event.logo === true ? 'Logo' : 'Simple initials logo'}${photoCount ? `, internet se ${photoCount} photo` : ''}${event.hero === true ? ' aur hero picture ke saath.' : ', hero mein colour background.'}`
+      ? `Website ready: ${name} (Downloads/FRIDAY mein). ${event.logo_kind === 'designed' ? 'FRIDAY ka design kiya hua logo' : event.logo === true ? 'Logo' : 'Simple initials logo'}${photoCount ? `, internet se ${photoCount} photo (Pictures/FRIDAY mein bhi save)` : ''}${event.hero === true ? ' aur hero picture ke saath.' : ', hero mein colour background.'}`
       : String(event.message || 'The website could not be made.'));
     const say = ok
       ? `[Phone] The website for "${title}" is ready, ${pictures}. Saved as ${name} in Downloads/FRIDAY. ${where} About it: "${String(event.summary || '').slice(0, 300)}". Tell the user in one or two short spoken lines, mention that the contact form is design only, and ask if they want any change (colours, text or images) or to send it on WhatsApp.`
