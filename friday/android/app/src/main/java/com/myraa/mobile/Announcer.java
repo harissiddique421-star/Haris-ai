@@ -97,7 +97,7 @@ final class Announcer {
     if(!announceCalls(context)&&!driving(context))return;
     AudioManager audio=context.getSystemService(AudioManager.class);
     if(audio!=null&&audio.getRingerMode()!=AudioManager.RINGER_MODE_NORMAL&&!driving(context)){ControlLog.i("announce: call skipped, phone is silent/vibrate");return;}
-    String line=callLine(caller,again,hindi(),new Random().nextInt(5)==0);
+    String line=callLine(caller,again,hindi(),new Random().nextInt(5)==0)+SpamGuard.spokenWarning(context,caller,hindi());
     main.post(()->{
       ringingKey=key;ControlLog.i("announce: incoming call");
       main.postDelayed(()->{if(key.equals(ringingKey))speak(line,true);},1200);
