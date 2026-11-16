@@ -12,7 +12,7 @@ const OWNERS: Record<AgentName, string[]> = {
   security: ['check_link'],
   finance: ['expense'],
   communication: ['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'email', 'open_contact', 'open_dialer', 'read_notifications', 'answer_call', 'reject_call', 'silence_call', 'who_is_calling', 'missed_calls', 'set_call_announce', 'set_driving_mode', 'reply_message', 'emergency', 'emergency_contact', 'voice_note'],
-  media: ['search_youtube', 'play_music', 'resume_video', 'media'],
+  media: ['search_youtube', 'search_images', 'play_music', 'resume_video', 'media'],
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
   memory: ['my_words', 'remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'set_language', 'save_routine', 'standing_order', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],

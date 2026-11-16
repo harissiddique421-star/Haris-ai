@@ -198,3 +198,12 @@ test('new Stage 5/9/10 actions are declared to Gemini and owned by an agent', ()
   for (const a of ['task', 'check_link', 'set_language']) assert.ok(names.includes(a), a + ' declared');
   assert.equal(agentFor('check_link'), 'security'); assert.equal(agentFor('set_language'), 'memory');
 });
+test('pictures: show only searches, kholo also opens the first picture',()=>{
+  assert.deepEqual(parseMobileAction('show me pictures of Faisal Mosque'),{action:'search_images',query:'Faisal Mosque'});
+  assert.deepEqual(parseMobileAction('Faisal Mosque ki pictures dikhao'),{action:'search_images',query:'Faisal Mosque'});
+  assert.deepEqual(parseMobileAction('Faisal Mosque ki picture kholo'),{action:'search_images',query:'Faisal Mosque',number:1});
+});
+test('play words play, search words only search',()=>{
+  assert.deepEqual(parseMobileAction('YouTube par Pasoori chalao'),{action:'play_youtube',query:'Pasoori'});
+  assert.deepEqual(parseMobileAction('search Pasoori on youtube'),{action:'search_youtube',query:'Pasoori'});
+});

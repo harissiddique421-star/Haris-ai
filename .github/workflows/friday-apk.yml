@@ -50,6 +50,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/protect"
           javac -d "$RUNNER_TEMP/protect" android/app/src/main/java/com/myraa/mobile/ProtectLogic.java android/tests/jvm/com/myraa/mobile/ProtectLogicCheck.java
           java -cp "$RUNNER_TEMP/protect" com.myraa.mobile.ProtectLogicCheck
+      - name: Song pick checks (play the real artist's upload, not covers or edits)
+        run: |
+          mkdir -p "$RUNNER_TEMP/songpick"
+          javac -d "$RUNNER_TEMP/songpick" android/app/src/main/java/com/myraa/mobile/SongPick.java android/tests/jvm/com/myraa/mobile/SongPickCheck.java
+          java -cp "$RUNNER_TEMP/songpick" com.myraa.mobile.SongPickCheck
       - name: Voice model checks (Silero VAD, speaker encoder, speech segmentation)
         run: ./scripts/test-voice-models.sh
       - name: Voice engine checks (sherpa-onnx TitaNet and wake phrase spotting)

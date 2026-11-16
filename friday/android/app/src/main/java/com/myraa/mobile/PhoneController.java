@@ -245,6 +245,56 @@ public class PhoneController extends AccessibilityService {
     return dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p,0,60)).build(),null,null);
   }
 
+  /**
+   * The pictures on the screen, in reading order (top to bottom, then left to right). Small
+   * icons, toolbar logos and FRIDAY's own screen are left out, so "the first picture" means the
+   * first real image result, as a person would count them (Google Images, a gallery, a website).
+   */
+  List<AccessibilityNodeInfo> pictures(){
+    AccessibilityNodeInfo root=getRootInActiveWindow();List<AccessibilityNodeInfo> out=new ArrayList<>();if(root==null)return out;
+    Rect screen=new Rect();root.getBoundsInScreen(screen);
+    int minSide=Math.max(120,screen.width()/6),topBand=screen.top+screen.height()/8;
+    List<AccessibilityNodeInfo> all=new ArrayList<>();collect(root,all,0);Rect r=new Rect();
+    for(AccessibilityNodeInfo n:all){
+      if(!n.isVisibleToUser())continue;
+      CharSequence cls=n.getClassName();String c=cls==null?"":cls.toString();
+      if(!(c.endsWith("Image")||c.endsWith("ImageView")||c.endsWith("ImageButton")))continue;
+      n.getBoundsInScreen(r);
+      if(r.width()<minSide||r.height()<minSide||r.bottom<=topBand)continue;
+      String l=MobileActions.normalize(label(n));
+      if(l.equals("google")||l.contains("logo")||l.contains("profile picture")||l.contains("account"))continue;
+      boolean inside=false;for(AccessibilityNodeInfo o:out){Rect q=new Rect();o.getBoundsInScreen(q);if(q.contains(r)||r.contains(q)){inside=true;break;}}
+      if(!inside)out.add(n);
+    }
+    Collections.sort(out,(a,b)->{Rect ra=new Rect(),rb=new Rect();a.getBoundsInScreen(ra);b.getBoundsInScreen(rb);int row=Math.abs(ra.top-rb.top)<ra.height()/3?0:Integer.compare(ra.top,rb.top);return row!=0?row:Integer.compare(ra.left,rb.left);});
+    return out;
+  }
+
+  /** Screen size in pixels, to turn a 0-1000 position from the shared screen into a real point. */
+  Rect screenBounds(){
+    AccessibilityNodeInfo root=getRootInActiveWindow();Rect r=new Rect();
+    if(root!=null)root.getBoundsInScreen(r);
+    if(r.isEmpty()){android.util.DisplayMetrics m=getResources().getDisplayMetrics();r.set(0,0,m.widthPixels,m.heightPixels);}
+    return r;
+  }
+  /** The smallest visible labelled item under a point, or null: used to name what a position tap would press. */
+  AccessibilityNodeInfo nodeAt(int x,int y){
+    AccessibilityNodeInfo root=getRootInActiveWindow();if(root==null)return null;
+    List<AccessibilityNodeInfo> all=new ArrayList<>();collect(root,all,0);
+    AccessibilityNodeInfo best=null;long bestArea=Long.MAX_VALUE;Rect r=new Rect();
+    for(AccessibilityNodeInfo n:all){
+      if(!n.isVisibleToUser())continue;n.getBoundsInScreen(r);if(!r.contains(x,y))continue;
+      if(label(n).isEmpty()&&!n.isClickable())continue;
+      long area=(long)r.width()*r.height();if(area<bestArea){best=n;bestArea=area;}
+    }
+    return best;
+  }
+  /** A short tap gesture at one point on the screen. */
+  boolean tapAt(float x,float y){
+    Path p=new Path();p.moveTo(x,y);
+    return dispatchGesture(new GestureDescription.Builder().addStroke(new GestureDescription.StrokeDescription(p,0,60)).build(),null,null);
+  }
+
   JSONObject type(String target,String text){
     if(text==null||text.isEmpty()||text.length()>2000)throw new IllegalArgumentException("Tell me what to type.");
     AccessibilityNodeInfo root=getRootInActiveWindow();if(root==null){ControlLog.i("type_text: no window content");return PhoneControls.result("unavailable","I can't reach this screen.");}
