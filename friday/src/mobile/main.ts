@@ -231,7 +231,11 @@ const confirmMemory = new ConfirmMemory();
 function modelDispatch(name: string, args: any): Promise<any> {
   const done = confirmMemory.already(args);
   if (done) return Promise.resolve(done);
-  return orchestrator.dispatch(name, withHeard(args)).then(result => { confirmMemory.saw(args, result); return result; });
+  const run = orchestrator.dispatch(name, withHeard(args)).then(result => { confirmMemory.saw(args, result); return result; });
+  // The model is already carrying out the yes with this token: the phone must not run it a second time (that second
+  // run used to come back "expired" and was shown and spoken as an error while the message or call was going out).
+  confirmMemory.claim(args, run);
+  return run;
 }
 /**
  * The user answered yes ("haan", "hn kro") to the last send question: the phone sends it at once, then tells the
