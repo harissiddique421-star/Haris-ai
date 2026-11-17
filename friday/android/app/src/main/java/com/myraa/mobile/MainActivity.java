@@ -84,7 +84,7 @@ public class MainActivity extends Activity {
 
   /** True while this phone has no valid activation key: only the activation screen runs. */
   private boolean activationLocked;
-  static final String VERSION = "1.0.0-rc.63";
+  static final String VERSION = "1.0.0-rc.64";
   @Override public void onCreate(Bundle saved) {
     super.onCreate(saved);
     SelfDevelopment.start(this, VERSION);
@@ -304,7 +304,7 @@ public class MainActivity extends Activity {
   @SuppressWarnings("SetJavaScriptEnabled") private void createWebView() {
     try {
       android.content.pm.PackageInfo provider = WebView.getCurrentWebViewPackage();
-      if (provider != null && Integer.parseInt(provider.versionName.split("\\.")[0]) < 100) {
+      if (provider != null && webViewMajor(provider.versionName) < 100) {
         showWebViewError("Update Android System WebView to version 100 or later, then tap to retry. Your settings and conversations are safe."); return;
       }
       web = new WebView(this);
@@ -405,6 +405,12 @@ public class MainActivity extends Activity {
     web.loadUrl(ORIGIN + "/assets/mobile.html");
   }
 
+  /** The WebView's major version. An unusual version name (not starting with a number) no longer stops FRIDAY from starting. */
+  static int webViewMajor(String versionName) {
+    if (versionName == null) return Integer.MAX_VALUE;
+    java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\\s*(\\d{1,6})").matcher(versionName);
+    return m.find() ? Integer.parseInt(m.group(1)) : Integer.MAX_VALUE;
+  }
   private String firstPageError;
   /** FRIDAY's screen did not start: show what failed, with the phone's WebView version, instead of a blank screen. */
   private void startupFailed() {
@@ -1427,6 +1433,9 @@ public class MainActivity extends Activity {
    * call and its screen share. While a call runs, the page keeps the call's importance; it goes back to normal after.
    */
   private void backgroundPage(boolean call) {
+    // WebView methods only work on the main thread. Calls that ended from the page's bridge thread used to fail
+    // silently here, so the page kept its raised priority (and memory) in the background after the call.
+    if (Looper.myLooper() != Looper.getMainLooper()) { runOnUiThread(() -> backgroundPage(call)); return; }
     if (web == null) return;
     try { web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, !call); } catch (RuntimeException ignored) {}
   }
@@ -1457,6 +1466,11 @@ public class MainActivity extends Activity {
           if (liveGeneration.get() != mine) { if (connection != null) connection.disconnect(); }
           else liveConnection = connection;
         });
+        // The call's instructions read memories and settings from storage: built here, off the main thread, so the
+        // screen does not freeze for a moment each time a call starts.
+        if (liveGeneration.get() != mine) return;
+        final String instruction = liveInstruction(), voice = memory.voice();
+        final int endMs = VoiceId.endMs(this);
         runOnUiThread(() -> {
           if (liveGeneration.get() != mine) return;
           // The user left FRIDAY while the call was connecting. With the call service running the call continues
@@ -1464,9 +1478,9 @@ public class MainActivity extends Activity {
           if (!foreground && !LiveVoiceService.running) { ControlLog.i("live: FRIDAY left the screen before the call connected"); emit(json("type", "live-error", "id", id, "message", "Open FRIDAY to start live voice.")); return; }
           String model = prefs.getString("liveModel", DEFAULT_LIVE_MODEL);
           if (!model.matches("[A-Za-z0-9._-]{1,100}")) model = DEFAULT_LIVE_MODEL;
-          emit(json("type", "live-token", "id", id, "token", token, "model", model, "voice", memory.voice(),
-            "backgroundLive", allowBackgroundLive, "endMs", VoiceId.endMs(this),
-            "instruction", liveInstruction()));
+          emit(json("type", "live-token", "id", id, "token", token, "model", model, "voice", voice,
+            "backgroundLive", allowBackgroundLive, "endMs", endMs,
+            "instruction", instruction));
         });
       } catch (Exception error) {
         if (liveGeneration.get() == mine) emit(json("type", "live-error", "id", id, "message",
@@ -1616,7 +1630,7 @@ public class MainActivity extends Activity {
     cancelLive(); liveNetwork.shutdownNow();
     synchronized (voiceGateLock) { if (voiceGate != null) voiceGate.stop(); voiceGate = null; }
     synchronized (settingsLock) { settingsGeneration.incrementAndGet(); if (settingsConnection != null) settingsConnection.disconnect(); }
-    settingsNetwork.shutdownNow();
+    settingsNetwork.shutdownNow(); memoryNetwork.shutdownNow(); voiceNoteWork.shutdownNow();
     generation.incrementAndGet(); if (activeConnection != null) activeConnection.disconnect(); network.shutdownNow();
     if (tts != null) { tts.stop(); tts.shutdown(); }
     if (geminiVoice != null) geminiVoice.shutdown();
