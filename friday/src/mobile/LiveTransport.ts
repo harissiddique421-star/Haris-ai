@@ -21,6 +21,8 @@ export const liveResume = { handle: '', resuming: false, handoff: false, off: ((
  * told the audio stream paused, so it does not wait for the rest of a sentence. Turned off with each new call.
  */
 export const liveMic = { muted: false, ended: false };
+/** How the audio engine frames a microphone chunk: {"audio":"<base64>"} (see sendAudio in lib/audio.ts). */
+const AUDIO_PREFIX = '{"audio":"';
 /** Live call end of turn: quiet time before Gemini answers, 400-1000 ms (default 600). */
 function endMs(value: unknown) { const ms = Number(value); return Number.isFinite(ms) && ms > 0 ? Math.max(400, Math.min(1000, Math.round(ms))) : 600; }
 /** Adapt the native short-lived token and Gemini Live protocol to the PC audio engine. */
@@ -123,6 +125,14 @@ export class MobileLiveTransport implements AudioSocket {
   };
   send(raw: string) {
     if (!this.ready || this.readyState !== 1 || this.socket?.readyState !== WebSocket.OPEN) return;
+    // Hot path (many times a second): microphone audio arrives as {"audio":"<base64>"}. Base64 needs no JSON escaping,
+    // so the chunk is passed straight through instead of being parsed and re-encoded every time.
+    if (raw.startsWith(AUDIO_PREFIX) && raw.endsWith('"}') && raw.indexOf('"', AUDIO_PREFIX.length) === raw.length - 2) {
+      if (liveMic.muted) { if (!liveMic.ended) { liveMic.ended = true; this.socket.send('{"realtimeInput":{"audioStreamEnd":true}}'); } return; }
+      liveMic.ended = false;
+      this.socket.send('{"realtimeInput":{"audio":{"data":"' + raw.slice(AUDIO_PREFIX.length, -2) + '","mimeType":"audio/pcm;rate=16000"}}}');
+      return;
+    }
     const data = JSON.parse(raw);
     if (data.audio) {
       if (liveMic.muted) { if (!liveMic.ended) { liveMic.ended = true; this.socket.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } })); } return; }

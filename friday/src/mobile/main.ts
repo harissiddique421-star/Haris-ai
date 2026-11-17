@@ -359,7 +359,7 @@ function liveTranscription(role: 'user' | 'model', text: string) {
     append(role, ''); liveCaption = { role, body: el('messages').lastElementChild!.querySelector('p')! };
   }
   liveCaption.body.textContent = ((liveCaption.body.textContent || '') + text).slice(-8000);
-  el('messages').scrollTop = el('messages').scrollHeight;
+  messagesChanged();
   if (role === 'model') lastReply = liveCaption.body.textContent;
 }
 
@@ -590,7 +590,8 @@ const notice = (message: string) => {
 };
 let listeningMinimized = false;
 let torchOn = false;
-let meterFrame = 0;
+let meterFrame = 0, lastMeterLevel = -1;
+let meterBox: HTMLElement | null = null;
 const meterData = new Uint8Array(64);
 // ---- Live companion (the animated overlay shown while FRIDAY is in the background) ----
 let toolsRunning = 0, thinkingNow = false, companionErrorUntil = 0, companionTimer: ReturnType<typeof setInterval> | null = null, lastCompanion = '';
@@ -626,15 +627,17 @@ function toggleMic() {
 function updateMicButton() { const b = el('mic-toggle'); b.textContent = liveMic.muted ? 'Unmute' : 'Mute'; b.setAttribute('aria-pressed', String(liveMic.muted)); if (liveActive()) el('listen-hint').textContent = liveMic.muted ? 'Microphone muted · tap Unmute to talk' : 'Say your command'; }
 function showListening(show: boolean) {
   el('listening').hidden = !show;
-  cancelAnimationFrame(meterFrame);
-  if (show) meter();
+  cancelAnimationFrame(meterFrame); meterFrame = 0;
+  if (show) { lastMeterLevel = -1; meter(); }
 }
 /** Drives the listening bars from the real microphone and voice levels. */
 function meter() {
   const analyser = liveSession?.getState() === 'speaking' ? liveSession?.outputAnalyser : liveSession?.inputAnalyser;
   let level = 0;
   if (analyser && !(liveMic.muted && liveSession?.getState() !== 'speaking')) { analyser.getByteFrequencyData(meterData); for (let i = 0; i < meterData.length; i++) level += meterData[i]; level /= meterData.length * 255; }
-  el('listening').style.setProperty('--level', String(Math.min(1, level * 2.4)));
+  // Only touch the page when the level visibly changed: every style write makes the overlay redraw.
+  const shownLevel = Math.round(Math.min(1, level * 2.4) * 50) / 50;
+  if (shownLevel !== lastMeterLevel) { lastMeterLevel = shownLevel; (meterBox ||= el('listening')).style.setProperty('--level', String(shownLevel)); }
   meterFrame = requestAnimationFrame(meter);
 }
 function showView(view: 'home' | 'chat') {
@@ -655,7 +658,7 @@ function appendAction(action: string, result: any) {
   const title = document.createElement('b'); title.textContent = actionNames[action] || 'Phone';
   const body = document.createElement('p'); body.textContent = (shown(result) || 'Finished.').slice(0, 400);
   const mark = document.createElement('i'); mark.textContent = ok ? '✓' : pending ? '⏳' : result?.status === 'needs_confirmation' ? '?' : '!';
-  card.append(mark, title, body); el('messages').appendChild(card); el('messages').scrollTop = el('messages').scrollHeight;
+  card.append(mark, title, body); el('messages').appendChild(card); messagesChanged();
 }
 const onScreenConfirm = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
 const refreshAfter = new Set(['remember', 'forget', 'set_persona', 'set_driving_mode', 'set_call_announce', 'set_wake_word', 'save_routine', 'delete_routine']);
@@ -1008,11 +1011,29 @@ function renderSelfDev(data?: any) {
     item.append(t, d); log.append(item);
   }
 }
+/**
+ * Smoothness: captions arrive many times a second during a call. Scrolling right after each change forced the page to
+ * lay out the whole chat every time; now the chat scrolls once per frame. Very long sessions also kept every bubble
+ * in the page, so the oldest ones are dropped from the screen (they stay in the saved history).
+ */
+const MAX_MESSAGE_NODES = 160;
+let scrollQueued = false;
+function messagesChanged() {
+  if (scrollQueued) return;
+  scrollQueued = true;
+  requestAnimationFrame(() => {
+    scrollQueued = false;
+    const box = el('messages');
+    let extra = box.childElementCount - MAX_MESSAGE_NODES;
+    while (extra-- > 0 && box.firstElementChild && box.firstElementChild !== box.lastElementChild) box.firstElementChild.remove();
+    box.scrollTop = box.scrollHeight;
+  });
+}
 function append(role: string, text: string) {
   const item = document.createElement('article'); item.className = `message ${role}`;
   const label = document.createElement('small'); label.textContent = role === 'user' ? 'YOU' : 'FRIDAY';
   const body = document.createElement('p'); body.textContent = text;
-  item.append(label, body); el('messages').appendChild(item); el('messages').scrollTop = el('messages').scrollHeight;
+  item.append(label, body); el('messages').appendChild(item); messagesChanged();
 }
 function renderHistory(all = false) { el('messages').replaceChildren(); for (const turn of (all ? state.history : state.history.slice(-4))) append(turn.role, turn.text); }
 function refreshSettings() {

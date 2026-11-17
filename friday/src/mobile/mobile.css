@@ -59,13 +59,14 @@ main{flex:1;position:relative}
 .halo{position:absolute;inset:0;z-index:-1;display:grid;place-items:center}
 .halo i{position:absolute;border-radius:50%;border:1.5px solid #2e9bff55;aspect-ratio:1}
 .halo i:nth-child(1){width:min(78vw,330px);box-shadow:0 0 50px #2e9bff44,inset 0 0 40px #2e9bff22}
-.halo i:nth-child(2){width:min(66vw,280px);border-style:dashed;border-color:#8a5cff66;animation:turn 18s linear infinite}
-.halo i:nth-child(3){width:min(90vw,380px);border-color:#38e1ff22;animation:turn 30s linear infinite reverse}
+.halo i:nth-child(2){width:min(66vw,280px);border-style:dashed;border-color:#8a5cff66;animation:turn 18s linear infinite;will-change:transform}
+.halo i:nth-child(3){width:min(90vw,380px);border-color:#38e1ff22;animation:turn 30s linear infinite reverse;will-change:transform}
 @keyframes turn{to{transform:rotate(360deg)}}
 #avatar{position:absolute;inset:0}
 #avatar canvas{width:100%;height:100%;display:block}
-.friday-core{position:absolute;left:50%;top:50%;width:min(52vw,220px);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;object-fit:cover;box-shadow:0 0 70px #2e9bff77;animation:friday-pulse 3.2s ease-in-out infinite}
-@keyframes friday-pulse{0%,100%{box-shadow:0 0 50px #2e9bff66}50%{box-shadow:0 0 90px #8a5cffaa}}
+/* The pulse scales the core instead of animating its large glow: a moving box-shadow is repainted on every frame. */
+.friday-core{position:absolute;left:50%;top:50%;width:min(52vw,220px);aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;object-fit:cover;box-shadow:0 0 70px #2e9bff77;animation:friday-pulse 3.2s ease-in-out infinite;will-change:transform}
+@keyframes friday-pulse{0%,100%{transform:translate(-50%,-50%) scale(1)}50%{transform:translate(-50%,-50%) scale(1.04)}}
 .avatar-status{position:absolute;top:46%;left:15%;right:15%;text-align:center;font-size:12px;color:var(--muted);pointer-events:none}
 .presence{position:absolute;top:8px;left:20px;font-size:11px;color:var(--muted)}
 .presence i{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--cyan);margin-right:5px;box-shadow:0 0 6px var(--cyan)}
@@ -131,17 +132,18 @@ main{flex:1;position:relative}
 .listen-min{position:absolute;top:18px;right:18px;font-size:12px;padding:8px 14px}
 .orb{position:relative;width:min(78vw,320px);aspect-ratio:1;display:grid;place-items:center}
 .orb>i{position:absolute;inset:0;border-radius:50%;border:2px solid #2e9bff66;box-shadow:0 0 30px #2e9bff55}
-.orb>i:nth-child(2){inset:10%;border-color:#8a5cff88;border-style:dashed;animation:turn 12s linear infinite}
+.orb>i:nth-child(2){inset:10%;border-color:#8a5cff88;border-style:dashed;animation:turn 12s linear infinite;will-change:transform}
 .orb>i:nth-child(3){inset:20%;border-color:#38e1ffaa;transform:scale(calc(1 + var(--level) * .12));transition:transform .08s}
-.orb-core{width:34%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,#1c4fd1,#0a1d55);box-shadow:0 0 calc(30px + var(--level) * 60px) #38e1ffaa;color:#fff}
+.orb-core{width:34%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,#1c4fd1,#0a1d55);box-shadow:0 0 45px #38e1ffaa;color:#fff;transform:scale(calc(1 + var(--level) * .1));transition:transform .08s}
 .orb-core svg{width:44%;height:44%}
 .orb-bars{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 2%;pointer-events:none}
-.orb-bars i{width:3px;border-radius:3px;background:var(--cyan);height:calc(6px + var(--level) * 70px * var(--h));opacity:.8;box-shadow:0 0 6px var(--cyan)}
+/* Voice bars grow with transform (no page layout per frame); the visible height is the same as before. */
+.orb-bars i{width:3px;border-radius:3px;background:var(--cyan);height:76px;transform:scaleY(calc((6 + var(--level) * 70 * var(--h)) / 76));opacity:.8;box-shadow:0 0 6px var(--cyan)}
 .orb-bars i:nth-child(n+6):nth-child(-n+18){visibility:hidden}
 .listening h2{margin:16px 0 0;font-size:26px;letter-spacing:3px;color:var(--cyan);text-shadow:0 0 14px #38e1ff88}
 .listening p{margin:0;color:#cfe0ff}
 .wave-bars{display:flex;gap:3px;align-items:center;height:60px;margin:10px 0}
-.wave-bars i{width:3px;border-radius:3px;background:linear-gradient(var(--cyan),var(--blue));height:calc(4px + var(--level) * 54px * var(--h));transition:height .08s}
+.wave-bars i{width:3px;border-radius:3px;background:linear-gradient(var(--cyan),var(--blue));height:58px;transform:scaleY(calc((4 + var(--level) * 54 * var(--h)) / 58));transition:transform .08s}
 .listen-tools{display:flex;gap:8px}
 .listen-tools button[aria-pressed=true]{border-color:var(--cyan);background:#38e1ff22}
 .listen-stop{margin-top:14px;width:76px;height:76px;border-radius:50%;display:grid;place-items:center;background:radial-gradient(circle,#3a0b14,#1a0509);border:2px solid var(--red);box-shadow:0 0 26px #ff3b55aa}
