@@ -32,6 +32,16 @@ export class ConfirmMemory {
       this.pending = { action, args: rest, token: result.confirm_token, at: now };
     } else if (action && action === this.pending?.action && args?.confirm_token) this.pending = null;
   }
+  /**
+   * The model called with a confirm token: that run owns it. The open question is answered (the phone will not send it
+   * again on the user's yes) and any repeat call with the same token gets this run's result.
+   */
+  claim(args: any, run: unknown, now = Date.now()) {
+    const t = args?.confirm_token;
+    if (typeof t !== 'string' || !t) return;
+    if (this.pending?.token === t || String(args?.action || '') === this.pending?.action) this.pending = null;
+    this.ran(t, run, now);
+  }
   /** What to run for this sentence: the remembered request with its token, or null. A no forgets it. */
   answer(text: string, now = Date.now()): Pending | null {
     const p = this.pending;

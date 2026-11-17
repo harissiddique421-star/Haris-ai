@@ -30,3 +30,12 @@ test('a no, a timeout or a non-send action forgets nothing it should not run', (
   m.saw({ action: 'torch', on: true }, { status: 'needs_confirmation', confirm_token: 't4' }, 0);
   assert.equal(m.answer('haan', 1000), null, 'torch is not a send');
 });
+
+test('a yes the model already acted on is not sent a second time by the phone', () => {
+  const m = new ConfirmMemory();
+  m.saw({ action: 'whatsapp_call', recipient: 'Ali' }, { status: 'needs_confirmation', confirm_token: 't5' }, 0);
+  const run = Promise.resolve({ status: 'calling' });
+  m.claim({ action: 'whatsapp_call', confirm_token: 't5' }, run, 500);
+  assert.equal(m.answer('haan', 1000), null, 'the phone does not place the call again');
+  assert.equal(m.already({ action: 'whatsapp_call', confirm_token: 't5' }), run, 'a repeat call shares the first result');
+});

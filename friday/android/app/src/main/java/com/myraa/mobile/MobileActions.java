@@ -545,7 +545,11 @@ public final class MobileActions {
     return v;
   }
   private boolean pending(String kind,String token){Confirmation c=confirmations.get(token);return c!=null&&c.kind.equals(kind)&&c.until>=System.currentTimeMillis();}
-  private Confirmation take(String kind,String token){Confirmation c=confirmations.remove(token);if(c==null||!c.kind.equals(kind)||c.until<System.currentTimeMillis())return null;return c;}
+  private Confirmation take(String kind,String token){
+    // Only a token of this kind is used up: checking a video-call token as a voice call first must not throw it away.
+    Confirmation c=confirmations.get(token);if(c==null||!c.kind.equals(kind))return null;
+    confirmations.remove(token);return c.until<System.currentTimeMillis()?null:c;
+  }
   private void askConfirmation(String id,String kind,Recipient person,String text,String question){
     // The same request again while its question is still open (Gemini sometimes repeats the call after the user
     // answered): keep the one confirmation instead of asking a second time.
