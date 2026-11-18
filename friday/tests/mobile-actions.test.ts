@@ -207,3 +207,26 @@ test('play words play, search words only search',()=>{
   assert.deepEqual(parseMobileAction('YouTube par Pasoori chalao'),{action:'play_youtube',query:'Pasoori'});
   assert.deepEqual(parseMobileAction('search Pasoori on youtube'),{action:'search_youtube',query:'Pasoori'});
 });
+test('rides by voice: destination and the app the user named',()=>{
+  assert.deepEqual(parseMobileAction('mujhe Saddar jaana hai'),{action:'book_ride',place:'Saddar'});
+  assert.deepEqual(parseMobileAction('FRIDAY, mujhe Lahore airport jana hai'),{action:'book_ride',place:'Lahore airport'});
+  assert.deepEqual(parseMobileAction('Careem se DHA phase 5 jana hai'),{action:'book_ride',place:'DHA phase 5',app:'careem'});
+  assert.deepEqual(parseMobileAction('inDrive book karo airport ke liye'),{action:'book_ride',place:'airport',app:'indrive'});
+  assert.deepEqual(parseMobileAction('Gulberg ke liye Careem book karo'),{action:'book_ride',place:'Gulberg',app:'careem'});
+  assert.deepEqual(parseMobileAction('book a ride to Clifton'),{action:'book_ride',place:'Clifton'});
+  assert.deepEqual(parseMobileAction('rickshaw bulao'),{action:'book_ride'});
+  assert.deepEqual(parseMobileAction('book an indrive'),{action:'book_ride',app:'indrive'});
+  assert.equal(parseMobileAction('mujhe so jana hai'),null);
+  assert.deepEqual(parseMobileAction('navigate to Lahore airport'),{action:'navigate',place:'Lahore airport'});
+});
+test('food by voice: Foodpanda or Careem, dish when said, never other shopping',()=>{
+  assert.deepEqual(parseMobileAction('khana order karo'),{action:'order_food'});
+  assert.deepEqual(parseMobileAction('Foodpanda se pizza order karo'),{action:'order_food',query:'pizza',app:'foodpanda'});
+  assert.deepEqual(parseMobileAction('Careem se biryani mangwao'),{action:'order_food',query:'biryani',app:'careem'});
+  assert.deepEqual(parseMobileAction('order a zinger burger from foodpanda'),{action:'order_food',query:'zinger burger',app:'foodpanda'});
+  assert.deepEqual(parseMobileAction('mere liye karahi order karo'),{action:'order_food',query:'karahi'});
+  assert.deepEqual(parseMobileAction('open foodpanda'),{action:'order_food',app:'foodpanda'});
+  assert.equal(parseMobileAction('Daraz se charger order karo'),null);
+  const names: string[] = (MOBILE_TOOL as any).parameters.properties.action.enum;
+  for (const a of ['book_ride', 'order_food']) { assert.ok(names.includes(a), a + ' declared'); assert.equal(agentFor(a), 'device'); }
+});
