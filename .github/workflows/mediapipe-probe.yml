@@ -1,0 +1,27 @@
+name: MediaPipe probe (temporary)
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/mediapipe-probe.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Versions, POMs and hashes of the MediaPipe tasks libraries
+        run: |
+          set -eu
+          G=https://dl.google.com/dl/android/maven2/com/google/mediapipe
+          for a in tasks-vision tasks-core; do
+            echo "== $a metadata"; curl -fsSL "$G/$a/maven-metadata.xml" | grep -o '<version>[^<]*' | tail -8
+          done
+          V=0.10.14
+          for a in tasks-vision tasks-core; do
+            echo "== $a $V pom"; curl -fsSL "$G/$a/$V/$a-$V.pom"
+            curl -fsSL -o "$a.aar" "$G/$a/$V/$a-$V.aar"; sha256sum "$a.aar"; ls -la "$a.aar"
+            unzip -l "$a.aar"
+          done
