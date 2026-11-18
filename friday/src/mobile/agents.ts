@@ -16,7 +16,7 @@ const OWNERS: Record<AgentName, string[]> = {
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'book_ride', 'order_food', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
   memory: ['my_words', 'remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'set_language', 'save_routine', 'standing_order', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
-  document: ['make_document', 'build_website', 'list_documents', 'open_document', 'share_document', 'send_document'],
+  document: ['make_document', 'analyze_document', 'document_question', 'compare_images', 'save_vision_report', 'cancel_vision', 'build_website', 'list_documents', 'open_document', 'share_document', 'send_document'],
   research: ['search_web', 'research_report'],
   health: ['health_check', 'network_status', 'set_proactive', 'self_report', 'set_autonomy'],
   core: ['suggestions', 'briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
@@ -31,7 +31,7 @@ const HIGH_RISK = new Set(['set_autonomy', 'whatsapp_message', 'whatsapp_call', 
 export const QUICK = new Set(['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'media', 'clock', 'remember', 'recall', 'conversation_mode', 'list_memories', 'note', 'set_alarm', 'set_timer', 'set_reminder', 'network_status', 'self_report', 'meeting_mode', 'missed_calls', 'who_is_calling', 'silence_call']);
 
 /** Actions that only read or answer: they never need an Assisted-mode question. */
-export const READ_ONLY = new Set(['check_link', 'suggestions', 'battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
+export const READ_ONLY = new Set(['check_link', 'document_question', 'suggestions', 'battery', 'clock', 'network_status', 'self_report', 'health_check', 'action_history', 'list_memories', 'list_reminders', 'list_routines', 'upcoming_events', 'recall', 'who_is_calling', 'missed_calls', 'read_notifications', 'read_screen', 'prayer_times', 'qibla', 'show_alarms', 'show_timers', 'briefing', 'search_web']);
 /** Actions the phone itself reads back to the user once (WhatsApp, calls, SMS, SOS, replies): never asked twice. */
 export const SELF_CONFIRMING = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'emergency', 'reply_message']);
 export type Autonomy = 'assisted' | 'balanced' | 'maximum';

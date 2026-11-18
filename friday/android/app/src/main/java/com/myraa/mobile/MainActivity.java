@@ -122,6 +122,8 @@ public class MainActivity extends Activity {
       public String key() throws Exception{return readKey();}
       public String model(){String m=prefs.getString("model","gemini-3.5-flash");return m.matches("[A-Za-z0-9._-]{1,100}")?m:"gemini-3.5-flash";}
     };
+    // Picture and document reading may fall back to the second AI provider (Settings > AI providers).
+    mobileActions.altVision=()->altReady()?new String[]{altKind(),TextProviders.base(altKind(),prefs.getString("altBase","")),readSecret("altKey"),prefs.getString("altModel","")}:null;
     ScreenCapture.setListener(new ScreenCapture.Frames(){
       public void frame(String jpeg){emit(json("type","screen-frame","data",jpeg));}
       public void started(){emit(json("type","screen-share","active",true));}
@@ -1495,6 +1497,7 @@ public class MainActivity extends Activity {
   @Override protected void onActivityResult(int request,int result,Intent data){
     super.onActivityResult(request,result,data);
     if(request==PermissionsCenter.ROLE_REQUEST){emit(json("type","permissions","permissions",permissionsCenter.state()));return;}
+    if(request==MobileActions.VISION_REQUEST){mobileActions.visionResult(result,data);return;}
     if(request==DEVICE_AUTH){deviceAuthDone(result==RESULT_OK,result==RESULT_OK?"":"Cancelled.");return;}
     if(request==BACKUP_EXPORT||request==BACKUP_IMPORT){
       if(result!=RESULT_OK||data==null||data.getData()==null){backupResult("cancelled","Backup cancelled.");return;}
