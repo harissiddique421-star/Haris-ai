@@ -9,6 +9,8 @@
  * - Input & Output AnalyserNodes for real-time waveform visuals.
  */
 
+import { TurnLevels } from "./turnLevels";
+
 export type LiveState = "disconnected" | "connecting" | "listening" | "speaking";
 
 // PCM Conversion Helper: converts Float32Array [-1.0, 1.0] to signed Int16 Raw PCM Little Endian
@@ -254,36 +256,15 @@ export class MyraaAudioSession {
   private nextStartTime = 0;
   private activeSources: AudioBufferSourceNode[] = [];
   private userSpeaking = false;
-  private voiceFrames = 0;
-  private lastVoiceAt = 0;
   private outputSpeechStartedAt = 0;
   /** When FRIDAY's last sound finished; the speaker and room still echo it for a moment after. */
   private outputEndedAt = 0;
   private readonly echoTailMs = 450;
-  /**
-   * Quietest microphone level (RMS, about -40 dBFS) that can start the user's turn in a quiet room. It was
-   * 0.02 (-34 dBFS) until rc.65, and with the floor below a soft voice or a phone held at arm's length
-   * never reached it: only silence went to Gemini, so the user had to speak loudly and repeat.
-   */
-  private readonly voiceThreshold = 0.01;
-  /** Highest the noise-based start level may go (was 0.07, which needed a raised voice in any noisy room). */
-  private readonly maxVoiceThreshold = 0.04;
-  /** Once the user is talking, quieter words (sentence ends, a dropped voice) still count at this share of the start level. */
-  private readonly keepTalkingShare = 0.6;
-  /**
-   * Follows the room's background level (TV, fan, music) so steady noise is not taken as the user starting
-   * to speak. It drops at once to a quieter room and rises slowly, and frames close to the start level are not
-   * learnt: before rc.65 a soft voice that just missed the threshold raised the floor, which raised the
-   * threshold, so the next try had to be even louder.
-   */
-  private noiseFloor = 0.005;
-  private readonly voiceStartFrames = 2;
-  private readonly voiceStopDelayMs = 500;
+  /** When the user's turn starts and ends without Voice ID (levels and room noise; see turnLevels.ts). */
+  private readonly levels = new TurnLevels();
   // FRIDAY's own voice from the loudspeaker leaks back into the microphone on many phones. These keep that echo
   // from cutting her off: a longer guard at the start of a reply and a louder, longer voice needed to interrupt.
   private readonly bargeInGuardMs = 1100;
-  private readonly bargeInStartFrames = 8;
-  private readonly bargeInVoiceThreshold = 0.08;
   /** Audio kept from just before a real barge-in (each chunk 64 ms); short so little of FRIDAY's echo reaches Gemini. */
   private readonly bargeInSendChunks = 4;
   
@@ -975,55 +956,28 @@ export class MyraaAudioSession {
       && this.outputSpeechStartedAt > 0
       && timestamp - this.outputSpeechStartedAt < this.bargeInGuardMs
     ) {
-      this.voiceFrames = 0;
+      this.levels.guard();
       return false;
     }
 
     const outputRms = myraaOutputActive ? this.readOutputRms() : 0;
-    const threshold = myraaOutputActive
-      ? Math.max(
-          this.bargeInVoiceThreshold,
-          // A short knock, cough or steady room noise must not cut FRIDAY off: stay well above the room's level.
-          Math.min(0.12, this.noiseFloor * 3.5),
-          Math.min(0.16, outputRms * 0.5 + 0.02),
-        )
-      : Math.max(this.voiceThreshold, Math.min(this.maxVoiceThreshold, this.noiseFloor * 2.5))
-        * (this.userSpeaking ? this.keepTalkingShare : 1);
-    const requiredFrames = myraaOutputActive ? this.bargeInStartFrames : this.voiceStartFrames;
-
-    if (rms >= threshold) {
-      // A steady sound louder than the start level (a loud fan) is still learnt, only very slowly (about 30 s),
-      // so it cannot keep the turn open for ever, while real words hardly move the floor.
-      if (!myraaOutputActive) this.noiseFloor = this.noiseFloor * 0.998 + rms * 0.002;
-      this.lastVoiceAt = timestamp;
-      this.voiceFrames += 1;
-      if (!this.userSpeaking && this.voiceFrames >= requiredFrames) {
-        const interruptedMyraa = myraaOutputActive;
-        this.userSpeaking = true;
-        if (interruptedMyraa) {
-          this.emitConversationEvent("user_interrupted_myraa", rms);
-          this.handleInterruption();
-        }
-        this.micRestarts = 0;
-        this.emitConversationEvent("user_started_speaking", rms);
-        this.onUserSpeech?.(true);
-        this.turn.start(Date.now());
+    const change = this.levels.step(rms, timestamp, this.userSpeaking, myraaOutputActive, outputRms);
+    if (change === "start") {
+      const interruptedMyraa = myraaOutputActive;
+      this.userSpeaking = true;
+      if (interruptedMyraa) {
+        this.emitConversationEvent("user_interrupted_myraa", rms);
+        this.handleInterruption();
       }
-      return !myraaOutputActive || this.userSpeaking;
-    }
-
-    // While FRIDAY talks, a brief dip between syllables should not restart the barge-in count.
-    this.voiceFrames = myraaOutputActive ? Math.max(0, this.voiceFrames - 2) : 0;
-    if (!myraaOutputActive) {
-      if (rms < this.noiseFloor) this.noiseFloor = this.noiseFloor * 0.8 + rms * 0.2;
-      else if (!this.userSpeaking && rms < threshold * 0.7) this.noiseFloor = this.noiseFloor * 0.99 + rms * 0.01;
-      else this.noiseFloor = this.noiseFloor * 0.998 + rms * 0.002;
-    }
-    if (this.userSpeaking && timestamp - this.lastVoiceAt >= this.voiceStopDelayMs) {
+      this.micRestarts = 0;
+      this.emitConversationEvent("user_started_speaking", rms);
+      this.onUserSpeech?.(true);
+      this.turn.start(Date.now());
+    } else if (change === "stop") {
       this.userSpeaking = false;
       this.timings.lastSpeechEndAt = Date.now();
       // No Voice ID: Gemini's own end-of-speech detection ends the turn; time it from the last loud frame.
-      this.turn.stopped(Date.now() - (timestamp - this.lastVoiceAt), 0, 0);
+      this.turn.stopped(Date.now() - (timestamp - this.levels.lastVoiceAt), 0, 0);
       this.emitConversationEvent("user_stopped_speaking", rms);
       this.onUserSpeech?.(false);
     }
@@ -1150,8 +1104,7 @@ export class MyraaAudioSession {
     this.activeSources = [];
     this.nextStartTime = 0;
     this.userSpeaking = false;
-    this.voiceFrames = 0;
-    this.lastVoiceAt = 0;
+    this.levels.reset();
     this.outputSpeechStartedAt = 0;
     this.pendingTextMessages = [];
     this.inputAnalyser = null;
