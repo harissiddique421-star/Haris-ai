@@ -27,7 +27,7 @@ import java.util.*;
  * the values stored natively (the model cannot swap the recipient or text in between).
  */
 public final class MobileActions {
-  public static final int CONTACTS_REQUEST=88,SCAN_REQUEST=89;
+  public static final int CONTACTS_REQUEST=88,SCAN_REQUEST=89,VISION_REQUEST=90;
   static final long CONFIRM_WINDOW_MS=120_000;
   public interface Result { void complete(String id,JSONObject result); }
   /** Events that arrive after an action already answered (a research report finished in the background). */
@@ -35,6 +35,12 @@ public final class MobileActions {
   /** The Gemini key and text model, read when needed (they stay in MainActivity's encrypted storage). */
   public interface Gemini { String key() throws Exception; String model(); }
   Notify notify;Gemini gemini;
+  /** The second AI provider for picture reading (set by MainActivity); null = Gemini only. */
+  VisionEngine.Alt altVision;
+  private VisionActions vision;
+  private VisionActions vision(){if(vision==null)vision=new VisionActions(activity,this::finish,()->notify,()->gemini,()->altVision,VISION_REQUEST);return vision;}
+  /** The document or picture picker closed (MainActivity forwards VISION_REQUEST). */
+  public void visionResult(int result,Intent data){vision().pickResult(result,data);}
   private final java.util.concurrent.ExecutorService research=java.util.concurrent.Executors.newSingleThreadExecutor();
   private final java.util.concurrent.ExecutorService sites=java.util.concurrent.Executors.newSingleThreadExecutor();
   private volatile boolean researching,buildingSite;
@@ -452,6 +458,7 @@ public final class MobileActions {
       if("prayer_reminders".equals(action)){prayerReminders(id,args.optBoolean("on",true),args.optInt("in_minutes",10),args.optString("city","").trim());return;}
       if("emergency_contact".equals(action)){emergencyContact(id,args.optString("command","").trim(),args.optString("recipient","").trim());return;}
       if("emergency".equals(action)){String token=args.optString("confirm_token");if(!token.isEmpty()){emergencyConfirmed(id,token);return;}emergency(id,args.optBoolean("confirm_on_screen"));return;}
+      if(VisionActions.handles(action)){vision().execute(id,action,args);return;}
       if("reply_message".equals(action)){String token=args.optString("confirm_token");if(!token.isEmpty()){replyConfirmed(id,token);return;}reply(id,args.optString("recipient","").trim(),args.optString("message","").trim(),args.optString("app","").trim(),args.optBoolean("confirm_on_screen"));return;}
       finish(id,"unsupported","Supported actions: memory (remember, forget, list), persona, apps, searches, WhatsApp messages and voice/video calls, opening a contact, phone calls and SMS, alarms and reminders, namaz times and Qibla, emergency SOS, replying to message notifications, music, torch, volume, silent mode, brightness, battery, navigation, notifications, answering calls, settings pages, and phone control (back, home, read screen, tap, type, scroll).");
     }catch(IllegalArgumentException e){finish(id,"invalid",e.getMessage());}catch(Exception e){finish(id,"failed","Android could not complete this action. Nothing was sent.");}

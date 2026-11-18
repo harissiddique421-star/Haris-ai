@@ -88,6 +88,28 @@ The WebView serves only bundled assets at a fixed HTTPS origin; file/content URL
 access, external pages, cookies, iframes and WebView permission requests are
 disabled. Android app settings opens only this app's settings, after a button tap.
 
+## Visual intelligence, phase 1: documents and picture comparison
+
+"Ye PDF padho", "bill padh kar batao due date kya hai", "in dono photos mein kya farq hai":
+FRIDAY opens Android's own file or photo picker and reads only what the user picks.
+
+- **Documents** (`analyze_document`): a PDF (up to 18 MB) or up to 5 photos of pages, printed or
+  handwritten, Urdu and English. FRIDAY gives the summary, headings, dates, amounts, tables and the
+  full text, and answers the user's question. Follow-up questions (`document_question`) use the
+  text already read, so nothing is sent again. Card numbers, PINs and OTPs are never read out in full.
+- **Picture comparison** (`compare_images`): 2 to 4 photos or screenshots. The phone first measures
+  how alike they are (picture fingerprints, no upload), then the AI lists what is the same, what
+  changed and which words or numbers differ.
+- `save_vision_report` saves the last reading or comparison as a PDF in Downloads/FRIDAY;
+  `cancel_vision` stops a reading.
+
+All visual features share one engine (`VisionEngine`): pictures are made upright and small before
+sending, big photos are decoded at a reduced size, requests can be cancelled and identical requests
+within ten minutes are answered from memory. It uses the Gemini key (the chosen model, then FRIDAY's
+other Gemini models when one is busy or over quota) and falls back to the second AI provider from
+Settings > AI providers (OpenRouter Auto picks a model that can see). Picked files are read once and
+not copied or kept; the last document's text stays in memory only, for follow-up questions.
+
 ## Live call and screen sharing in other apps (rc.48)
 
 A Live call you start keeps running while you use other apps. It runs in one
