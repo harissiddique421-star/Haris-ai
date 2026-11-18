@@ -1495,6 +1495,7 @@ public class MainActivity extends Activity {
   @Override protected void onActivityResult(int request,int result,Intent data){
     super.onActivityResult(request,result,data);
     if(request==PermissionsCenter.ROLE_REQUEST){emit(json("type","permissions","permissions",permissionsCenter.state()));return;}
+    if(request==MobileActions.SCAN_REQUEST){mobileActions.scanResult(result==RESULT_OK);return;}
     if(request==DEVICE_AUTH){deviceAuthDone(result==RESULT_OK,result==RESULT_OK?"":"Cancelled.");return;}
     if(request==BACKUP_EXPORT||request==BACKUP_IMPORT){
       if(result!=RESULT_OK||data==null||data.getData()==null){backupResult("cancelled","Backup cancelled.");return;}
