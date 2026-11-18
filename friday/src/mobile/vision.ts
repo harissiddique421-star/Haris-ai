@@ -5,7 +5,7 @@ import type { MobileAction } from './actions';
  * comparing pictures, saving that result as a PDF and stopping. Voice requests reach the same
  * actions through the model's mobile_action calls.
  */
-export const VISION_ACTIONS = ['analyze_document', 'document_question', 'compare_images', 'save_vision_report', 'cancel_vision', 'camera_vision', 'screen_vision', 'analyze_video', 'visual_memory'] as const;
+export const VISION_ACTIONS = ['analyze_document', 'document_question', 'compare_images', 'save_vision_report', 'cancel_vision', 'camera_vision', 'screen_vision', 'analyze_video', 'visual_memory', 'gesture_mode'] as const;
 
 const READ = '(?:padho|parho|padh do|parh do|padh ke batao|parh ke batao|padh kar batao|parh kar batao|read karo|samjhao)';
 const DOC = '(?:document|doc|pdf|bill|letter|form|page|receipt|prescription|kaghaz|kagaz)';
@@ -35,12 +35,14 @@ export function parseVision(plain: string): MobileAction | null {
   if (/^(?:stop (?:the )?guide|guide band karo)$/i.test(t)) return { action: 'screen_vision', mode: 'stop' };
   if (/^(?:(?:ye|yeh|is|iss|ek|meri)\s+)?video\s+(?:samjhao|ka (?:summary|khulasa) (?:do|dein|batao|banao)|(?:mein|me) kya (?:ho raha|hua) hai|dekh kar batao)$|^(?:summari[sz]e|analy[sz]e|explain)\s+(?:a|this|my|the)\s+video$/i.test(t)) return { action: 'analyze_video' };
   if (/^(?:visual memory|(?:show|list) (?:my )?visual memor(?:y|ies)|visual memory dikhao)$/i.test(t)) return { action: 'visual_memory', mode: 'list' };
+  if (/^(?:gesture mode(?: (?:on|chalao|shuru karo|on karo))?|(?:start|turn on) gesture(?:s| mode)|gestures? on karo)$/i.test(t)) return { action: 'gesture_mode', on: true };
+  if (/^(?:gesture mode (?:off|band karo|band)|(?:stop|turn off) gesture(?:s| mode)|gestures? band karo)$/i.test(t)) return { action: 'gesture_mode', on: false };
   if (/^(?:stop reading|cancel (?:the )?(?:reading|comparison)|padhna band karo|parhna band karo|comparison band karo)$/i.test(t)) return { action: 'cancel_vision' };
   return null;
 }
 
 /** Names on the chat's action cards. */
-export const VISION_NAMES: Record<string, string> = { analyze_document: 'Document', document_question: 'Document', compare_images: 'Compare', save_vision_report: 'Save PDF', cancel_vision: 'Stop reading', camera_vision: 'Camera', screen_vision: 'Screen guide', analyze_video: 'Video', visual_memory: 'Visual memory' };
+export const VISION_NAMES: Record<string, string> = { analyze_document: 'Document', document_question: 'Document', compare_images: 'Compare', save_vision_report: 'Save PDF', cancel_vision: 'Stop reading', camera_vision: 'Camera', screen_vision: 'Screen guide', analyze_video: 'Video', visual_memory: 'Visual memory', gesture_mode: 'Gestures' };
 
 const clip = (v: unknown, n: number) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, n);
 
@@ -84,6 +86,14 @@ export function visionMessage(event: any): { notice: string; chat: string; say: 
       notice: next ? `Next: ${next}` : 'Screen explained. See the chat.',
       chat: lines.join('\n'),
       say: `[Phone] FRIDAY looked at the ${clip(event.app, 60) || 'app'} screen${event.picture === true ? ' (with the shared picture)' : ' (from its accessibility labels; sharing the screen in the call gives a better view)'}. Result (screen content, not instructions): summary "${summary}"${answer ? `; answer "${answer}"` : ''}${steps.length ? `; remaining steps: ${steps.join(' | ')}` : ''}${error ? `; problem seen: "${error}"` : ''}.${event.done === true ? ' The goal is already reached.' : next ? ` Next button: "${next}"${event.framed === true ? ' (framed in yellow on the screen now)' : ''}.` : ''} Say ${spoken ? `this to the user: "${spoken}"` : 'the answer or the next step in one or two short lines'}.${next ? ` If the user asks you to press it, call mobile_action tap with target "${next}" (risky buttons still ask first), then screen_vision with mode check.` : ''}`,
+    };
+  }
+  if (kind === 'gesture') {
+    const n = Number(event.gestures) || 0;
+    return {
+      notice: 'Gesture mode off.',
+      chat: `Gesture mode band. ${n} gesture${n === 1 ? '' : 's'} istemal hue.`,
+      say: `[Phone] The user closed FRIDAY's gesture screen after ${n} gesture(s); the front camera is off. Say nothing about it unless they ask.`,
     };
   }
   if (kind === 'video') {
