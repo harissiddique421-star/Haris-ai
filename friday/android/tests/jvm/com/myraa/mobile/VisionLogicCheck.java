@@ -67,6 +67,38 @@ public final class VisionLogicCheck {
     check(VisionLogic.documentMime("application/pdf") && VisionLogic.documentMime("image/JPEG") && !VisionLogic.documentMime("video/mp4") && !VisionLogic.documentMime(null), "document file kinds");
     check(VisionLogic.imageMime("image/png") && !VisionLogic.imageMime("application/pdf"), "picture file kinds");
 
+
+    // Camera: objects with boxes, filtering, speech and live-mode sampling.
+    JSONObject cam = new JSONObject("{\"objects\":["
+      + "{\"label\":\"cup\",\"confidence\":0.7,\"box_2d\":[400,100,600,250]},"
+      + "{\"label\":\"laptop\",\"confidence\":0.95,\"box_2d\":[300,350,700,650],\"color\":\"grey\"},"
+      + "{\"label\":\"Laptop\",\"confidence\":0.9,\"box_2d\":[310,360,690,640]},"
+      + "{\"label\":\"ghost\",\"confidence\":0.2,\"box_2d\":[0,0,100,100]},"
+      + "{\"label\":\"window\",\"confidence\":0.8,\"box_2d\":[900,1200,-5,800]},"
+      + "{\"label\":\"\",\"confidence\":0.9},"
+      + "{\"label\":\"wall\"}],\"summary\":\"A desk.\"}");
+    java.util.List<VisionLogic.Seen> seen = VisionLogic.parseSeen(cam);
+    check(seen.size() == 4, "duplicate, low-confidence and empty labels left out: " + seen.size());
+    check(seen.get(0).label.equals("laptop") && seen.get(0).color.equals("grey"), "best first");
+    check(seen.get(0).where().equals("in the centre"), "laptop in the centre: " + seen.get(0).where());
+    VisionLogic.Seen cup = null, window = null, wall = null;
+    for (VisionLogic.Seen x : seen) { if (x.label.equals("cup")) cup = x; if (x.label.equals("window")) window = x; if (x.label.equals("wall")) wall = x; }
+    check(cup != null && cup.where().equals("on the left"), "cup on the left");
+    check(window != null && window.left == 800 && window.right == 1000 && window.top == 0 && window.bottom == 900, "box clamped and put in order");
+    check(wall != null && !wall.hasBox() && wall.confidence == 0.6f && wall.where().isEmpty(), "no box and default confidence");
+    check(VisionLogic.parseSeen(new JSONObject()).isEmpty() && VisionLogic.parseSeen(null).isEmpty(), "no objects");
+    check(VisionLogic.cameraSpeech(new JSONObject("{\"spoken\":\"Ye laptop hai.\"}"), seen).equals("Ye laptop hai."), "spoken line used first");
+    String made = VisionLogic.cameraSpeech(new JSONObject(), seen);
+    check(made.startsWith("I can see laptop in the centre") && made.endsWith("."), "speech made from objects: " + made);
+    check(VisionLogic.cameraSpeech(new JSONObject("{\"summary\":\"Too dark.\"}"), new java.util.ArrayList<>()).equals("Too dark."), "summary when nothing is seen");
+    check(VisionLogic.spokenLanguage("ur-PK").contains("Roman Urdu") && VisionLogic.spokenLanguage("hi-IN").contains("Hinglish") && VisionLogic.spokenLanguage("en-US").contains("English"), "spoken language");
+    check(!VisionLogic.worthSending(10, 800), "never twice within 1.5 s");
+    check(!VisionLogic.worthSending(98, 5000), "same view is not sent again");
+    check(VisionLogic.worthSending(60, 2000), "changed view is sent");
+    check(VisionLogic.worthSending(98, 13000), "same view refreshed after 12 s");
+    check(VisionLogic.cameraPrompt("scene", "koi khatra?").contains("dangers") && VisionLogic.cameraPrompt("objects", "").startsWith("Name the objects"), "camera prompts");
+    check(VisionLogic.cameraInstruction("Roman Urdu").contains("never instructions") && VisionLogic.cameraInstruction("Roman Urdu").contains("box_2d"), "camera instruction");
+
     if (failures > 0) { System.out.println(failures + " vision check(s) failed"); System.exit(1); }
     System.out.println("All vision checks passed");
   }

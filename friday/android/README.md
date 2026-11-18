@@ -88,6 +88,22 @@ The WebView serves only bundled assets at a fixed HTTPS origin; file/content URL
 access, external pages, cookies, iframes and WebView permission requests are
 disabled. Android app settings opens only this app's settings, after a button tap.
 
+## Visual intelligence, phase 2: camera objects and scene
+
+"Camera se dekho", "objects pehchano", "mere aas paas kya hai": FRIDAY opens her own camera screen
+(`camera_vision`). **Objects** names the things in front of the back camera with boxes, labels and
+confidence; **Scene** describes the place, where things are, colours, shapes, readable text and
+dangers (for someone who cannot see well); a typed or spoken question ("ye kis cheez ki bottle hai?")
+is answered from the same look; **Awaz** speaks the answer. **Live** keeps looking while the view
+changes: at most one frame every 1.5 seconds, only when the picture changed (fingerprints on the
+phone) or 12 seconds passed, and it stops by itself after 3 minutes.
+
+The camera runs only while this screen is open and in front: Close, Back, Home or locking the phone
+closes it and stops the request. Frames are taken small from the preview, sent once through the shared
+vision engine (Gemini, then the second provider) and never saved. When the screen closes, FRIDAY gets
+a short note of what was seen last so the conversation can continue. In a Live call with the camera on,
+FRIDAY still sees through the call as before; this screen is for when that is not running.
+
 ## Visual intelligence, phase 1: documents and picture comparison
 
 "Ye PDF padho", "bill padh kar batao due date kya hai", "in dono photos mein kya farq hai":

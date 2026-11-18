@@ -60,3 +60,19 @@ test('vision results become a chat line and a [Phone] message with the content q
   const long = visionMessage({ kind: 'document', ok: true, summary: 'x'.repeat(5000) });
   assert.ok(long.say.length < 2000, 'long content is clipped');
 });
+
+test('camera by typed command and its result message', () => {
+  assert.deepEqual(parseMobileAction('camera se dekho'), { action: 'camera_vision' });
+  assert.deepEqual(parseMobileAction('objects pehchano'), { action: 'camera_vision' });
+  assert.deepEqual(parseMobileAction("what's in front of me?"), { action: 'camera_vision' });
+  assert.deepEqual(parseMobileAction('mere aas paas kya hai?'), { action: 'camera_vision', mode: 'scene' });
+  assert.deepEqual(parseMobileAction('describe my surroundings'), { action: 'camera_vision', mode: 'scene' });
+  assert.deepEqual(parseMobileAction('live object detection on'), { action: 'camera_vision', on: true });
+  assert.deepEqual(parseMobileAction('camera band karo'), { action: 'cancel_vision' });
+  assert.equal(parseMobileAction('ye kya hai'), null, 'a general question stays with the model');
+  const seen = visionMessage({ kind: 'camera', ok: true, looks: 3, summary: 'A desk with a laptop.', objects: 'laptop (in the centre), cup (on the left)', answer: '' });
+  assert.match(seen.chat, /^Camera: A desk with a laptop\. \(laptop/);
+  assert.match(seen.say, /do not repeat it/);
+  const none = visionMessage({ kind: 'camera', ok: false, looks: 0 });
+  assert.match(none.say, /Say nothing/);
+});
