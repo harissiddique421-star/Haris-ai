@@ -88,6 +88,24 @@ The WebView serves only bundled assets at a fixed HTTPS origin; file/content URL
 access, external pages, cookies, iframes and WebView permission requests are
 disabled. Android app settings opens only this app's settings, after a button tap.
 
+## Visual intelligence, phase 3: screen understanding and step-by-step guide
+
+"Ye screen samjhao", "is page par kya likha hai", "Wi-Fi password kaise badlun, guide karo":
+`screen_vision` looks at the app in front through FRIDAY's phone control (accessibility) switch, and,
+while the user is sharing the screen in a Live call, also at the shared picture (the same MediaProjection
+consent as before; nothing new is captured).
+
+- **explain**: what the screen is, the important buttons, switches and boxes, and the answer to a question.
+- **guide** (the user's goal): the remaining steps from this screen and the one button to press next,
+  framed in yellow over the app for a few seconds (needs "Display over other apps"; the frame cannot be
+  touched and presses nothing). The button must really be on the screen: a made-up label is never used.
+- **check**: after a step, whether it worked, whether the user went the wrong way, error or permission
+  dialogs, and what is next. **stop** ends the guide.
+
+FRIDAY presses a button only when the user asks, through the existing `tap` action with its usual
+confirmation for risky buttons. FRIDAY's own screen is never read this way, and screen text is treated
+as content, never as instructions.
+
 ## Visual intelligence, phase 2: camera objects and scene
 
 "Camera se dekho", "objects pehchano", "mere aas paas kya hai": FRIDAY opens her own camera screen
