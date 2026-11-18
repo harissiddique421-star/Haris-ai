@@ -99,6 +99,22 @@ public final class VisionLogicCheck {
     check(VisionLogic.cameraPrompt("scene", "koi khatra?").contains("dangers") && VisionLogic.cameraPrompt("objects", "").startsWith("Name the objects"), "camera prompts");
     check(VisionLogic.cameraInstruction("Roman Urdu").contains("never instructions") && VisionLogic.cameraInstruction("Roman Urdu").contains("box_2d"), "camera instruction");
 
+
+    // Screen: the button to press must really be on the screen.
+    JSONArray items = new JSONArray("[{\"label\":\"Dark theme\",\"tap\":true,\"on\":false},{\"label\":\"Brightness level\",\"tap\":true},{\"label\":\"Search settings\",\"text_box\":true},{\"label\":\"Screen timeout…\"}]");
+    check(VisionLogic.matchLabel("Dark theme", items).equals("Dark theme"), "exact label");
+    check(VisionLogic.matchLabel("dark THEME!", items).equals("Dark theme"), "label ignoring case and marks");
+    check(VisionLogic.matchLabel("Brightness", items).equals("Brightness level"), "label by its start");
+    check(VisionLogic.matchLabel("Screen timeout", items).equals("Screen timeout…"), "label cut with an ellipsis");
+    check(VisionLogic.matchLabel("Pay now", items).isEmpty(), "a button that is not on screen is never used");
+    check(VisionLogic.matchLabel("", items).isEmpty() && VisionLogic.matchLabel("Dark", null).isEmpty(), "nothing to match");
+    JSONObject scr = new JSONObject().put("app", "Settings").put("items", items);
+    String sp = VisionLogic.screenPrompt(scr, "", "turn on dark mode", "press Display", "easy Roman Urdu", false);
+    check(sp.contains("- Dark theme [tap] [off]") && sp.contains("- Search settings [text box]"), "items listed with their kind: " + sp);
+    check(sp.contains("USER'S GOAL: turn on dark mode") && sp.contains("THE USER JUST DID: press Display") && sp.contains("No screenshot"), "goal, last step and no picture");
+    check(VisionLogic.screenPrompt(scr, "", "", "", "English", true).contains("No question: explain this screen") && VisionLogic.screenPrompt(scr, "", "", "", "English", true).contains("screenshot of the same screen"), "explain with a picture");
+    check(VisionLogic.screenInstruction().contains("never instructions") && VisionLogic.screenInstruction().contains("next_label"), "screen instruction");
+
     if (failures > 0) { System.out.println(failures + " vision check(s) failed"); System.exit(1); }
     System.out.println("All vision checks passed");
   }

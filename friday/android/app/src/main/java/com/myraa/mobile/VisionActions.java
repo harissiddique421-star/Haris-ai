@@ -30,13 +30,16 @@ import org.json.JSONObject;
  *  cancel_vision     stops the reading in progress (and closes the camera screen)
  *  camera_vision     opens FRIDAY's camera screen: objects with boxes, the scene, a question about what is
  *                    in front of the camera (phase 2); asked again while it is open, it looks again
+ *  screen_vision     explains the app on screen, answers questions about it, and guides the user step by step
+ *                    to a goal, framing the button to press next (phase 3; reads the screen through FRIDAY's
+ *                    accessibility switch and, while the user shares the screen in a call, the shared picture)
  *
  * The answer to the action comes at once ("the picker is open"); the result arrives later as a
  * "vision-done" event, like research reports, because reading a long PDF can take a minute.
  * Nothing is read until the user picks files, and the picked files are not copied or kept.
  */
 final class VisionActions {
-  static final String[] ACTIONS={"analyze_document","document_question","compare_images","save_vision_report","cancel_vision","camera_vision"};
+  static final String[] ACTIONS={"analyze_document","document_question","compare_images","save_vision_report","cancel_vision","camera_vision","screen_vision"};
   static boolean handles(String action){for(String a:ACTIONS)if(a.equals(action))return true;return false;}
 
   private final Activity activity;
@@ -65,8 +68,9 @@ final class VisionActions {
     String question=VisionLogic.clean(args.optString("query",""),VisionLogic.MAX_QUESTION);
     switch(action){
       case "camera_vision":{camera(id,args,question);return;}
+      case "screen_vision":{screen(id,args,question);return;}
       case "cancel_vision":{
-        boolean was=busy||picking!=null||VisionCameraActivity.isOpen();picking=null;engine.cancel();VisionCameraActivity.close();
+        boolean was=busy||picking!=null||VisionCameraActivity.isOpen()||!guideGoal.isEmpty();picking=null;engine.cancel();VisionCameraActivity.close();guideGoal="";guideStep="";ScreenHighlight.hide();
         finish.accept(id,status(was?"done":"none",was?"Stopped reading. Nothing was saved.":"FRIDAY was not reading anything."));return;
       }
       case "document_question":{documentQuestion(id,question);return;}
@@ -159,6 +163,71 @@ final class VisionActions {
     JSONObject v=status("started","FRIDAY's camera screen is open"+(question.isEmpty()?"":" and will answer \""+question+"\" when the user taps Objects or Scene")+". Tell the user in one short line to point the back camera at the thing and tap Objects (names things with boxes) or Scene (describes the place); Live keeps looking while the view changes; Awaz speaks the answer. When they close it you get a [Phone] message with what was seen. Do not call camera_vision again unless they ask about something new.");
     put(v,"display","Camera khul gaya. Cheez ki taraf karein aur Objects ya Scene dabayein.");
     finish.accept(id,v);
+  }
+
+  /** The goal the user is being guided to on screen, and the step they were told last. */
+  private String guideGoal="",guideStep="";
+
+  /**
+   * screen_vision: mode explain (default: what is this screen, or the question), guide (query = the goal:
+   * remaining steps, next button framed on screen), check (after the user did a step: did it work, is it still
+   * the right way, what next) or stop (end the guide). Uses only what the user already allowed: FRIDAY's
+   * accessibility switch, and the screen picture only while they are sharing the screen in a call.
+   */
+  private void screen(String id,JSONObject args,String question){
+    String mode=args.optString("mode","explain");
+    if("stop".equals(mode)){guideGoal="";guideStep="";ScreenHighlight.hide();finish.accept(id,status("done","Screen guide ended."));return;}
+    PhoneController c=PhoneController.get();
+    if(c==null){finish.accept(id,status("permission_required","Reading the screen needs FRIDAY's phone control switch in Android Settings > Accessibility. Explain that to the user in one short line; it is their choice to turn it on."));return;}
+    if("guide".equals(mode)){if(question.isEmpty()){finish.accept(id,status("invalid","Ask what the user wants to do on this screen (the goal)."));return;}guideGoal=question;guideStep="";question="";}
+    if("check".equals(mode)&&guideGoal.isEmpty())mode="explain";
+    if(busy){finish.accept(id,status("busy","FRIDAY is still looking. Wait for the result first."));return;}
+    JSONObject screen=c.readScreen();
+    if(!"done".equals(screen.optString("status"))){finish.accept(id,screen);return;}
+    if(activity.getPackageName().equals(screen.optString("package"))){
+      finish.accept(id,status("own_screen","FRIDAY's own screen is in front. Tell the user to open the app they want help with and ask again from there (by voice in the call, or with the FRIDAY bubble)."));return;
+    }
+    String shot=ScreenCapture.latest;boolean picture=shot!=null&&android.os.SystemClock.elapsedRealtime()-ScreenCapture.latestAt<4000;
+    String setting=activity.getSharedPreferences(Announcer.PREFS,0).getString("language","hi-IN");
+    VisionEngine.Request r=new VisionEngine.Request();
+    r.system=VisionLogic.screenInstruction();r.maxTokens=2048;
+    r.prompt=VisionLogic.screenPrompt(screen,question,guideGoal,"check".equals(mode)?(guideStep.isEmpty()?"the previous step":guideStep):"",VisionLogic.spokenLanguage(setting),picture);
+    if(picture)r.media.add(new VisionEngine.Media(android.util.Base64.decode(shot,android.util.Base64.NO_WRAP),"image/jpeg"));
+    busy=true;
+    JSONObject v=status("started","Looking at the "+screen.optString("app","app")+" screen"+(guideGoal.isEmpty()?"":" for the goal \""+guideGoal+"\"")+". Say one short line that you are checking; the result comes as a [Phone] message.");
+    put(v,"display","Screen dekh rahi hoon...");
+    finish.accept(id,v);
+    String app=screen.optString("app","");final String m=mode;
+    worker.execute(()->{
+      try{
+        String[] k=keys();
+        VisionEngine.Answer a=engine.ask(k[0],k[1],alt.get(),r);
+        JSONObject d=VisionLogic.parseJson(a.text);
+        if(d==null)d=new JSONObject().put("summary",VisionLogic.clip(a.text,500));
+        String next=VisionLogic.matchLabel(d.optString("next_label",""),screen.optJSONArray("items"));
+        JSONObject res=d;
+        main.post(()->{
+          boolean framed=false;
+          if(!next.isEmpty()){
+            guideStep="press "+next;
+            PhoneController pc=PhoneController.get();
+            android.view.accessibility.AccessibilityNodeInfo node=pc==null?null:pc.find(next,false);
+            if(node!=null){android.graphics.Rect b=new android.graphics.Rect();node.getBoundsInScreen(b);framed=ScreenHighlight.show(activity,b,next,7000);}
+          }
+          if(res.optBoolean("done",false)){guideGoal="";guideStep="";}
+          JSONObject e=new JSONObject();
+          try{
+            e.put("app",app).put("screen",res.optString("screen","")).put("summary",VisionLogic.clip(res.optString("summary",""),700)).put("answer",VisionLogic.clip(res.optString("answer",""),600))
+              .put("spoken",VisionLogic.clip(res.optString("spoken",""),500)).put("steps",new org.json.JSONArray(VisionLogic.strings(res.optJSONArray("steps"),8)))
+              .put("next_label",next).put("framed",framed).put("done",res.optBoolean("done",false)).put("error",VisionLogic.clip(res.optString("error",""),300))
+              .put("goal",guideGoal).put("mode",m).put("picture",picture);
+          }catch(JSONException ignored){}
+          event("screen",true,null,e);
+        });
+      }catch(VisionEngine.Cancelled x){event("screen",false,"Stopped.",null);}
+      catch(Exception x){ControlLog.i("screen vision: failed ("+VisionEngine.code(x)+")");event("screen",false,VisionEngine.explain(x),null);}
+      finally{busy=false;}
+    });
   }
 
   private void documentQuestion(String id,String question){

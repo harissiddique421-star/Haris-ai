@@ -76,3 +76,19 @@ test('camera by typed command and its result message', () => {
   const none = visionMessage({ kind: 'camera', ok: false, looks: 0 });
   assert.match(none.say, /Say nothing/);
 });
+
+test('screen understanding and guide by typed command and its result message', () => {
+  assert.deepEqual(parseMobileAction('explain this screen'), { action: 'screen_vision' });
+  assert.deepEqual(parseMobileAction('ye screen samjhao'), { action: 'screen_vision' });
+  assert.deepEqual(parseMobileAction('guide me to turn on dark mode'), { action: 'screen_vision', mode: 'guide', query: 'turn on dark mode' });
+  assert.deepEqual(parseMobileAction('wifi password change kaise karun guide karo'), { action: 'screen_vision', mode: 'guide', query: 'wifi password change' });
+  assert.deepEqual(parseMobileAction('guide band karo'), { action: 'screen_vision', mode: 'stop' });
+  const m = visionMessage({ kind: 'screen', ok: true, app: 'Settings', screen: 'Display', summary: 'Display settings.', steps: ['Tap Dark theme'], next_label: 'Dark theme', framed: true, spoken: 'Dark theme dabayein.', picture: false });
+  assert.match(m.chat, /^Settings \(Display\): Display settings\.\n1\. Tap Dark theme$/);
+  assert.match(m.say, /Next button: "Dark theme" \(framed in yellow/);
+  assert.match(m.say, /tap with target "Dark theme"/);
+  assert.match(m.say, /accessibility labels/);
+  const done = visionMessage({ kind: 'screen', ok: true, app: 'Settings', summary: 'On.', done: true, steps: [] });
+  assert.match(done.say, /already reached/);
+  assert.doesNotMatch(done.say, /tap with target/);
+});

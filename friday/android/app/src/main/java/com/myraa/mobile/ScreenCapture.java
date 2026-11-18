@@ -30,6 +30,8 @@ final class ScreenCapture {
   private static HandlerThread thread;
   private static Handler handler;
   private static long lastFrame;
+  /** The newest shared frame, for "what is on my screen" questions while sharing (visual intelligence); null when not sharing. */
+  static volatile String latest;static volatile long latestAt;
 
   static void setListener(Frames frames){listener=frames;}
   static synchronized boolean active(){return projection!=null;}
@@ -62,7 +64,8 @@ final class ScreenCapture {
         image=r.acquireLatestImage();if(image==null)return;
         long now=SystemClock.elapsedRealtime();if(now-lastFrame<1000)return;lastFrame=now;
         Frames frames=listener;if(frames==null)return;
-        frames.frame(encode(image,width,height));
+        String jpeg=encode(image,width,height);latest=jpeg;latestAt=now;
+        frames.frame(jpeg);
       }catch(RuntimeException|OutOfMemoryError e){
         // A frame that cannot be read or encoded is skipped; it never closes FRIDAY.
         if(e instanceof OutOfMemoryError)ControlLog.i("screen share: skipped a frame (low memory)");
@@ -89,6 +92,7 @@ final class ScreenCapture {
   /** Releases the display, reader and projection (the consent ends with it). reason: why, when FRIDAY did not choose to stop. */
   static synchronized void stop(String reason){
     boolean was=projection!=null;
+    latest=null;
     if(display!=null){display.release();display=null;}
     if(reader!=null){reader.close();reader=null;}
     if(projection!=null){MediaProjection p=projection;projection=null;try{p.stop();}catch(RuntimeException ignored){}}
