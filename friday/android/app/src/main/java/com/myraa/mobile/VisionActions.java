@@ -27,14 +27,16 @@ import org.json.JSONObject;
  *  document_question a follow-up question about the document read last (nothing is sent again)
  *  compare_images    the user picks 2 to 4 pictures; FRIDAY reports what is the same and what changed
  *  save_vision_report the last document reading or comparison saved as a PDF in Downloads/FRIDAY
- *  cancel_vision     stops the reading in progress
+ *  cancel_vision     stops the reading in progress (and closes the camera screen)
+ *  camera_vision     opens FRIDAY's camera screen: objects with boxes, the scene, a question about what is
+ *                    in front of the camera (phase 2); asked again while it is open, it looks again
  *
  * The answer to the action comes at once ("the picker is open"); the result arrives later as a
  * "vision-done" event, like research reports, because reading a long PDF can take a minute.
  * Nothing is read until the user picks files, and the picked files are not copied or kept.
  */
 final class VisionActions {
-  static final String[] ACTIONS={"analyze_document","document_question","compare_images","save_vision_report","cancel_vision"};
+  static final String[] ACTIONS={"analyze_document","document_question","compare_images","save_vision_report","cancel_vision","camera_vision"};
   static boolean handles(String action){for(String a:ACTIONS)if(a.equals(action))return true;return false;}
 
   private final Activity activity;
@@ -62,8 +64,9 @@ final class VisionActions {
   void execute(String id,String action,JSONObject args){
     String question=VisionLogic.clean(args.optString("query",""),VisionLogic.MAX_QUESTION);
     switch(action){
+      case "camera_vision":{camera(id,args,question);return;}
       case "cancel_vision":{
-        boolean was=busy||picking!=null;picking=null;engine.cancel();
+        boolean was=busy||picking!=null||VisionCameraActivity.isOpen();picking=null;engine.cancel();VisionCameraActivity.close();
         finish.accept(id,status(was?"done":"none",was?"Stopped reading. Nothing was saved.":"FRIDAY was not reading anything."));return;
       }
       case "document_question":{documentQuestion(id,question);return;}
@@ -138,6 +141,24 @@ final class VisionActions {
       catch(Exception e){ControlLog.i("vision: failed ("+VisionEngine.code(e)+")");event(compare?"compare":"document",false,VisionEngine.explain(e),null);}
       finally{busy=false;}
     });
+  }
+
+  /** camera_vision: opens the camera screen, or looks again with the new question when it is already open. */
+  private void camera(String id,JSONObject args,String question){
+    String mode="scene".equals(args.optString("mode",""))?"scene":"objects";
+    if(VisionCameraActivity.ask(mode,question)){
+      JSONObject v=status("started","The camera screen is open: FRIDAY is looking again"+(question.isEmpty()?"":" for \""+question+"\"")+". The answer shows on the screen; say one short line meanwhile. Do not call camera_vision again for this.");
+      put(v,"display","Dobara dekh rahi hoon...");finish.accept(id,v);return;
+    }
+    String setting=activity.getSharedPreferences(Announcer.PREFS,0).getString("language","hi-IN");
+    VisionCameraActivity.session=new VisionCameraActivity.Session(this::keys,alt.get(),e->main.post(()->{MobileActions.Notify n=notify.get();if(n!=null)n.event(e);}),
+      VisionLogic.spokenLanguage(setting),mode,question,args.optBoolean("on",false),args.optBoolean("speak",true));
+    try{activity.startActivity(new Intent(activity,VisionCameraActivity.class));}
+    catch(ActivityNotFoundException|SecurityException e){finish.accept(id,status("unavailable","The camera screen could not open."));return;}
+    ControlLog.i("vision: camera screen opened ("+mode+")");
+    JSONObject v=status("started","FRIDAY's camera screen is open"+(question.isEmpty()?"":" and will answer \""+question+"\" when the user taps Objects or Scene")+". Tell the user in one short line to point the back camera at the thing and tap Objects (names things with boxes) or Scene (describes the place); Live keeps looking while the view changes; Awaz speaks the answer. When they close it you get a [Phone] message with what was seen. Do not call camera_vision again unless they ask about something new.");
+    put(v,"display","Camera khul gaya. Cheez ki taraf karein aur Objects ya Scene dabayein.");
+    finish.accept(id,v);
   }
 
   private void documentQuestion(String id,String question){

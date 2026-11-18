@@ -67,6 +67,7 @@
     </service>
     <service android:name=".WakeWordService" android:exported="false" android:foregroundServiceType="microphone" />
     <service android:name=".LiveVoiceService" android:exported="false" android:foregroundServiceType="microphone|mediaPlayback|mediaProjection" />
+    <activity android:name=".VisionCameraActivity" android:exported="false" android:screenOrientation="portrait" android:launchMode="singleTop" android:configChanges="keyboard|keyboardHidden|screenSize|smallestScreenSize|screenLayout" android:windowSoftInputMode="adjustResize" />
     <activity android:name=".FridayCallActivity" android:exported="false" android:showWhenLocked="true" android:turnScreenOn="true" android:launchMode="singleTop" android:excludeFromRecents="true" android:taskAffinity="com.myraa.mobile.call" android:screenOrientation="portrait" />
     <activity android:name=".MainActivity" android:launchMode="singleTask" android:exported="true" android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density" android:windowSoftInputMode="adjustResize">
       <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
