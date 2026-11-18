@@ -349,6 +349,7 @@ public final class MobileActions {
       if("brightness".equals(action)){finish(id,phone().brightness(args.optString("direction"),args.optInt("percent",-1)));return;}
       if("battery".equals(action)){finish(id,Diagnostics.battery(activity));return;}
       if("navigate".equals(action)){finish(id,phone().navigate(args.optString("place"),args.optString("mode")));return;}
+      if("book_ride".equals(action)||"order_food".equals(action)){rideOrFood(id,"book_ride".equals(action)?RideFood.RIDE:RideFood.FOOD,args);return;}
       if("read_notifications".equals(action)){finish(id,phone().notifications(args.optInt("limit",10)));return;}
       if("my_words".equals(action)){finish(id,myWords(args.optString("command","add"),args.optString("text","")));return;}
       if("check_link".equals(action)){finish(id,checkLink(args.optString("text","")));return;}
@@ -464,6 +465,29 @@ public final class MobileActions {
     else intent=launcher.app(input);
     if(intent==null){finish(id,"not_installed","No installed app matches that name.");return;}
     boolean opened=launcher.open(intent);finish(id,opened?"opened":"unavailable",opened?"Opened "+input+".":"Android could not open "+input+".");
+  }
+  /**
+   * book_ride / order_food: opens Careem, inDrive or Foodpanda (see RideFood). The destination or dish is copied
+   * so the user can paste it; with phone control on the model may type it in. Missing app: Play Store, then the website.
+   */
+  private void rideOrFood(String id,String kind,JSONObject args){
+    boolean ride=RideFood.RIDE.equals(kind);
+    String what=RideFood.clean(ride?args.optString("place",args.optString("query","")):args.optString("query",args.optString("place","")));
+    RideFood.Choice c=RideFood.choose(kind,args.optString("app",""),launcher::installed);
+    if(!c.installed){
+      if(launcher.open(new Intent(Intent.ACTION_VIEW,Uri.parse(c.app.playStore())))){finish(id,"not_installed",RideFood.notInstalledMessage(c,"the Play Store page"));return;}
+      if(launcher.open(new Intent(Intent.ACTION_VIEW,Uri.parse(c.app.playStoreWeb())))){finish(id,"not_installed",RideFood.notInstalledMessage(c,"its Play Store page in the browser"));return;}
+      boolean site=launcher.open(new Intent(Intent.ACTION_VIEW,Uri.parse(c.app.website)).addCategory(Intent.CATEGORY_BROWSABLE));
+      finish(id,site?"opened_website":"unavailable",site?c.app.label+" is not installed, so its website opened instead.":c.app.label+" is not installed and no browser or Play Store could open.");return;
+    }
+    Intent launch=activity.getPackageManager().getLaunchIntentForPackage(c.app.pkg);
+    if(launch==null||!launcher.open(launch)){finish(id,"unavailable","Android could not open "+c.app.label+".");return;}
+    boolean copied=false;
+    if(!what.isEmpty())try{activity.getSystemService(android.content.ClipboardManager.class).setPrimaryClip(android.content.ClipData.newPlainText("FRIDAY",what));copied=true;}catch(RuntimeException ignored){}
+    ControlLog.i(kind+": opened "+c.app.key+(what.isEmpty()?"":" with text"));
+    JSONObject v=status("opened",RideFood.openedMessage(c,kind,what,copied,PhoneController.get()!=null));
+    try{v.put("app",c.app.label);if(!what.isEmpty())v.put(ride?"destination":"food",what);}catch(JSONException ignored){}
+    finish(id,v);
   }
   private String whatsapp(){return launcher.installed("com.whatsapp")?"com.whatsapp":launcher.installed("com.whatsapp.w4b")?"com.whatsapp.w4b":null;}
 
