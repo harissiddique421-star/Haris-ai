@@ -100,8 +100,15 @@ before; nothing is saved, uploaded or sent to any AI. To avoid accidental comman
 calm moment, when it is clear enough for the chosen sensitivity (Normal, Zyada, Kam on the screen), when the
 whole picture is not moving (the phone itself moving), never within 1.5 s of the last gesture, and cover must
 be held. The camera runs only while the screen is open with a "Gesture mode ON" banner; leaving the screen
-closes it, and it turns off by itself after 10 minutes. Hand shapes (thumbs up, open palm) with an on-device
-hand model are planned as a separate step.
+closes it, and it turns off by itself after 10 minutes.
+
+Hand shapes (phase 5b): the Linux/CI build adds MediaPipe's on-device gesture recogniser (Apache-2.0; the library,
+its Java dependencies and the model are fetched by `scripts/fetch-mediapipe.sh` and checked against the hashes in
+`android/models/mediapipe.sha256`). In gesture mode a small upright copy of a frame goes to it about eight times a
+second, on the phone only. A shape counts when it is held for about 0.6 s and fires once until the hand is lowered
+or changed: open palm pause, thumbs up play, V sign next, finger pointing up louder, thumbs down quieter; a fist or
+no hand does nothing. Its Java code is in `android/app/src/mediapipe` and is built only when the library is present,
+so the Windows build and phones where it cannot load keep motion gestures only.
 
 ## Visual intelligence, phase 4: video and visual memory
 

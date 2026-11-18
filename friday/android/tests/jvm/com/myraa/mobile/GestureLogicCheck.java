@@ -94,6 +94,37 @@ public final class GestureLogicCheck {
     int[] g270 = GestureLogic.grid(y, w, h, w, 270, false);
     check(g270[0] == 200 && g270[GestureLogic.N - 1] == 10, "grid turned 270 degrees");
 
+
+    // Hand shapes: held shapes fire once; brief, weak or meaningless shapes never do.
+    GestureLogic.ShapeHold sh = new GestureLogic.ShapeHold(0.7f);
+    StringBuilder fired = new StringBuilder();
+    long st = 0;
+    for (int i = 0; i < 4; i++) { String f = sh.feed("Thumb_Up", 0.9f, st); st += 100; if (f != null) fired.append(f); }
+    for (int i = 0; i < 5; i++) { String f = sh.feed("None", 0.9f, st); st += 100; if (f != null) fired.append(f); }
+    check(fired.length() == 0, "a shape shown for 0.4 s does not fire");
+    for (int i = 0; i < 20; i++) { String f = sh.feed("Thumb_Up", 0.9f, st); st += 100; if (f != null) fired.append(f).append(' '); }
+    check(fired.toString().trim().equals("Thumb_Up"), "a held shape fires once: " + fired);
+    for (int i = 0; i < 4; i++) { String f = sh.feed("None", 0.5f, st); st += 100; if (f != null) fired.append("x"); }
+    for (int i = 0; i < 8; i++) { String f = sh.feed("Thumb_Up", 0.9f, st); st += 100; if (f != null) fired.append(f).append(' '); }
+    check(fired.toString().trim().equals("Thumb_Up Thumb_Up"), "fires again after the hand was lowered: " + fired);
+    for (int i = 0; i < 10; i++) { String f = sh.feed("Victory", 0.9f, st); st += 100; if (f != null) fired.append(f).append(' '); }
+    check(fired.toString().trim().endsWith("Victory"), "changing straight to another shape fires that one");
+    String weak = "";
+    for (int i = 0; i < 20; i++) { String f = sh.feed("Open_Palm", 0.5f, st); st += 100; if (f != null) weak += f; }
+    for (int i = 0; i < 20; i++) { String f = sh.feed("Closed_Fist", 0.95f, st); st += 100; if (f != null) weak += f; }
+    check(weak.isEmpty(), "weak shapes and shapes without a command never fire");
+    check(GestureLogic.shapeCommand("Open_Palm").equals("pause") && GestureLogic.shapeCommand("Victory").equals("next") && GestureLogic.shapeCommand("ILoveYou").isEmpty(), "shape commands");
+
+
+    // Colour picture for the hand model: grey stays grey, a red pixel stays red, mirrored like the grid.
+    int cw = 8, chh = 4; byte[] yy = new byte[cw * chh], uu = new byte[cw * chh / 4 + 8], vv = new byte[cw * chh / 4 + 8];
+    java.util.Arrays.fill(yy, (byte) 100); java.util.Arrays.fill(uu, (byte) 128); java.util.Arrays.fill(vv, (byte) 128);
+    int[] grey = GestureLogic.argb(yy, uu, vv, cw, chh, cw, cw / 2, 1, 0, false, 8, 4);
+    check(grey[0] == 0xFF646464, "grey pixel");
+    vv[0] = (byte) 255; // the top-left 2x2 block turns red
+    int[] red = GestureLogic.argb(yy, uu, vv, cw, chh, cw, cw / 2, 1, 0, false, 8, 4), redM = GestureLogic.argb(yy, uu, vv, cw, chh, cw, cw / 2, 1, 0, true, 8, 4);
+    check(((red[0] >> 16) & 0xFF) > 200 && (red[0] & 0xFF) < 120 && ((redM[7] >> 16) & 0xFF) > 200, "red pixel, and mirrored to the other side");
+
     if (failures > 0) { System.out.println(failures + " gesture check(s) failed"); System.exit(1); }
     System.out.println("All gesture checks passed");
   }
