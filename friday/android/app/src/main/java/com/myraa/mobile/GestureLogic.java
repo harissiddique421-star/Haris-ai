@@ -90,6 +90,34 @@ final class GestureLogic {
     return g;
   }
 
+  /**
+   * An upright colour picture (ARGB, outW x outH) from a camera YUV_420_888 frame, turned by rotation degrees and
+   * mirrored for the front camera, for the hand shape model. Samples the nearest pixel, so it costs little.
+   */
+  static int[] argb(byte[] y,byte[] u,byte[] v,int width,int height,int yRow,int uvRow,int uvPixel,int rotation,boolean mirror,int outW,int outH){
+    boolean sideways=rotation==90||rotation==270;
+    int uw=sideways?height:width,uh=sideways?width:height;
+    int[] out=new int[outW*outH];
+    for(int oy=0;oy<outH;oy++)for(int ox=0;ox<outW;ox++){
+      int ux=(int)((ox+0.5)*uw/outW),uy=(int)((oy+0.5)*uh/outH);
+      if(mirror)ux=uw-1-ux;
+      int sx,sy;
+      switch(rotation){
+        case 90:sx=uy;sy=height-1-ux;break;
+        case 180:sx=width-1-ux;sy=height-1-uy;break;
+        case 270:sx=width-1-uy;sy=ux;break;
+        default:sx=ux;sy=uy;
+      }
+      sx=Math.max(0,Math.min(width-1,sx));sy=Math.max(0,Math.min(height-1,sy));
+      int Y=y[sy*yRow+sx]&0xFF;int ci=(sy/2)*uvRow+(sx/2)*uvPixel;
+      int U=(ci<u.length?u[ci]&0xFF:128)-128,V=(ci<v.length?v[ci]&0xFF:128)-128;
+      int r=clamp255(Y+(int)(1.402f*V)),g=clamp255(Y-(int)(0.344f*U+0.714f*V)),b=clamp255(Y+(int)(1.772f*U));
+      out[oy*outW+ox]=0xFF000000|(r<<16)|(g<<8)|b;
+    }
+    return out;
+  }
+  private static int clamp255(int x){return x<0?0:x>255?255:x;}
+
   /** Follows the grids one by one and says when a gesture was made. Not thread safe: feed it from one thread. */
   static final class Detector {
     private final float minConfidence;
@@ -179,5 +207,51 @@ final class GestureLogic {
       return new Gesture(dy>0?"swipe_down":"swipe_up",Math.min(1f,0.35f+0.6f*Math.abs(dy)+0.2f*(straight-0.7f)/0.3f));
     }
     return null;
+  }
+
+  // ---- Hand shapes (phase 5b): the on-device MediaPipe hand model names a shape in each frame
+
+  static final long SHAPE_HOLD_MS=600,SHAPE_RELEASE_MS=300;
+
+  /** The command a held hand shape gives (MediaPipe gesture recogniser names), or "" for shapes that do nothing. */
+  static String shapeCommand(String shape){
+    switch(shape==null?"":shape){
+      case "Open_Palm":return "pause";
+      case "Thumb_Up":return "resume";
+      case "Victory":return "next";
+      case "Pointing_Up":return "volume_up";
+      case "Thumb_Down":return "volume_down";
+      default:return "";
+    }
+  }
+
+  static String shapeLabel(String shape){
+    switch(shape==null?"":shape){
+      case "Open_Palm":return "Khula haath: pause";
+      case "Thumb_Up":return "Thumbs up: play";
+      case "Victory":return "Do ungliyan (V): agla gaana";
+      case "Pointing_Up":return "Ungli upar: awaz tez";
+      case "Thumb_Down":return "Thumbs down: awaz kam";
+      default:return "";
+    }
+  }
+
+  /**
+   * A hand shape counts only when it is held: the same shape with enough confidence for SHAPE_HOLD_MS fires once,
+   * and fires again only after the hand was lowered or changed for SHAPE_RELEASE_MS. A shape that does nothing
+   * (a fist, no hand) never fires.
+   */
+  static final class ShapeHold {
+    private final float minScore;private String cur="",fired;private long since;
+    ShapeHold(float minScore){this.minScore=minScore;}
+    /** One frame's best shape and its score at time t: the shape that has just been held long enough, or null. */
+    String feed(String name,float score,long t){
+      String s=name!=null&&score>=minScore&&!shapeCommand(name).isEmpty()?name:"";
+      if(!s.equals(cur)){cur=s;since=t;}
+      if(fired!=null&&!cur.equals(fired)&&t-since>=SHAPE_RELEASE_MS)fired=null;
+      if(cur.isEmpty()||fired!=null)return null;
+      if(t-since>=SHAPE_HOLD_MS){fired=cur;return cur;}
+      return null;
+    }
   }
 }

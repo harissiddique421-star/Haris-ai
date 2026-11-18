@@ -3,6 +3,7 @@ package com.myraa.mobile;
 import android.Manifest;
 import android.app.Activity;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.graphics.ImageFormat;
 import android.graphics.Matrix;
@@ -55,8 +56,16 @@ public final class GestureActivity extends Activity implements TextureView.Surfa
   private volatile boolean resumed;private boolean askingPermission;
   private volatile GestureLogic.Detector detector;
   private long startedAt,lastFrameAt;
-  private final int[] counts=new int[6];
+  private final java.util.Map<String,Integer> counts=new java.util.LinkedHashMap<>();
   private static final String[] NAMES={"swipe_right","swipe_left","swipe_up","swipe_down","cover","wave"};
+  private static final String[] SHAPES={"Open_Palm","Thumb_Up","Victory","Pointing_Up","Thumb_Down"};
+  /** The hand shape model (null until loaded, or when this APK or phone cannot run it) and its own thread. */
+  private volatile HandShapes shapes;
+  private final java.util.concurrent.ExecutorService shapeWorker=java.util.concurrent.Executors.newSingleThreadExecutor();
+  private volatile boolean shapeBusy;private long lastShapeAt;private volatile GestureLogic.ShapeHold hold;
+  /** Any two commands (motion or shape) at least this far apart. */
+  private long lastCommandAt;private static final long SHAPE_EVERY_MS=120,COMMAND_GAP_MS=1200;
+  private TextView help;
 
   @Override protected void onCreate(Bundle b){
     super.onCreate(b);
@@ -72,9 +81,7 @@ public final class GestureActivity extends Activity implements TextureView.Surfa
     last=text(22,0xFFFFD54F);top.addView(last);
     root.addView(top,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP));
     LinearLayout bottom=new LinearLayout(this);bottom.setOrientation(LinearLayout.VERTICAL);bottom.setPadding(dp(16),dp(10),dp(16),dp(20));bottom.setBackgroundColor(0xAA000000);
-    TextView help=text(14,Color.WHITE);
-    StringBuilder h=new StringBuilder();for(String n:NAMES)h.append(GestureLogic.label(n)).append('\n');
-    help.setText(h.append("Phone ko seedha rakhein, haath camera se 20-50 cm door.").toString());bottom.addView(help);
+    help=text(14,Color.WHITE);helpText(false);bottom.addView(help);
     LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER);
     sensitivityButton=button("",v->{Session s=session;if(s==null)return;s.sensitivity="normal".equals(s.sensitivity)?"high":"high".equals(s.sensitivity)?"low":"normal";newDetector();labels();});
     row.addView(sensitivityButton);
@@ -84,11 +91,26 @@ public final class GestureActivity extends Activity implements TextureView.Surfa
     setContentView(root);
     newDetector();labels();
     status.setText("Haath se gesture karein. Gesture ke darmiyan thora ruk jayein.");
+    // The hand shape model loads off the main thread; until then (or without it) motion gestures work alone.
+    shapeWorker.execute(()->{
+      HandShapes m=HandShapes.open(this);
+      if(isFinishing()||isDestroyed()){if(m!=null)m.close();return;}
+      shapes=m;
+      ui.post(()->{if(m!=null){helpText(true);status.setText("Haath ke shapes bhi pehchan rahi hoon. Shape 1 second tak rokein.");}});
+    });
     startedAt=SystemClock.elapsedRealtime();
     ControlLog.i("gestures: mode on ("+session.sensitivity+")");
   }
 
-  private void newDetector(){Session s=session;detector=new GestureLogic.Detector(GestureLogic.threshold(s==null?"normal":s.sensitivity));}
+  private void newDetector(){
+    Session s=session;float th=GestureLogic.threshold(s==null?"normal":s.sensitivity);
+    detector=new GestureLogic.Detector(th);hold=new GestureLogic.ShapeHold(Math.min(0.9f,th+0.05f));
+  }
+  private void helpText(boolean withShapes){
+    StringBuilder h=new StringBuilder();for(String n:NAMES)h.append(GestureLogic.label(n)).append('\n');
+    if(withShapes)for(String n:SHAPES)h.append(GestureLogic.shapeLabel(n)).append('\n');
+    help.setText(h.append("Phone ko seedha rakhein, haath camera se 20-50 cm door.").toString());
+  }
   private void labels(){Session s=session;if(s==null)return;sensitivityButton.setText("Sensitivity: "+("high".equals(s.sensitivity)?"Zyada":"low".equals(s.sensitivity)?"Kam":"Normal"));}
 
   @Override protected void onResume(){
@@ -106,6 +128,7 @@ public final class GestureActivity extends Activity implements TextureView.Surfa
     if(!isChangingConfigurations()&&!askingPermission)finish();
   }
   @Override protected void onDestroy(){
+    shapeWorker.execute(()->{HandShapes m=shapes;shapes=null;if(m!=null)m.close();});shapeWorker.shutdown();
     if(open==this)open=null;
     report();
     super.onDestroy();
@@ -220,19 +243,50 @@ public final class GestureActivity extends Activity implements TextureView.Surfa
       int[] grid=GestureLogic.grid(plane,w,Math.min(h,(need+rowStride-1)/rowStride),rowStride,sensorOrientation,true);
       GestureLogic.Detector d=detector;
       GestureLogic.Gesture g=d==null?null:d.feed(grid,now);
-      if(g!=null)ui.post(()->perform(g));
+      if(g!=null)ui.post(()->perform(g.name,GestureLogic.command(g.name),GestureLogic.label(g.name),g.confidence));
+      if(shapes!=null&&!shapeBusy&&now-lastShapeAt>=SHAPE_EVERY_MS){lastShapeAt=now;shape(img,h,now);}
     }catch(RuntimeException ignored){
     }finally{img.close();}
   }
 
+  private byte[] uPlane,vPlane;
+
+  /** Hands a small upright colour copy of the frame to the hand shape model on its own thread (frames are skipped while it is busy). */
+  private void shape(Image img,int h,long now){
+    Image.Plane[] p=img.getPlanes();if(p.length<3)return;
+    ByteBuffer ub=p[1].getBuffer(),vb=p[2].getBuffer();
+    int un=ub.remaining(),vn=vb.remaining();
+    if(uPlane==null||uPlane.length<un)uPlane=new byte[un];if(vPlane==null||vPlane.length<vn)vPlane=new byte[vn];
+    ub.get(uPlane,0,un);vb.get(vPlane,0,vn);
+    int w=img.getWidth();boolean sideways=sensorOrientation==90||sensorOrientation==270;
+    int uw=sideways?h:w,uh=sideways?w:h;float k=256f/Math.max(uw,uh);
+    int ow=Math.max(1,Math.round(uw*k)),oh=Math.max(1,Math.round(uh*k));
+    int[] px=GestureLogic.argb(plane,uPlane,vPlane,w,h,p[0].getRowStride(),p[1].getRowStride(),p[1].getPixelStride(),sensorOrientation,true,ow,oh);
+    Bitmap bmp=Bitmap.createBitmap(px,ow,oh,Bitmap.Config.ARGB_8888);
+    shapeBusy=true;
+    try{
+      shapeWorker.execute(()->{
+        try{
+          HandShapes m=shapes;GestureLogic.ShapeHold sh=hold;
+          Object[] best=m==null?null:m.detect(bmp,now);
+          String fired=sh==null?null:best==null?sh.feed("",0,now):sh.feed((String)best[0],(Float)best[1],now);
+          if(fired!=null){float score=best==null?0:(Float)best[1];ui.post(()->perform(fired,GestureLogic.shapeCommand(fired),GestureLogic.shapeLabel(fired),score));}
+        }catch(Throwable t){ControlLog.i("gestures: hand shape check failed ("+t.getClass().getSimpleName()+")");}
+        finally{bmp.recycle();shapeBusy=false;}
+      });
+    }catch(java.util.concurrent.RejectedExecutionException e){bmp.recycle();shapeBusy=false;}
+  }
+
   /** Carries out the gesture's command and shows it. */
-  private void perform(GestureLogic.Gesture g){
-    if(!resumed)return;
-    String cmd=GestureLogic.command(g.name);
-    for(int i=0;i<NAMES.length;i++)if(NAMES[i].equals(g.name))counts[i]++;
-    last.setText(GestureLogic.label(g.name)+"  ("+Math.round(g.confidence*100)+"%)");
+  private void perform(String name,String cmd,String label,float confidence){
+    if(!resumed||cmd.isEmpty())return;
+    long now=SystemClock.elapsedRealtime();
+    if(now-lastCommandAt<COMMAND_GAP_MS)return;
+    lastCommandAt=now;
+    Integer n=counts.get(name);counts.put(name,n==null?1:n+1);
+    last.setText(label+"  ("+Math.round(confidence*100)+"%)");
     getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
-    ControlLog.i("gestures: "+g+" -> "+cmd);
+    ControlLog.i("gestures: "+name+String.format(java.util.Locale.ROOT," %.2f",confidence)+" -> "+cmd);
     try{
       if("volume_up".equals(cmd)||"volume_down".equals(cmd)){
         AudioManager a=getSystemService(AudioManager.class);
@@ -250,7 +304,7 @@ public final class GestureActivity extends Activity implements TextureView.Surfa
     JSONObject e=new JSONObject();int total=0;
     try{
       JSONObject used=new JSONObject();
-      for(int i=0;i<NAMES.length;i++)if(counts[i]>0){used.put(NAMES[i],counts[i]);total+=counts[i];}
+      for(java.util.Map.Entry<String,Integer> c:counts.entrySet()){used.put(c.getKey(),c.getValue());total+=c.getValue();}
       e.put("type","vision-done").put("kind","gesture").put("ok",true).put("gestures",total).put("used",used)
         .put("minutes",Math.max(0,(SystemClock.elapsedRealtime()-startedAt)/60_000));
     }catch(JSONException ignored){}

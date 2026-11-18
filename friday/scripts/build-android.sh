@@ -23,16 +23,23 @@ for m in silero_vad_16k.safetensors voice_encoder.safetensors; do [ -s "android/
 SHERPA=android/app/build/sherpa; rm -rf "$SHERPA" "$ASSETS/sherpa"
 ./scripts/fetch-sherpa.sh android "$SHERPA"
 cp -r "$SHERPA/assets/sherpa" "$ASSETS/sherpa"
+# MediaPipe gesture recogniser for hand shapes in gesture mode (library + model checked against pinned hashes).
+# Its Java code (android/app/src/mediapipe) is built only here; without it FRIDAY uses motion gestures only.
+MP=android/app/build/mediapipe; rm -rf "$MP" "$ASSETS/mediapipe"
+./scripts/fetch-mediapipe.sh "$MP"
+cp -r "$MP/assets/mediapipe" "$ASSETS/mediapipe"
+MPCP=$(find "$MP/jars" -name '*.jar' | sort | tr '\n' ':')
 OUT=android/app/build/ci; rm -rf "$OUT"; mkdir -p "$OUT/classes" "$OUT/dex" "$OUT/res/drawable"
-javac -encoding UTF-8 -source 8 -target 8 -classpath "$JAR" -d "$OUT/classes" $(find android/app/src/main/java -name '*.java')
+javac -encoding UTF-8 -source 8 -target 8 -classpath "$JAR:$MPCP" -d "$OUT/classes" $(find android/app/src/main/java android/app/src/mediapipe/java -name '*.java')
 (cd "$OUT/classes" && jar --create --file ../classes.jar .)
-"$BT/d8" --lib "$JAR" --min-api 26 --output "$OUT/dex" "$OUT/classes.jar"
+"$BT/d8" --lib "$JAR" --min-api 26 --output "$OUT/dex" "$OUT/classes.jar" $(find "$MP/jars" -name '*.jar' | sort)
 ICON=branding/friday-icon.png; [ -f "$ICON" ] || ICON=build/icon.png
 cp "$ICON" "$OUT/res/drawable/myraa_icon.png"; cp -r android/app/src/main/res/* "$OUT/res/"
 "$BT/aapt2" compile --dir "$OUT/res" -o "$OUT/resources.zip"
-"$BT/aapt2" link --manifest android/app/src/main/AndroidManifest.xml -I "$JAR" -A "$ASSETS" --min-sdk-version 26 --target-sdk-version 35 -o "$OUT/unsigned.apk" "$OUT/resources.zip"
+"$BT/aapt2" link --manifest android/app/src/main/AndroidManifest.xml -I "$JAR" -A "$ASSETS" -0 task --min-sdk-version 26 --target-sdk-version 35 -o "$OUT/unsigned.apk" "$OUT/resources.zip"
 (cd "$OUT/dex" && zip -q ../unsigned.apk classes*.dex)
 (cd "$SHERPA" && zip -q -r "$OLDPWD/$OUT/unsigned.apk" lib)
+(cd "$MP" && zip -q -r "$OLDPWD/$OUT/unsigned.apk" lib)
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
 KS=android/local-debug.keystore
 if [ ! -f "$KS" ]; then

@@ -197,7 +197,7 @@ final class VisionActions {
     GestureActivity.session=new GestureActivity.Session(e->main.post(()->{MobileActions.Notify n=notify.get();if(n!=null)n.event(e);}),level);
     try{activity.startActivity(new Intent(activity,GestureActivity.class));}
     catch(ActivityNotFoundException|SecurityException e){finish.accept(id,status("unavailable","The gesture screen could not open."));return;}
-    JSONObject v=status("started","Gesture mode is on: the front camera watches for hand motions only while that screen is open (nothing is recorded or sent). Tell the user in one or two short lines: right swipe next song, left swipe previous, up or down for volume, hold a hand over the camera to pause, wave to play; keep the phone still and pause between gestures; Band closes it. It turns off by itself after 10 minutes.");
+    JSONObject v=status("started","Gesture mode is on: the front camera watches for hand motions only while that screen is open (nothing is recorded or sent). Tell the user in one or two short lines: right swipe next song, left swipe previous, up or down for volume, hold a hand over the camera to pause, wave to play; on most phones also held hand shapes for about a second (open palm pause, thumbs up play, V sign next, finger up louder, thumbs down quieter); keep the phone still and pause between gestures; Band closes it. It turns off by itself after 10 minutes.");
     put(v,"display","Gesture mode ON. Swipe: gaana badlein, upar/neeche: awaz, camera dhakein: pause, haath hilayein: play.");
     finish.accept(id,v);
   }
