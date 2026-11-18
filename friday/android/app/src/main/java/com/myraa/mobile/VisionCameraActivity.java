@@ -313,7 +313,7 @@ public final class VisionCameraActivity extends Activity implements TextureView.
         StringBuilder objs=new StringBuilder();
         for(int i=0;i<seen.size()&&i<8;i++){VisionLogic.Seen x=seen.get(i);objs.append(i==0?"":", ").append(x.label);String w=x.where();if(!w.isEmpty())objs.append(" (").append(w).append(')');}
         e.put("summary",VisionLogic.clip(lastAnswer.optString("summary",""),600)).put("answer",VisionLogic.clip(lastAnswer.optString("answer",""),400)).put("objects",objs.toString())
-          .put("question",s.question==null?"":s.question);
+          .put("question",s.question==null?"":s.question).put("mode",s.mode==null?"objects":s.mode);
       }else e.put("message","The camera was closed before FRIDAY looked at anything.");
     }catch(JSONException ignored){}
     try{s.report.accept(e);}catch(RuntimeException ignored){}
