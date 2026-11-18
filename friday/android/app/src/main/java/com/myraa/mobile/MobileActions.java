@@ -27,7 +27,7 @@ import java.util.*;
  * the values stored natively (the model cannot swap the recipient or text in between).
  */
 public final class MobileActions {
-  public static final int CONTACTS_REQUEST=88,VISION_REQUEST=90;
+  public static final int CONTACTS_REQUEST=88,SCAN_REQUEST=89,VISION_REQUEST=90;
   static final long CONFIRM_WINDOW_MS=120_000;
   public interface Result { void complete(String id,JSONObject result); }
   /** Events that arrive after an action already answered (a research report finished in the background). */
@@ -419,6 +419,7 @@ public final class MobileActions {
         boolean opened=launcher.open(view);ControlLog.i("document: saved "+(doc.mime.endsWith("pdf")?"pdf":"txt"));
         finish(id,"saved","Saved "+doc.name+" in Downloads/FRIDAY"+(opened?" and opened it.":". No app here opens this file type, but it is in your Downloads."));return;
       }
+      if("scan_document".equals(action)){scanDocument(id,args);return;}
       if("research_report".equals(action)){researchReport(id,args);return;}
       if("build_website".equals(action)){buildWebsite(id,args);return;}
       if("list_documents".equals(action)){finish(id,listDocuments());return;}
@@ -1425,6 +1426,127 @@ public final class MobileActions {
     finish(id,ok?"sent":"failed",ok?"Reply sent to "+t.sender+" through the "+t.app+" notification's Reply button.":t.app+" no longer accepts a reply from that notification. Nothing was sent. Offer to send it as a new WhatsApp message instead.");
   }
 
+  // ---- Document scan: camera photo -> clean page -> PDF in Downloads/FRIDAY
+
+  /** One scan in progress: the cleaned pages so far and what to do with the PDF. */
+  private static final class Scan {
+    final String title,mode,recipient;final List<java.io.File> pages=new ArrayList<>();
+    Scan(String t,String m,String r){title=t;mode=m;recipient=r;}
+  }
+  private Scan scan;private AlertDialog scanDialog;
+  private final java.util.concurrent.ExecutorService scanner=java.util.concurrent.Executors.newSingleThreadExecutor();
+
+  /**
+   * scan_document: opens the camera for a page (CNIC, bill, letter). Each photo is cleaned (paper cropped, shadows
+   * removed, paper white) and shown with Add page / Retake / Save PDF. Answers at once, because a scan with several
+   * pages takes longer than a voice action may wait; a "scan-done" event tells the page when the PDF is saved.
+   */
+  private void scanDocument(String id,JSONObject args){
+    if(Build.VERSION.SDK_INT<29){finish(id,"unsupported","Scanning to PDF needs Android 10 or newer.");return;}
+    if(scan!=null){finish(id,"busy","A scan is already open on the screen. Finish it (Save PDF) or go back to cancel it first.");return;}
+    String words=args.optString("title","");
+    String mode=ScanLogic.mode(args.optString("mode",""),words+" "+heard),recipient=args.optString("recipient","").trim();
+    if(recipient.length()>100)recipient=recipient.substring(0,100);
+    String title=ScanLogic.title(words,heard),who=recipient;
+    withPermission(id,Manifest.permission.CAMERA,()->{
+      Scanner.clear(activity);
+      scan=new Scan(title,mode,who);
+      if(!openCamera()){scan=null;finish(id,"unavailable","No camera app on this phone can take the photo.");return;}
+      ControlLog.i("scan: camera opened ("+mode+(who.isEmpty()?"":", then WhatsApp")+")");
+      JSONObject v=status("started","The camera is open. Tell the user in one short line to keep the page flat in good light, fit the whole page in the photo and take it. After each photo FRIDAY shows the cleaned page with Add page, Retake and Save PDF; FRIDAY will say when the PDF is saved. Do not call scan_document again"+(who.isEmpty()?".":", and do not send anything yet: after the PDF is saved you will be told to send it to "+who+" with send_document."));
+      try{v.put("display","Camera khul gaya. Page ko seedha rakh kar photo lein, phir Save PDF dabayein.");}catch(JSONException ignored){}
+      finish(id,v);
+    },()->finish(id,"permission_required","Camera permission was denied, so FRIDAY cannot scan. Allow Camera for FRIDAY in Android app settings."));
+  }
+  private boolean openCamera(){
+    java.io.File shot=ScanFiles.shot(activity);shot.delete();
+    Uri out=ScanFiles.shotUri();
+    Intent capture=new Intent(MediaStore.ACTION_IMAGE_CAPTURE).putExtra(MediaStore.EXTRA_OUTPUT,out)
+      .addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    capture.setClipData(ClipData.newRawUri("scan",out));
+    try{activity.startActivityForResult(capture,SCAN_REQUEST);return true;}
+    catch(ActivityNotFoundException|SecurityException e){ControlLog.i("scan: no camera ("+e.getClass().getSimpleName()+")");return false;}
+  }
+  /** The camera app closed (MainActivity forwards SCAN_REQUEST). */
+  public void scanResult(boolean ok){
+    Scan s=scan;if(s==null)return;
+    java.io.File shot=ScanFiles.shot(activity);
+    if(!ok||!shot.isFile()||shot.length()==0){
+      if(s.pages.isEmpty()){scanEnded(s,false,"The scan was cancelled. Nothing was saved.",null);return;}
+      reviewScan(s);return;
+    }
+    android.widget.Toast.makeText(activity,"Page saaf ho raha hai...",android.widget.Toast.LENGTH_SHORT).show();
+    int n=s.pages.size()+1;
+    scanner.execute(()->{
+      java.io.File page=null;String error=null;
+      try{page=Scanner.page(activity,shot,s.mode,n);}
+      catch(IOException e){error=e.getMessage();}
+      catch(RuntimeException|OutOfMemoryError e){error="The photo could not be cleaned ("+e.getClass().getSimpleName()+").";}
+      finally{shot.delete();}
+      java.io.File done=page;String why=error;
+      main.post(()->{
+        if(scan!=s)return;
+        if(done==null){
+          ControlLog.i("scan: page failed");
+          if(s.pages.isEmpty()){scanEnded(s,false,(why==null?"The photo could not be read.":why)+" Try the scan again.",null);return;}
+          android.widget.Toast.makeText(activity,"Ye photo nahi chali, dobara try karein.",android.widget.Toast.LENGTH_LONG).show();
+        }else s.pages.add(done);
+        reviewScan(s);
+      });
+    });
+  }
+  /** Shows the newest cleaned page with Save PDF, Add page and Retake. Back cancels the whole scan. */
+  private void reviewScan(Scan s){
+    if(scanDialog!=null){scanDialog.dismiss();scanDialog=null;}
+    int n=s.pages.size();
+    android.widget.ImageView view=new android.widget.ImageView(activity);
+    view.setAdjustViewBounds(true);view.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+    int max=(int)(activity.getResources().getDisplayMetrics().heightPixels*0.55f);view.setMaxHeight(max);
+    int pad=(int)(16*activity.getResources().getDisplayMetrics().density);view.setPadding(pad,pad,pad,0);
+    android.graphics.Bitmap preview=Scanner.preview(s.pages.get(n-1),1200);
+    if(preview!=null)view.setImageBitmap(preview);
+    AlertDialog.Builder b=new AlertDialog.Builder(activity).setTitle(n==1?"Page scanned":"Page "+n+" scanned ("+n+" pages)").setView(view)
+      .setPositiveButton("Save PDF",(d,w)->{scanDialog=null;saveScan(s);})
+      .setNegativeButton("Retake",(d,w)->{scanDialog=null;java.io.File last=s.pages.remove(s.pages.size()-1);last.delete();if(!openCamera())scanEnded(s,false,"The camera could not open again. Nothing was saved.",null);})
+      .setOnCancelListener(d->{scanDialog=null;scanEnded(s,false,"The scan was cancelled. Nothing was saved.",null);});
+    if(n<Scanner.MAX_PAGES)b.setNeutralButton("Add page",(d,w)->{scanDialog=null;if(!openCamera())reviewScan(s);});
+    scanDialog=b.show();
+  }
+  private void saveScan(Scan s){
+    List<java.io.File> pages=new ArrayList<>(s.pages);
+    android.widget.Toast.makeText(activity,"PDF ban rahi hai...",android.widget.Toast.LENGTH_SHORT).show();
+    scanner.execute(()->{
+      Documents.Saved doc=null;String error=null;
+      try{doc=Documents.saveFile(activity,s.title,".pdf","application/pdf",out->Scanner.writePdf(out,pages));}
+      catch(IOException|RuntimeException e){error=e instanceof IllegalArgumentException?e.getMessage():"The PDF could not be saved ("+e.getClass().getSimpleName()+").";}
+      catch(OutOfMemoryError e){error="The phone ran out of memory making the PDF. Try fewer pages.";}
+      Documents.Saved saved=doc;String why=error;
+      main.post(()->{
+        if(saved==null){ControlLog.i("scan: pdf failed");scanEnded(s,false,why,null);return;}
+        boolean opened=false;
+        // Opened for a look, unless it is about to go to WhatsApp (the send asks first and opens WhatsApp).
+        if(s.recipient.isEmpty())opened=launcher.open(new Intent(Intent.ACTION_VIEW).setDataAndType(saved.uri,saved.mime).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
+        ControlLog.i("scan: saved pdf, "+pages.size()+" page(s)");
+        JSONObject e=new JSONObject();
+        try{e.put("opened",opened).put("pages",pages.size()).put("mode",s.mode);}catch(JSONException ignored){}
+        scanEnded(s,true,null,saved,e);
+      });
+    });
+  }
+  private void scanEnded(Scan s,boolean ok,String message,Documents.Saved doc){scanEnded(s,ok,message,doc,new JSONObject());}
+  private void scanEnded(Scan s,boolean ok,String message,Documents.Saved doc,JSONObject event){
+    if(scan==s)scan=null;
+    if(scanDialog!=null){scanDialog.dismiss();scanDialog=null;}
+    Scanner.clear(activity);
+    try{
+      event.put("type","scan-done").put("ok",ok).put("title",s.title);
+      if(doc!=null)event.put("name",doc.name);
+      if(message!=null)event.put("message",message);
+      if(!s.recipient.isEmpty())event.put("recipient",s.recipient);
+    }catch(JSONException ignored){}
+    Notify n=notify;if(n!=null)n.event(event);
+  }
+
   public void permissionResult(){
     Runnable retry=pending,denied=pendingDenied;String id=pendingId,permission=pendingPermission;pending=null;pendingDenied=null;pendingId=null;pendingPermission=null;if(retry==null)return;
     if(activity.checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED){retry.run();return;}
@@ -1439,5 +1561,5 @@ public final class MobileActions {
     if(id.equals(confirmId)&&confirmDialog!=null){confirmDialog.dismiss();confirmDialog=null;confirmId=null;}
     finish(id,"cancelled","Action cancelled. Nothing was sent.");
   }
-  public void close(){pending=null;pendingDenied=null;pendingId=null;pendingPermission=null;confirmations.clear();WhatsAppSender.disarm();if(chooser!=null){chooser.dismiss();chooser=null;}if(confirmDialog!=null){confirmDialog.dismiss();confirmDialog=null;}}
+  public void close(){pending=null;pendingDenied=null;pendingId=null;pendingPermission=null;confirmations.clear();WhatsAppSender.disarm();if(chooser!=null){chooser.dismiss();chooser=null;}if(confirmDialog!=null){confirmDialog.dismiss();confirmDialog=null;}if(scanDialog!=null){scanDialog.dismiss();scanDialog=null;}scan=null;}
 }

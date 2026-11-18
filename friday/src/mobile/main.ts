@@ -224,8 +224,8 @@ setInterval(() => {
   greetFollowUpDone = true; orchestrator.phonePrompted();
   liveSession.sendText('[Phone] The user has not said anything since your opening line. Say one very short, calm line such as "Main yahin hoon, jab bolo." and then stay silent until they speak.');
 }, 3000);
-/** Contact actions also get what the user actually said (stays on the phone), so a name the model misheard can still be found. */
-const CONTACT_ACTIONS = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'open_contact', 'email', 'emergency_contact', 'send_document', 'reply_message']);
+/** Contact actions (and scans, for the CNIC/bill title) also get what the user actually said (stays on the phone), so a name the model misheard can still be found. */
+const CONTACT_ACTIONS = new Set(['whatsapp_message', 'whatsapp_call', 'call', 'send_sms', 'open_contact', 'email', 'emergency_contact', 'send_document', 'reply_message', 'scan_document']);
 /** The last "send this?" question; a clear yes from the user is carried out by the phone itself (see confirmYes.ts). */
 const confirmMemory = new ConfirmMemory();
 /** A mobile_action from the model: a token the phone already used returns that result instead of running twice. */
@@ -651,7 +651,7 @@ const okStatuses = new Set(['done', 'opened', 'sent', 'set', 'playing', 'calling
 const pendingStatuses = new Set(['started']);
 /** What the user sees for a result: the short user line when Android gave one, never the model's instructions. */
 const shown = (result: any) => String(result?.display || result?.message || '');
-const actionNames: Record<string, string> = { open_app: 'App', search_youtube: 'YouTube', book_ride: 'Ride', order_food: 'Food', search_web: 'Web search', search_images: 'Images', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', research_report: 'Research report', build_website: 'Website', list_documents: 'Documents', open_document: 'Document', share_document: 'Share', send_document: 'WhatsApp document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy', task: 'Task', check_link: 'Link safety', my_words: 'My words', set_language: 'Language', expense: 'Expense', suggestions: 'Suggestion' };
+const actionNames: Record<string, string> = { open_app: 'App', scan_document: 'Scan', search_youtube: 'YouTube', book_ride: 'Ride', order_food: 'Food', search_web: 'Web search', search_images: 'Images', whatsapp_message: 'WhatsApp', whatsapp_call: 'WhatsApp call', call: 'Phone call', send_sms: 'SMS', set_alarm: 'Alarm', set_reminder: 'Reminder', play_music: 'Music', torch: 'Torch', volume: 'Volume', ringer_mode: 'Sound mode', brightness: 'Brightness', battery: 'Battery', navigate: 'Maps', read_notifications: 'Notifications', open_settings: 'Settings', phone_control: 'Phone control', read_screen: 'Screen', tap: 'Tap', type_text: 'Typing', scroll: 'Scroll', remember: 'Memory', recall: 'Memory', conversation_mode: 'Conversation', forget: 'Memory', list_memories: 'Memory', set_persona: 'Persona', open_contact: 'Contact', open_dialer: 'Dialer', set_driving_mode: 'Driving mode', set_call_announce: 'Call announce', set_wake_word: 'Wake word', email: 'Email', save_routine: 'Routine', run_routine: 'Routine', list_routines: 'Routine', delete_routine: 'Routine', sleep: 'Sleep', set_timer: 'Timer', add_event: 'Calendar', make_document: 'Document', research_report: 'Research report', build_website: 'Website', list_documents: 'Documents', open_document: 'Document', share_document: 'Share', send_document: 'WhatsApp document', briefing: 'Briefing', missed_calls: 'Missed calls', care_reminder: 'Reminder', list_reminders: 'Reminder', delete_reminder: 'Reminder', reminder_done: 'Reminder', meeting_mode: 'Meeting mode', set_mode: 'Mode', resume_video: 'YouTube', answer_call: 'Call', reject_call: 'Call', silence_call: 'Call', who_is_calling: 'Call', reminder_skip: 'Reminder', health_check: 'Health check', self_report: 'Self-analysis', network_status: 'Internet', action_history: 'History', upcoming_events: 'Calendar', set_proactive: 'Alerts', set_style: 'Style', rename_routine: 'Routine', clock: 'Clock', copy_text: 'Copy', task: 'Task', check_link: 'Link safety', my_words: 'My words', set_language: 'Language', expense: 'Expense', suggestions: 'Suggestion' };
 /** A small result card in the chat for each phone action, marked done only when Android said so. */
 function appendAction(action: string, result: any) {
   const card = document.createElement('article'); const ok = okStatuses.has(result?.status), pending = pendingStatuses.has(result?.status);
@@ -1180,6 +1180,20 @@ window.MyraaEvents = event => {
         ? `[Phone] The research report "${title}" is ready and saved as ${name} in Downloads/FRIDAY (${Number(event.searches) || 0} web searches, ${Number(event.sources) || 0} sources). Executive summary: "${String(event.summary || '').slice(0, 700)}". Tell the user in two or three short lines what it found, then offer to open it or send it on WhatsApp.`
         : `[Phone] The research report failed: ${String(event.message || '').slice(0, 300)} Tell the user in one short line and offer to try again.`);
     }
+    return;
+  }
+  if (event.type === 'scan-done') {
+    const ok = event.ok === true;
+    const name = String(event.name || '').slice(0, 160), pages = Number(event.pages) || 1, recipient = String(event.recipient || '').slice(0, 100);
+    notice(ok ? `Scan saved: ${name} (in Downloads/FRIDAY).` : String(event.message || 'The scan was not saved.'));
+    append('model', ok ? `Scan ki PDF ready: ${name} (${pages} page${pages > 1 ? 's' : ''}, Downloads/FRIDAY mein).` : String(event.message || 'Scan save nahi hua.'));
+    const say = ok
+      ? `[Phone] The scan is saved as a clean PDF: ${name} (${pages} page${pages > 1 ? 's' : ''}) in Downloads/FRIDAY${event.opened === true ? ', open on the screen now' : ''}. ` + (recipient
+        ? `The user asked to send it to ${recipient} on WhatsApp: call mobile_action now with action send_document, recipient "${recipient}" and title "${name}" (it asks the user once before sending). Tell the user in one short line meanwhile.`
+        : 'Tell the user in one short line and offer to send it on WhatsApp or share it.')
+      : `[Phone] The scan did not finish: ${String(event.message || '').slice(0, 300)} Tell the user in one short line${/cancel/i.test(String(event.message || '')) ? '.' : ' and offer to try again.'}`;
+    if (agentSession?.active()) agentSession.sendText(say);
+    else if (liveSession && liveSession.getState() !== 'disconnected') { orchestrator.phonePrompted(); liveSession.sendText(say); }
     return;
   }
   if (event.type === 'website-done') {

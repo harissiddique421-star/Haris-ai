@@ -230,3 +230,21 @@ test('food by voice: Foodpanda or Careem, dish when said, never other shopping',
   const names: string[] = (MOBILE_TOOL as any).parameters.properties.action.enum;
   for (const a of ['book_ride', 'order_food']) { assert.ok(names.includes(a), a + ' declared'); assert.equal(agentFor(a), 'device'); }
 });
+test('scan to PDF by voice: what it is, black and white, and who it goes to',()=>{
+  assert.deepEqual(parseMobileAction('ye page scan karo'),{action:'scan_document'});
+  assert.deepEqual(parseMobileAction('FRIDAY, is page ko scan karo'),{action:'scan_document'});
+  assert.deepEqual(parseMobileAction('mera CNIC scan karke PDF bana do'),{action:'scan_document',title:'CNIC'});
+  assert.deepEqual(parseMobileAction('bijli ka bill scan karo'),{action:'scan_document',title:'bijli ka bill'});
+  assert.deepEqual(parseMobileAction('scan this receipt'),{action:'scan_document',title:'receipt'});
+  assert.deepEqual(parseMobileAction('scan the letter to pdf'),{action:'scan_document',title:'letter'});
+  assert.deepEqual(parseMobileAction('ye page black and white mein scan karo'),{action:'scan_document',mode:'bw'});
+  assert.deepEqual(parseMobileAction('CNIC scan karke Ali ko bhej do'),{action:'scan_document',title:'CNIC',recipient:'Ali'});
+  assert.deepEqual(parseMobileAction('bill scan karke Ammi ko WhatsApp kar do'),{action:'scan_document',title:'bill',recipient:'Ammi'});
+  assert.deepEqual(parseMobileAction('scan this bill and send it to Ali on WhatsApp'),{action:'scan_document',title:'bill',recipient:'Ali'});
+  assert.deepEqual(parseMobileAction('open scanner'),{action:'scan_document'});
+  assert.equal(parseMobileAction('QR code scan karo'),null);
+  assert.equal(parseMobileAction('virus scan karo'),null);
+  const names: string[] = (MOBILE_TOOL as any).parameters.properties.action.enum;
+  assert.ok(names.includes('scan_document'), 'scan_document declared');
+  assert.equal(agentFor('scan_document'), 'document');
+});

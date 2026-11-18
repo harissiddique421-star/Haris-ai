@@ -31,9 +31,32 @@ final class Documents {
     if(text==null||text.trim().isEmpty())throw new IllegalArgumentException("Tell me what to write in the document.");
     if(text.length()>MAX_CHARS)throw new IllegalArgumentException("That document is too long for one file.");
     boolean pdf=!"txt".equalsIgnoreCase(format);
+    final String t=title;
+    return write(c,title,pdf?".pdf":".txt",pdf?"application/pdf":"text/plain",out->{
+      if(pdf){
+        // The report layout should never fail, but if it does on some phone, still save a plain PDF.
+        java.io.ByteArrayOutputStream buf=new java.io.ByteArrayOutputStream();
+        try{writePdf(buf,t,text);}catch(RuntimeException e){ControlLog.i("documents: report layout failed ("+e.getClass().getSimpleName()+"), saving plain PDF");buf.reset();writePlainPdf(buf,t,text);}
+        buf.writeTo(out);
+      }else out.write((t+"\n\n"+text).getBytes(StandardCharsets.UTF_8));
+    });
+  }
+
+  interface Body { void write(OutputStream out) throws IOException; }
+
+  /** Saves a file FRIDAY made (a PDF of scanned pages, for example) in Downloads/FRIDAY under "title date". */
+  static Saved saveFile(Context c,String rawTitle,String ext,String mime,Body body) throws IOException {
+    if(Build.VERSION.SDK_INT<29)throw new IllegalArgumentException("Saving documents needs Android 10 or newer.");
+    String title=rawTitle==null?"":rawTitle.trim().replaceAll("\\s+"," ");
+    if(title.isEmpty())title="FRIDAY document";
+    if(title.length()>80)title=title.substring(0,80);
+    return write(c,title,ext,mime,body);
+  }
+
+  private static Saved write(Context c,String title,String ext,String mime,Body body) throws IOException {
     String safe=title.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]","").trim();if(safe.isEmpty())safe="FRIDAY document";
     String stamp=new SimpleDateFormat("yyyy-MM-dd HHmm",Locale.ROOT).format(new Date());
-    String name=safe+" "+stamp+(pdf?".pdf":".txt"),mime=pdf?"application/pdf":"text/plain";
+    String name=safe+" "+stamp+ext;
     ContentValues values=new ContentValues();
     values.put(MediaStore.MediaColumns.DISPLAY_NAME,name);values.put(MediaStore.MediaColumns.MIME_TYPE,mime);
     values.put(MediaStore.MediaColumns.RELATIVE_PATH,Environment.DIRECTORY_DOWNLOADS+"/FRIDAY");values.put(MediaStore.MediaColumns.IS_PENDING,1);
@@ -42,12 +65,7 @@ final class Documents {
     if(uri==null)throw new IOException("Downloads is not available.");
     try(OutputStream out=resolver.openOutputStream(uri,"w")){
       if(out==null)throw new IOException("no stream");
-      if(pdf){
-        // The report layout should never fail, but if it does on some phone, still save a plain PDF.
-        java.io.ByteArrayOutputStream buf=new java.io.ByteArrayOutputStream();
-        try{writePdf(buf,title,text);}catch(RuntimeException e){ControlLog.i("documents: report layout failed ("+e.getClass().getSimpleName()+"), saving plain PDF");buf.reset();writePlainPdf(buf,title,text);}
-        buf.writeTo(out);
-      }else out.write((title+"\n\n"+text).getBytes(StandardCharsets.UTF_8));
+      body.write(out);
     }catch(IOException|RuntimeException e){resolver.delete(uri,null,null);throw e;}
     values.clear();values.put(MediaStore.MediaColumns.IS_PENDING,0);resolver.update(uri,values,null,null);
     return new Saved(uri,name,mime);
