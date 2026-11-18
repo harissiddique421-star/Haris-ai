@@ -116,3 +116,15 @@ test('video and visual memory by typed command, and the video result message', (
   const failed = visionMessage({ kind: 'video', ok: false, message: 'This video cannot be opened on the phone.' });
   assert.match(failed.say, /video reading did not finish/);
 });
+
+test('gesture mode by typed command and its closing message', () => {
+  assert.deepEqual(parseMobileAction('gesture mode on'), { action: 'gesture_mode', on: true });
+  assert.deepEqual(parseMobileAction('gestures on karo'), { action: 'gesture_mode', on: true });
+  assert.deepEqual(parseMobileAction('gesture mode band karo'), { action: 'gesture_mode', on: false });
+  assert.equal(agentFor('gesture_mode'), 'document');
+  const names: string[] = (MOBILE_TOOL as any).parameters.properties.action.enum;
+  assert.ok(names.includes('gesture_mode') && VISION_NAMES.gesture_mode === 'Gestures');
+  const m = visionMessage({ kind: 'gesture', ok: true, gestures: 3 });
+  assert.match(m.chat, /3 gestures/);
+  assert.match(m.say, /front camera is off/);
+});

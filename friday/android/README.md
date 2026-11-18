@@ -88,6 +88,21 @@ The WebView serves only bundled assets at a fixed HTTPS origin; file/content URL
 access, external pages, cookies, iframes and WebView permission requests are
 disabled. Android app settings opens only this app's settings, after a button tap.
 
+## Visual intelligence, phase 5: motion gestures
+
+"Gesture mode on karo": `gesture_mode` opens FRIDAY's gesture screen. While it is open, hand motions in
+front of the FRONT camera control music and volume: right swipe next, left swipe previous, up/down volume,
+a hand held over the lens for about a second pause, waving play. Media goes through the same control as the
+`media` action (the playing app's session, else a media key); volume through Android's own volume panel.
+
+Everything is worked out on the phone: each frame is shrunk to a 32 x 24 grey grid and compared with the one
+before; nothing is saved, uploaded or sent to any AI. To avoid accidental commands a motion counts only after a
+calm moment, when it is clear enough for the chosen sensitivity (Normal, Zyada, Kam on the screen), when the
+whole picture is not moving (the phone itself moving), never within 1.5 s of the last gesture, and cover must
+be held. The camera runs only while the screen is open with a "Gesture mode ON" banner; leaving the screen
+closes it, and it turns off by itself after 10 minutes. Hand shapes (thumbs up, open palm) with an on-device
+hand model are planned as a separate step.
+
 ## Visual intelligence, phase 4: video and visual memory
 
 "Is video mein kya ho raha hai", "video ka summary do": `analyze_video` opens the video picker (Android's

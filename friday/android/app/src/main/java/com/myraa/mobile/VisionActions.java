@@ -36,6 +36,8 @@ import org.json.JSONObject;
  *                    accessibility switch and, while the user shares the screen in a call, the shared picture)
  *  analyze_video     the user picks one video; FRIDAY looks at the moments where the picture changes and gives a
  *                    summary, a timeline, the visible text, objects and activities (phase 4; frames only, no sound)
+ *  gesture_mode      opens the gesture screen: hand motions in front of the front camera control music and volume
+ *                    (phase 5; on the phone only, nothing is sent; off with on false or cancel_vision)
  *  visual_memory     keeps a short description of the last thing FRIDAY looked at, only when the user said yes,
  *                    and lists, searches and deletes those memories (phase 4; text only, encrypted on the phone)
  *
@@ -44,7 +46,7 @@ import org.json.JSONObject;
  * Nothing is read until the user picks files, and the picked files are not copied or kept.
  */
 final class VisionActions {
-  static final String[] ACTIONS={"analyze_document","document_question","compare_images","save_vision_report","cancel_vision","camera_vision","screen_vision","analyze_video","visual_memory"};
+  static final String[] ACTIONS={"analyze_document","document_question","compare_images","save_vision_report","cancel_vision","camera_vision","screen_vision","analyze_video","visual_memory","gesture_mode"};
   static boolean handles(String action){for(String a:ACTIONS)if(a.equals(action))return true;return false;}
 
   private final Activity activity;
@@ -79,8 +81,9 @@ final class VisionActions {
       case "camera_vision":{camera(id,args,question);return;}
       case "screen_vision":{screen(id,args,question);return;}
       case "visual_memory":{memory(id,args,question);return;}
+      case "gesture_mode":{gestures(id,args);return;}
       case "cancel_vision":{
-        boolean was=busy||picking!=null||VisionCameraActivity.isOpen()||!guideGoal.isEmpty();picking=null;videoStop=true;engine.cancel();VisionCameraActivity.close();guideGoal="";guideStep="";ScreenHighlight.hide();
+        boolean was=busy||picking!=null||VisionCameraActivity.isOpen()||GestureActivity.isOpen()||!guideGoal.isEmpty();picking=null;videoStop=true;engine.cancel();VisionCameraActivity.close();GestureActivity.close();guideGoal="";guideStep="";ScreenHighlight.hide();
         finish.accept(id,status(was?"done":"none",was?"Stopped reading. Nothing was saved.":"FRIDAY was not reading anything."));return;
       }
       case "document_question":{documentQuestion(id,question);return;}
@@ -182,6 +185,20 @@ final class VisionActions {
     ControlLog.i("vision: camera screen opened ("+mode+")");
     JSONObject v=status("started","FRIDAY's camera screen is open"+(question.isEmpty()?"":" and will answer \""+question+"\" when the user taps Objects or Scene")+". Tell the user in one short line to point the back camera at the thing and tap Objects (names things with boxes) or Scene (describes the place); Live keeps looking while the view changes; Awaz speaks the answer. When they close it you get a [Phone] message with what was seen. Do not call camera_vision again unless they ask about something new.");
     put(v,"display","Camera khul gaya. Cheez ki taraf karein aur Objects ya Scene dabayein.");
+    finish.accept(id,v);
+  }
+
+  /** gesture_mode: on opens the gesture screen (front camera, on the phone only), off closes it. */
+  private void gestures(String id,JSONObject args){
+    boolean on=!args.has("on")||args.optBoolean("on",true);
+    if(!on){boolean was=GestureActivity.isOpen();GestureActivity.close();finish.accept(id,status(was?"done":"none",was?"Gesture mode is off; the front camera is closed.":"Gesture mode was not on."));return;}
+    if(GestureActivity.isOpen()){finish.accept(id,status("done","Gesture mode is already on."));return;}
+    String level=args.optString("mode","normal");if(!"high".equals(level)&&!"low".equals(level))level="normal";
+    GestureActivity.session=new GestureActivity.Session(e->main.post(()->{MobileActions.Notify n=notify.get();if(n!=null)n.event(e);}),level);
+    try{activity.startActivity(new Intent(activity,GestureActivity.class));}
+    catch(ActivityNotFoundException|SecurityException e){finish.accept(id,status("unavailable","The gesture screen could not open."));return;}
+    JSONObject v=status("started","Gesture mode is on: the front camera watches for hand motions only while that screen is open (nothing is recorded or sent). Tell the user in one or two short lines: right swipe next song, left swipe previous, up or down for volume, hold a hand over the camera to pause, wave to play; keep the phone still and pause between gestures; Band closes it. It turns off by itself after 10 minutes.");
+    put(v,"display","Gesture mode ON. Swipe: gaana badlein, upar/neeche: awaz, camera dhakein: pause, haath hilayein: play.");
     finish.accept(id,v);
   }
 
