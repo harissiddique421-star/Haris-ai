@@ -35,6 +35,13 @@ public final class SpeechSegmenterCheck {
     // Two voices overlapping (sentence over a shifted copy at -6 dB) for 9 s: also dropped as too long.
     float[] babble=add(cat(sentence,sentence),scaleTo(cat(sil(0.7),sentence,sentence),rms(sentence)/2));
     check("two people talking over each other for 9 s is dropped",run(cat(sil(0.5),babble,sil(1.5)),800,5000),0,-1);
+    // A soft speaker in a quiet room with light hiss, saying the wake phrase three times: every try is
+    // heard. Before rc.65 the room level was also learnt from soft speech the detector was unsure about,
+    // so it climbed to the voice's own level and later tries counted as silence (speak louder, repeat).
+    float[] soft=scaleTo(wake,0.006),tries=cat(sil(1.5),soft,sil(1.2),soft,sil(1.2),soft,sil(1.5));
+    List<short[]> softGot=run(add(tries,noise(tries.length/(double)R,0.0025,rnd,false)),800,5000);
+    check("soft voice in light hiss: all three wake phrases are heard",softGot,3,-1);
+    for(short[] b:softGot)if(b.length<soft.length-0.15*R){System.out.printf(Locale.ROOT,"  a soft try was cut short: %.2fs of %.2fs%n",b.length/(double)R,soft.length/(double)R);failures++;}
     // Energy fallback still works without the model.
     SpeechSegmenter energy=new SpeechSegmenter(null,800,8000);
     check("energy fallback (no model): one sentence",all(energy,cat(sil(1),sentence,sil(1.5))),1,-1);

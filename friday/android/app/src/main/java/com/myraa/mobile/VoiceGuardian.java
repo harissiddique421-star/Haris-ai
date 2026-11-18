@@ -196,8 +196,14 @@ final class VoiceGuardian {
   }
   /** The three enrollment voiceprints must all be at least this close to their average. */
   static final double MIN_ENROLL_CONSISTENCY=0.70;
-  /** A refused try this close under the threshold is most likely the owner, so it is not a near miss. */
-  static final double OWNER_MISS=0.05;
+  /**
+   * A refused try this close under the threshold is most likely the owner, so it is not a near miss.
+   * The basic voiceprint's scale is narrow (owner and others only a few hundredths apart), TitaNet's is
+   * wide (the owner about 0.6-0.8, other people 0.3 or less). With 0.05 for TitaNet too, the owner
+   * speaking softly or from further away (often 0.10-0.15 under) counted as "someone else": after three
+   * tries the check got stricter, so repeating the phrase made it fail more. Before rc.65.
+   */
+  static final double OWNER_MISS=0.05,OWNER_MISS_TITANET=0.18;
   /**
    * Lowest voiceprint similarity accepted as the user. It starts from how close the user's own
    * three recordings were to each other and leaves a margin set by the sensitivity, within fixed
@@ -264,7 +270,7 @@ final class VoiceGuardian {
     boolean ok=phraseRatio<=1&&sim>=threshold;
     // Only a clearly different voice counts toward the stricter check; the owner's own narrow misses
     // (a second or third try right after one that was not heard) must not make the next try harder.
-    if(phraseRatio<=1&&!ok&&sim<threshold-OWNER_MISS)nearMiss();
+    if(phraseRatio<=1&&!ok&&sim<threshold-(tn!=null?OWNER_MISS_TITANET:OWNER_MISS))nearMiss();
     ControlLog.i("guardian: "+(ok?"matched":"not matched")+String.format(Locale.ROOT," (phrase %.2f/%.2f%s, %s voice %.2f, needs %.2f%s%s)",phrase,v.limit*k,spotted!=null?", heard by the keyword spotter":"",tn!=null?"TitaNet":"basic",sim,threshold,cleaned?", with background noise removed":"",misses>=3?", stricter after repeated misses":""));
     // Voice ratio: at or under 1 exactly when the similarity reaches the threshold.
     return new double[]{phraseRatio,(1-sim)/Math.max(1e-6,1-threshold)};

@@ -73,7 +73,7 @@ final class SpeechSegmenter {
         if(++waited>timeoutChunks)return null;
         before.add(chunk);if(before.size()>PRE_CHUNKS)before.poll();
         if(p>=ON){if(++above>=START_CHUNKS){inSpeech=true;speech.clear();levels.clear();speech.addAll(before);preLen=before.size();before.clear();silence=0;}}
-        else{above=0;floor=Math.max(30,floor*0.97+level*0.03);if(p<OFF){float[] f=new float[CHUNK];for(int k=0;k<CHUNK;k++)f[k]=chunk[k]/32768f;noise.learn(f);}}
+        else{above=0;if(p<OFF){learnFloor(level);float[] f=new float[CHUNK];for(int k=0;k<CHUNK;k++)f[k]=chunk[k]/32768f;noise.learn(f);}}
         continue;
       }
       speech.add(chunk);levels.add(level);
@@ -97,9 +97,17 @@ final class SpeechSegmenter {
     }
     return null;
   }
+  /**
+   * The room's own noise level. Learnt only from chunks the detector heard as clearly not speech, and
+   * it drops at once to a quieter room but rises slowly. Before, every chunk under the speech threshold
+   * (a soft voice too) pulled it up, so a quiet speaker raised the floor to their own level and the
+   * next soft word counted as "quiet" and never reached the speech detector: the user had to talk
+   * louder and repeat themselves.
+   */
+  private void learnFloor(double level){floor=Math.max(30,level<floor?floor*0.7+level*0.3:floor*0.99+level*0.01);}
   /** Speech probability of one chunk: Silero when there is sound worth checking, else 0. */
   private float probability(short[] chunk,double level,boolean active){
-    if(vad==null)return level>Math.max(floor*2.5,120)?1f:0f; // energy detector fallback
+    if(vad==null)return level>Math.max(floor*2.2,90)?1f:0f; // energy detector fallback
     boolean quiet=level<Math.max(floor*1.25,30);
     if(quiet&&!active){
       if(!modelIdle){vad.reset();modelIdle=true;}

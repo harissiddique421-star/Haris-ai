@@ -260,8 +260,22 @@ export class MyraaAudioSession {
   /** When FRIDAY's last sound finished; the speaker and room still echo it for a moment after. */
   private outputEndedAt = 0;
   private readonly echoTailMs = 450;
-  private readonly voiceThreshold = 0.02;
-  /** Slowly follows the room's background level (TV, fan, music) so steady noise is not taken as the user starting to speak. */
+  /**
+   * Quietest microphone level (RMS, about -40 dBFS) that can start the user's turn in a quiet room. It was
+   * 0.02 (-34 dBFS) until rc.65, and with the floor below a soft voice or a phone held at arm's length
+   * never reached it: only silence went to Gemini, so the user had to speak loudly and repeat.
+   */
+  private readonly voiceThreshold = 0.01;
+  /** Highest the noise-based start level may go (was 0.07, which needed a raised voice in any noisy room). */
+  private readonly maxVoiceThreshold = 0.04;
+  /** Once the user is talking, quieter words (sentence ends, a dropped voice) still count at this share of the start level. */
+  private readonly keepTalkingShare = 0.6;
+  /**
+   * Follows the room's background level (TV, fan, music) so steady noise is not taken as the user starting
+   * to speak. It drops at once to a quieter room and rises slowly, and frames close to the start level are not
+   * learnt: before rc.65 a soft voice that just missed the threshold raised the floor, which raised the
+   * threshold, so the next try had to be even louder.
+   */
   private noiseFloor = 0.005;
   private readonly voiceStartFrames = 2;
   private readonly voiceStopDelayMs = 500;
@@ -973,10 +987,14 @@ export class MyraaAudioSession {
           Math.min(0.12, this.noiseFloor * 3.5),
           Math.min(0.16, outputRms * 0.5 + 0.02),
         )
-      : Math.max(this.voiceThreshold, Math.min(0.07, this.noiseFloor * 2.8));
+      : Math.max(this.voiceThreshold, Math.min(this.maxVoiceThreshold, this.noiseFloor * 2.5))
+        * (this.userSpeaking ? this.keepTalkingShare : 1);
     const requiredFrames = myraaOutputActive ? this.bargeInStartFrames : this.voiceStartFrames;
 
     if (rms >= threshold) {
+      // A steady sound louder than the start level (a loud fan) is still learnt, only very slowly (about 30 s),
+      // so it cannot keep the turn open for ever, while real words hardly move the floor.
+      if (!myraaOutputActive) this.noiseFloor = this.noiseFloor * 0.998 + rms * 0.002;
       this.lastVoiceAt = timestamp;
       this.voiceFrames += 1;
       if (!this.userSpeaking && this.voiceFrames >= requiredFrames) {
@@ -996,7 +1014,11 @@ export class MyraaAudioSession {
 
     // While FRIDAY talks, a brief dip between syllables should not restart the barge-in count.
     this.voiceFrames = myraaOutputActive ? Math.max(0, this.voiceFrames - 2) : 0;
-    if (!myraaOutputActive && !this.userSpeaking) this.noiseFloor = this.noiseFloor * 0.98 + rms * 0.02;
+    if (!myraaOutputActive) {
+      if (rms < this.noiseFloor) this.noiseFloor = this.noiseFloor * 0.8 + rms * 0.2;
+      else if (!this.userSpeaking && rms < threshold * 0.7) this.noiseFloor = this.noiseFloor * 0.99 + rms * 0.01;
+      else this.noiseFloor = this.noiseFloor * 0.998 + rms * 0.002;
+    }
     if (this.userSpeaking && timestamp - this.lastVoiceAt >= this.voiceStopDelayMs) {
       this.userSpeaking = false;
       this.timings.lastSpeechEndAt = Date.now();
