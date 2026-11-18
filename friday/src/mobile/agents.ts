@@ -16,7 +16,7 @@ const OWNERS: Record<AgentName, string[]> = {
   device: ['torch', 'volume', 'brightness', 'ringer_mode', 'battery', 'open_settings', 'set_alarm', 'set_timer', 'stop_timer', 'show_timers', 'show_alarms', 'dismiss_alarm', 'clock', 'open_app', 'navigate', 'book_ride', 'order_food', 'meeting_mode', 'sleep', 'set_wake_word'],
   accessibility: ['phone_control', 'read_screen', 'tap', 'type_text', 'scroll', 'copy_text'],
   memory: ['my_words', 'remember', 'recall', 'note', 'conversation_mode', 'forget', 'list_memories', 'set_persona', 'set_style', 'set_mode', 'set_language', 'save_routine', 'standing_order', 'run_routine', 'list_routines', 'delete_routine', 'rename_routine', 'action_history'],
-  document: ['make_document', 'scan_document', 'analyze_document', 'document_question', 'compare_images', 'save_vision_report', 'cancel_vision', 'camera_vision', 'screen_vision', 'build_website', 'list_documents', 'open_document', 'share_document', 'send_document'],
+  document: ['make_document', 'scan_document', 'analyze_document', 'document_question', 'compare_images', 'save_vision_report', 'cancel_vision', 'camera_vision', 'screen_vision', 'analyze_video', 'visual_memory', 'build_website', 'list_documents', 'open_document', 'share_document', 'send_document'],
   research: ['search_web', 'research_report'],
   health: ['health_check', 'network_status', 'set_proactive', 'self_report', 'set_autonomy'],
   core: ['suggestions', 'briefing', 'set_reminder', 'care_reminder', 'list_reminders', 'delete_reminder', 'reminder_done', 'reminder_skip', 'add_event', 'upcoming_events', 'prayer_times', 'qibla', 'prayer_reminders'],
@@ -40,10 +40,10 @@ const NOTE_READS = new Set(['find', 'list', 'pending']);
 function readOnly(action: string, args: any) {
   if (action === 'task') return true;
   if (action === 'expense') return /^(?:list|summary|total)$/.test(String(args?.command || 'add'));
-  return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear') || (action === 'note' && NOTE_READS.has(String(args?.command || 'save')));
+  return READ_ONLY.has(action) || (action === 'voice_note' && String(args?.command || 'latest') !== 'clear') || (action === 'note' && NOTE_READS.has(String(args?.command || 'save'))) || (action === 'visual_memory' && ['search', 'list'].includes(String(args?.mode || 'search')));
 }
 /** Deleting a note removes the user's data, like forget, so it needs the user's own words too. */
-function highRisk(action: string, args: any) { return HIGH_RISK.has(action) || (action === 'note' && /^(?:delete|remove)$/.test(String(args?.command || ''))); }
+function highRisk(action: string, args: any) { return HIGH_RISK.has(action) || (action === 'note' && /^(?:delete|remove)$/.test(String(args?.command || ''))) || (action === 'visual_memory' && String(args?.mode || '') === 'delete'); }
 
 export interface AgentStats { runs: number; failures: number; totalMs: number; lastMs: number; }
 export type Runner = (name: string, args: unknown) => Promise<any>;

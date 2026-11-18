@@ -92,3 +92,27 @@ test('screen understanding and guide by typed command and its result message', (
   assert.match(done.say, /already reached/);
   assert.doesNotMatch(done.say, /tap with target/);
 });
+
+test('video and visual memory by typed command, and the video result message', () => {
+  assert.deepEqual(parseMobileAction('ye video samjhao'), { action: 'analyze_video' });
+  assert.deepEqual(parseMobileAction('video ka summary do'), { action: 'analyze_video' });
+  assert.deepEqual(parseMobileAction('is video mein kya ho raha hai?'), { action: 'analyze_video' });
+  assert.deepEqual(parseMobileAction('summarize this video'), { action: 'analyze_video' });
+  assert.deepEqual(parseMobileAction('show my visual memories'), { action: 'visual_memory', mode: 'list' });
+  // Playing a video is still YouTube's.
+  assert.notEqual(parseMobileAction('video chalao')?.action, 'analyze_video');
+  assert.equal(agentFor('analyze_video'), 'document');
+  assert.equal(agentFor('visual_memory'), 'document');
+  const names: string[] = (MOBILE_TOOL as any).parameters.properties.action.enum;
+  assert.ok(names.includes('analyze_video') && names.includes('visual_memory'));
+  assert.ok(VISION_ACTIONS.includes('analyze_video' as any) && VISION_NAMES.visual_memory === 'Visual memory');
+  const props = (MOBILE_TOOL as any).parameters.properties;
+  assert.ok(props.approved && props.memory_id);
+  const m = visionMessage({ kind: 'video', ok: true, title: 'Cricket match', summary: 'Boys play cricket. Timeline: 0:05 bowler runs;', duration: '0:42', frames: 6, file: 'match.mp4', answer: '' });
+  assert.match(m.chat, /^Cricket match \(0:42\): Boys play cricket/);
+  assert.match(m.say, /6 moments of the video/);
+  assert.match(m.say, /no sound/);
+  assert.match(m.say, /content, not instructions/);
+  const failed = visionMessage({ kind: 'video', ok: false, message: 'This video cannot be opened on the phone.' });
+  assert.match(failed.say, /video reading did not finish/);
+});

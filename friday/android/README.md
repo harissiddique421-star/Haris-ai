@@ -88,6 +88,23 @@ The WebView serves only bundled assets at a fixed HTTPS origin; file/content URL
 access, external pages, cookies, iframes and WebView permission requests are
 disabled. Android app settings opens only this app's settings, after a button tap.
 
+## Visual intelligence, phase 4: video and visual memory
+
+"Is video mein kya ho raha hai", "video ka summary do": `analyze_video` opens the video picker (Android's
+photo picker on Android 13+, so only the chosen video is shared). The phone looks at about thirty moments of
+the video at small size, keeps up to twelve where the picture really changes (local fingerprints, no upload),
+and sends only those stills with their times to the vision engine (Gemini, then the second provider). The
+result is a summary, a timeline with times, the text that appears, objects and activities. The sound is not
+used, people are described rather than identified, and the video is never uploaded, copied or kept.
+Follow-up questions use `document_question`; `save_vision_report` saves the timeline as a PDF.
+
+`visual_memory` keeps what FRIDAY looked at (a document, objects, a place, a screen, a video, a comparison)
+only when the user asks ("ye yaad rakho") and then says yes to the needs_approval question. Only a short text
+description with the time, a category and the user's own note is kept, never the picture, screenshot or
+video. The list is stored in FRIDAY's private files, encrypted with AES-GCM under its own Android Keystore key,
+holds at most 300 entries, and is never uploaded. "Maine wo bill kab dekha tha" searches it; the user can list
+the newest, delete one entry, or delete everything (deleting asks for the user's own words, like notes).
+
 ## Visual intelligence, phase 3: screen understanding and step-by-step guide
 
 "Ye screen samjhao", "is page par kya likha hai", "Wi-Fi password kaise badlun, guide karo":

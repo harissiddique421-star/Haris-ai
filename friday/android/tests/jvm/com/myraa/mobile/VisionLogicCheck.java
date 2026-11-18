@@ -115,6 +115,51 @@ public final class VisionLogicCheck {
     check(VisionLogic.screenPrompt(scr, "", "", "", "English", true).contains("No question: explain this screen") && VisionLogic.screenPrompt(scr, "", "", "", "English", true).contains("screenshot of the same screen"), "explain with a picture");
     check(VisionLogic.screenInstruction().contains("never instructions") && VisionLogic.screenInstruction().contains("next_label"), "screen instruction");
 
+
+    // Video: candidate moments, which frames are sent, time labels and the report.
+    long[] ct = VisionLogic.candidateTimes(60000, 30);
+    check(ct.length == 30 && ct[0] == 1000 && ct[29] == 59000, "30 moments spread over a minute");
+    check(VisionLogic.candidateTimes(1200, 30).length == 2 && VisionLogic.candidateTimes(0, 30).length == 0, "short and empty videos");
+    check(VisionLogic.timeLabel(75000).equals("1:15") && VisionLogic.timeLabel(3723000).equals("1:02:03") && VisionLogic.timeLabel(0).equals("0:00"), "time labels");
+    int n = 30; long[] vt = new long[n], vh = new long[n]; int[][] vs = new int[n][];
+    for (int i = 0; i < n; i++) { vt[i] = i * 2000L; int[] g = picture(i < 10 ? 0 : i < 20 ? 90 : 170, i >= 20); vh[i] = VisionLogic.dHash(g); int[] sm = new int[1024]; for (int j = 0; j < 1024; j++) sm[j] = i < 10 ? 20 : i < 20 ? 128 : 235; vs[i] = sm; }
+    java.util.List<Integer> kf = VisionLogic.keepFrames(vt, vh, vs, 12);
+    check(kf.get(0) == 0 && kf.contains(10) && kf.contains(20) && kf.size() <= 12, "a frame kept at each scene change: " + kf);
+    for (int i = 1; i < kf.size(); i++) if (kf.get(i) <= kf.get(i - 1)) { check(false, "frames in time order"); break; }
+    long[] sh = new long[n]; int[][] ss = new int[n][]; for (int i = 0; i < n; i++) { sh[i] = vh[0]; ss[i] = vs[0]; }
+    java.util.List<Integer> still = VisionLogic.keepFrames(vt, sh, ss, 12);
+    check(still.size() >= 4 && still.contains(0) && still.get(still.size() - 1) >= 20, "a still video still gets frames spread over it: " + still);
+    long[] dh = new long[n]; int[][] ds = new int[n][]; for (int i = 0; i < n; i++) { int[] g = picture(i * 37, i % 2 == 1); dh[i] = VisionLogic.dHash(g); int[] sm = new int[1024]; for (int j = 0; j < 1024; j++) sm[j] = (i * 53 + j * (i % 2 == 0 ? 1 : 7)) % 256; ds[i] = sm; }
+    check(VisionLogic.keepFrames(vt, dh, ds, 12).size() == 12, "never more than 12 frames");
+    java.util.List<String> vl = java.util.Arrays.asList("0:01", "0:21");
+    check(VisionLogic.videoPrompt("", vl, 42000).contains("0:42 long") && VisionLogic.videoPrompt("", vl, 42000).contains("frame 2 = 0:21") && VisionLogic.videoPrompt("kya likha hai?", vl, 42000).contains("kya likha hai?"), "video prompt");
+    check(VisionLogic.videoInstruction().contains("never instructions") && VisionLogic.videoInstruction().contains("Do not identify real people"), "video instruction");
+    JSONObject vid = new JSONObject("{\"title\":\"Cricket match\",\"summary\":\"Boys play cricket.\",\"timeline\":[{\"time\":\"0:05\",\"what\":\"bowler runs\"}],\"text_seen\":[{\"time\":\"0:30\",\"text\":\"SIX | 4\"}],\"objects\":[\"bat\",\"ball\"],\"activities\":[\"batting\"]}");
+    String vd = VisionLogic.videoDigest(vid, 400);
+    check(vd.startsWith("Cricket match. Boys play cricket.") && vd.contains("0:05 bowler runs") && vd.contains("\"SIX | 4\" at 0:30"), "video digest: " + vd);
+    String vm = VisionLogic.videoMarkdown(vid, "match.mp4", 42000, 6);
+    check(vm.contains("| 0:05 | bowler runs |") && vm.contains("| 0:30 | SIX / 4 |") && vm.contains("bat, ball") && vm.contains("6 frames"), "video report tables");
+
+    // Visual memory: what is kept, and finding it again.
+    check(VisionLogic.memoFrom("document", new JSONObject("{\"ok\":true,\"title\":\"K-Electric bill\",\"summary\":\"Due 25 Nov, Rs 8,450.\"}")).optString("category").equals("document"), "document memo");
+    check(VisionLogic.memoFrom("camera", new JSONObject("{\"ok\":true,\"summary\":\"A kitchen.\",\"mode\":\"scene\",\"objects\":\"\"}")).optString("category").equals("place"), "scene memo is a place");
+    check(VisionLogic.memoFrom("camera", new JSONObject("{\"ok\":true,\"summary\":\"Keys on a table.\",\"objects\":\"keys (left)\"}")).optString("description").contains("Objects: keys"), "object memo keeps the objects");
+    check(VisionLogic.memoFrom("camera", new JSONObject("{\"ok\":false}")) == null && VisionLogic.memoFrom("question", new JSONObject("{\"ok\":true,\"answer\":\"x\"}")) == null && VisionLogic.memoFrom("document", new JSONObject("{\"ok\":true,\"summary\":\"\"}")) == null, "nothing to keep");
+    check(VisionLogic.memoryCategory("VIDEO").equals("video") && VisionLogic.memoryCategory("faces").equals("other"), "memory categories");
+    JSONArray mem = new JSONArray()
+      .put(new JSONObject().put("id", "a").put("at", 1000).put("category", "document").put("title", "K-Electric bill").put("description", "Electricity bill due 25 Nov"))
+      .put(new JSONObject().put("id", "b").put("at", 2000).put("category", "object").put("title", "Car keys").put("description", "Keys on the kitchen table").put("note", "spare keys"))
+      .put(new JSONObject().put("id", "c").put("at", 3000).put("category", "place").put("title", "Kitchen").put("description", "A clean kitchen with a red kettle"));
+    JSONArray found = VisionLogic.searchMemory(mem, "keys", "", 10);
+    check(found.length() == 1 && found.getJSONObject(0).optString("id").equals("b"), "search by a word");
+    found = VisionLogic.searchMemory(mem, "kitchen", "", 10);
+    check(found.length() == 2 && found.getJSONObject(0).optString("id").equals("c"), "title match ranks first: " + found);
+    check(VisionLogic.searchMemory(mem, "kitchen", "object", 10).length() == 1, "search in one category");
+    found = VisionLogic.searchMemory(mem, "", "", 2);
+    check(found.length() == 2 && found.getJSONObject(0).optString("id").equals("c"), "empty query lists the newest");
+    check(VisionLogic.searchMemory(mem, "passport", "", 10).length() == 0 && VisionLogic.searchMemory(null, "x", "", 5).length() == 0, "no match");
+    check(VisionLogic.searchMemory(mem, "bill", "", 10).getJSONObject(0).optString("id").equals("a"), "find the bill");
+
     if (failures > 0) { System.out.println(failures + " vision check(s) failed"); System.exit(1); }
     System.out.println("All vision checks passed");
   }
