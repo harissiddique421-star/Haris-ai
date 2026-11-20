@@ -74,3 +74,57 @@ test('interrupting FRIDAY still needs a loud voice for about half a second', () 
   const quiet = new TurnLevels();
   for (let i = 0; i < 20; i++) assert.equal(quiet.step(0.05, i * FRAME, false, true, 0.05), null, 'a normal-level sound cut FRIDAY off');
 });
+
+/** A sentence spoken without a real pause in a room with echo: the gaps between words stay at gap x the voice. */
+function longSentence(voice: number, gap: number, noise: number) {
+  const levels = new TurnLevels(), r = rng(3);
+  let speaking = false, lost = 0; const starts: number[] = [];
+  const from = 3000, to = 11000;
+  for (let t = 0; t < 14000; t += FRAME) {
+    let rms = noise * Math.exp((r() * 2 - 1) * 0.3);
+    if (t >= from && t < to) {
+      const phase = (t - from) % (200 + Math.floor(r() * 250));
+      const v = phase < 150 ? voice * (0.5 + 0.5 * r()) : voice * gap * (0.7 + 0.6 * r());
+      rms = Math.sqrt(rms * rms + v * v);
+    }
+    const change = levels.step(rms, t, speaking, false);
+    if (change === 'start') { speaking = true; starts.push(t); } else if (change === 'stop') speaking = false;
+    if (t >= from + 300 && t < to && !speaking) lost++;
+  }
+  return { lost, starts, floor: levels.noiseFloor };
+}
+
+test('a long sentence with shallow gaps between words is heard to the end (rc.66: the room level climbed toward the voice)', () => {
+  for (const [voice, gap, noise] of [[0.04, 0.25, 0.006], [0.04, 0.4, 0.006], [0.025, 0.4, 0.006], [0.025, 0.4, 0.002], [0.015, 0.4, 0.002]]) {
+    const { lost, starts } = longSentence(voice, gap, noise);
+    assert.equal(lost, 0, `voice ${voice}, gaps ${gap}, room ${noise}: ${lost} frames of the sentence went to Gemini as silence`);
+    assert.equal(starts.length, 1, `voice ${voice}, gaps ${gap}, room ${noise}: the sentence was split into ${starts.length} turns`);
+  }
+});
+
+/** FRIDAY talks at outputRms; the microphone hears her echo at echo (plus the user at voice from frame userFrom). */
+function reply(echo: number, voice: number, outputRms = 0.15) {
+  const levels = new TurnLevels(), r = rng(5);
+  // Guard: the first ~1.1 s of her reply, only her echo in the room.
+  for (let i = 0; i < 17; i++) levels.guard(echo * (0.7 + 0.6 * r()), outputRms * (0.7 + 0.6 * r()));
+  let cutAt = -1;
+  for (let i = 0; i < 40 && cutAt < 0; i++) {
+    const e = echo * (0.7 + 0.6 * r()), v = i >= 10 ? voice * (0.7 + 0.3 * r()) : 0;
+    if (levels.step(Math.sqrt(e * e + v * v), 1100 + i * FRAME, false, true, outputRms * (0.7 + 0.6 * r())) === 'start') cutAt = i;
+  }
+  return cutAt;
+}
+
+test('a phone that cancels most of her echo: a normal voice interrupts FRIDAY (before: nearly a shout)', () => {
+  const cutAt = reply(0.008, 0.05);
+  assert.ok(cutAt >= 10 + TurnLevels.BARGE_IN_FRAMES - 1 && cutAt <= 10 + TurnLevels.BARGE_IN_FRAMES + 2, `cut at frame ${cutAt}`);
+  assert.equal(reply(0.008, 0), -1, 'her quiet echo alone cut her off');
+});
+
+test('a phone with a strong echo: her echo never interrupts her and the level is no lower than before', () => {
+  assert.equal(reply(0.06, 0), -1, 'her own echo cut her off');
+  assert.equal(reply(0.06, 0.05), -1, 'a normal voice under a strong echo counted (it did not before either)');
+  const levels = new TurnLevels();
+  for (let i = 0; i < 17; i++) levels.guard(0.2, 0.15);
+  assert.ok(levels.bargeInLevel(0.15) <= Math.max(TurnLevels.BARGE_IN, 0.15 * 0.5 + 0.02) + 1e-9);
+});
