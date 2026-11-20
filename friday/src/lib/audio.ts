@@ -956,7 +956,7 @@ export class MyraaAudioSession {
       && this.outputSpeechStartedAt > 0
       && timestamp - this.outputSpeechStartedAt < this.bargeInGuardMs
     ) {
-      this.levels.guard();
+      this.levels.guard(rms, this.readOutputRms());
       return false;
     }
 
